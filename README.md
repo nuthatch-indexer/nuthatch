@@ -3,46 +3,51 @@
 > **Be your own indexer.** One Rust binary, one command, live indexed API in under two minutes —
 > AI-native, and with no mandatory third-party data API to trust or pay. Ever.
 
+[![ci](https://github.com/cargopete/nuthatch/actions/workflows/ci.yml/badge.svg)](https://github.com/cargopete/nuthatch/actions/workflows/ci.yml)
+· Website: [www.nuthatch-indexer.com](https://www.nuthatch-indexer.com)
+
 Self-hosted-first, AI-native blockchain indexer. Embedded mode runs as a single process with no
 external services — no Postgres, no Docker, no IPFS. See [`CLAUDE.md`](CLAUDE.md) for the standing
 design brief.
 
-## Status: walking skeleton (slice 1)
+## Status: embedded mode built end-to-end; scaled mode + reth ExEx outstanding
 
-This is the thinnest end-to-end path that actually runs — deliberately minimal. It proves the
-`init → dev → live API` spine; the interesting layers grow onto it next.
+The embedded single-binary path works from `init → dev → live API`, with reorg-safe storage,
+finality-sealed Parquet, DuckDB SQL, an incrementally-maintained balance view, sandboxed WASM
+transforms, and an MCP server — all in one process, no external services. What remains is the
+scaled (Postgres / DataFusion) mode and wiring reth ExEx to a node.
 
-| Working now | Coming (per build order) |
+| Working now | Outstanding |
 |---|---|
-| `init` → ABI resolve (Sourcify → Etherscan) → scaffold | Parquet sealing + DuckDB analytics (slice 2) |
-| RPC log polling with round-robin failover | DBSP declarative views / IVM (slice 3) |
-| Deterministic ERC-20 `Transfer` decode | WASM transform runtime, Arrow WIT (slice 4) |
-| Reorg self-healing (hot-store rollback) | MCP server + `llms.txt` + skills (slice 5) |
-| Finality-gated Parquet sealing (content-addressed) | DBSP declarative views / IVM (slice 3) |
-| Read-only analytical SQL (DuckDB) over sealed segments | MCP server + `llms.txt` + skills (slice 5) |
-| **IVM balance view (DBSP) — reorg = retraction** | scaled Postgres/DataFusion mode (HotStore trait) |
-| **WASM transform runtime (pure, sandboxed, batched Arrow)** | effectful transform worlds + pipeline manifests (later) |
-| **MCP server (stdio, 6 tools, offline) + `llms.txt` + skills scaffold** | governed semantic layer + NL queries (later) |
-| **Ingestion behind a `Source` trait — RPC live; reth ExEx designed + stubbed** | reth ExEx wired to a node (needs a synced node) |
-| redb hot store, point-reads with cold fallback | |
-| HTTP API (`/`, `/entities`, `/entity/{id}`) | reth ExEx tip mode, scaled Postgres mode (slice 6) |
+| `init` → ABI resolve (Sourcify → Etherscan) → scaffold (+ `llms.txt`, skills) | reth ExEx wiring — `Source` trait ready; needs a synced node |
+| RPC log polling with round-robin failover, behind a `Source` trait | scaled Postgres mode (`HotStore` trait) + DataFusion federation |
+| Deterministic ERC-20 `Transfer` decode | effectful transform worlds + signed pipeline manifests |
+| Reorg self-healing (block-hash checkpoints → hot-store rollback) | governed semantic layer + natural-language queries |
+| Finality-gated content-addressed Parquet sealing + hot-store pruning | IVM restart-replay (persist/rebuild balances across restarts) |
+| Read-only analytical SQL (DuckDB) over sealed segments | i128 balances (the view accumulates in i64 base units today) |
+| IVM balance view (DBSP) — reorg = retraction | GraphQL compatibility layer |
+| WASM transform runtime (pure, sandboxed, batched Arrow) | |
+| MCP server (stdio, 6 tools, offline) + `llms.txt` + `.claude/skills` scaffold | |
+| redb hot store, entity point-reads with cold (DuckDB) fallback | |
 
-Scope of the skeleton: **one chain (Ethereum), Transfer events only, RPC polling, redb-only.**
-No IVM, no DuckDB/Parquet, no MCP yet.
+Scope today: **one chain (Ethereum), ERC-20 `Transfer` events, RPC polling (reth ExEx designed +
+stubbed), embedded storage (redb hot + DuckDB/Parquet cold).** Multi-chain, non-Transfer decode,
+and the scaled mode are not built yet.
 
 ### Measured footprint (the number nobody else publishes)
 
 | | |
 |---|---|
 | **Peak RAM** | **~37 MB** (hot indexing + sealing + DuckDB SQL, live mainnet) |
-| Binary size | 49 MB (release; DuckDB + DBSP statically bundled — 5.8 MB without them) |
+| Binary size | 67 MB (release; DuckDB + DBSP + wasmtime statically bundled — 5.8 MB without them) |
 | Budget | ≤2 GB RAM — **using 1.8%** of it |
 
 Honest and reproducible: `nuthatch init 0xA0b8…eB48 && nuthatch dev --backfill 200`, sampled with
-`ps -o rss`. Measured on the release build with the full slice-2 pipeline active. The RAM budget is
-the CI-enforced one and holds comfortably; the binary grew because DuckDB bundles a C++ engine
-statically (still a single file — the embedded-mode non-negotiable). Hot layer stays bounded by
-pruning sealed rows to Parquet past finality.
+`ps -o rss`. Measured on the release build with the full embedded pipeline active. The RAM budget is
+enforced in CI (a `footprint` job fails the build above 256 MB — generous headroom over the measured
+~37 MB); the binary grew because DuckDB, DBSP, and wasmtime are statically bundled (still a single
+file — the embedded-mode non-negotiable). Hot layer stays bounded by pruning sealed rows to Parquet
+past finality.
 
 ## Quickstart
 
