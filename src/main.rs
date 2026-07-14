@@ -52,14 +52,21 @@ fn run_transform(args: cli::TransformArgs) -> Result<()> {
     let dir = PathBuf::from(&args.dir);
     let store = store::Store::open(&dir.join(config::DB_FILE))?;
     let entities = store.recent(args.limit)?;
-    println!("→ running {} over {} transfers…", args.component, entities.len());
+    println!(
+        "→ running {} over {} transfers…",
+        args.component,
+        entities.len()
+    );
 
     let input = transform::transfers_to_ipc(&entities)?;
     let runtime = transform::TransformRuntime::load(Path::new(&args.component))?;
     let output = runtime.run(&input)?;
     let facts = transform::ipc_to_json(&output)?;
 
-    println!("✓ {} facts out (pure, deterministic, sandboxed)", facts.len());
+    println!(
+        "✓ {} facts out (pure, deterministic, sandboxed)",
+        facts.len()
+    );
     for f in facts.iter().take(5) {
         println!("    {f}");
     }

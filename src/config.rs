@@ -26,15 +26,20 @@ fn default_event() -> String {
 impl Config {
     pub fn load(dir: &Path) -> Result<Config> {
         let path = dir.join(CONFIG_FILE);
-        let raw = std::fs::read_to_string(&path)
-            .with_context(|| format!("no {CONFIG_FILE} in {} — run `nuthatch init` first", dir.display()))?;
+        let raw = std::fs::read_to_string(&path).with_context(|| {
+            format!(
+                "no {CONFIG_FILE} in {} — run `nuthatch init` first",
+                dir.display()
+            )
+        })?;
         toml::from_str(&raw).context("failed to parse nuthatch.toml")
     }
 
     pub fn save(&self, dir: &Path) -> Result<()> {
         let path = dir.join(CONFIG_FILE);
         let raw = toml::to_string_pretty(self).context("failed to serialise config")?;
-        std::fs::write(&path, raw).with_context(|| format!("failed to write {}", path.display()))?;
+        std::fs::write(&path, raw)
+            .with_context(|| format!("failed to write {}", path.display()))?;
         Ok(())
     }
 }

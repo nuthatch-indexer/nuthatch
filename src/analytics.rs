@@ -89,7 +89,8 @@ fn define_transfers_view(conn: &Connection, dir: &Path) -> Result<()> {
          WHERE 1=0"
             .to_string()
     };
-    conn.execute_batch(&ddl).context("failed to define transfers view")?;
+    conn.execute_batch(&ddl)
+        .context("failed to define transfers view")?;
     Ok(())
 }
 

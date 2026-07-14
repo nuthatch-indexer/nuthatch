@@ -80,12 +80,17 @@ pub mod exex {
 
     impl ExExSource {
         pub fn new() -> Self {
-            Self { blocks: Mutex::new(BTreeMap::new()) }
+            Self {
+                blocks: Mutex::new(BTreeMap::new()),
+            }
         }
 
         /// Called by the reth ExEx handler on `ChainCommitted` (per block, pre-decoded).
         pub fn commit(&self, block: u64, hash: String, logs: Vec<Log>) {
-            self.blocks.lock().unwrap().insert(block, Committed { hash, logs });
+            self.blocks
+                .lock()
+                .unwrap()
+                .insert(block, Committed { hash, logs });
         }
 
         /// Called on `ChainReverted` — drop every buffered block above the revert point. (The hot
@@ -104,11 +109,23 @@ pub mod exex {
     #[async_trait::async_trait]
     impl Source for ExExSource {
         async fn tip(&self) -> Result<u64> {
-            Ok(self.blocks.lock().unwrap().keys().next_back().copied().unwrap_or(0))
+            Ok(self
+                .blocks
+                .lock()
+                .unwrap()
+                .keys()
+                .next_back()
+                .copied()
+                .unwrap_or(0))
         }
 
         async fn block_hash(&self, number: u64) -> Result<Option<String>> {
-            Ok(self.blocks.lock().unwrap().get(&number).map(|c| c.hash.clone()))
+            Ok(self
+                .blocks
+                .lock()
+                .unwrap()
+                .get(&number)
+                .map(|c| c.hash.clone()))
         }
 
         async fn logs(&self, address: &str, topic0: &str, from: u64, to: u64) -> Result<Vec<Log>> {
@@ -117,7 +134,11 @@ pub mod exex {
             for (_, c) in blocks.range(from..=to) {
                 for log in &c.logs {
                     let matches_addr = log.address.eq_ignore_ascii_case(address);
-                    let matches_topic = log.topics.first().map(|t| t.eq_ignore_ascii_case(topic0)).unwrap_or(false);
+                    let matches_topic = log
+                        .topics
+                        .first()
+                        .map(|t| t.eq_ignore_ascii_case(topic0))
+                        .unwrap_or(false);
                     if matches_addr && matches_topic {
                         out.push(log.clone());
                     }

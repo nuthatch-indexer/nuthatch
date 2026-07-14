@@ -33,7 +33,11 @@ impl RpcClient {
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .context("failed to build HTTP client")?;
-        Ok(Self { http, urls, cursor: AtomicUsize::new(0) })
+        Ok(Self {
+            http,
+            urls,
+            cursor: AtomicUsize::new(0),
+        })
     }
 
     /// Try each endpoint once, starting from the round-robin cursor, until one answers.
@@ -81,12 +85,21 @@ impl RpcClient {
     /// Canonical block hash for a height, or None if the node doesn't have that block.
     pub async fn block_hash(&self, number: u64) -> Result<Option<String>> {
         let result = self
-            .call("eth_getBlockByNumber", json!([format!("0x{number:x}"), false]))
+            .call(
+                "eth_getBlockByNumber",
+                json!([format!("0x{number:x}"), false]),
+            )
             .await?;
         Ok(result.get("hash").and_then(Value::as_str).map(String::from))
     }
 
-    pub async fn get_logs(&self, address: &str, topic0: &str, from: u64, to: u64) -> Result<Vec<Log>> {
+    pub async fn get_logs(
+        &self,
+        address: &str,
+        topic0: &str,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<Log>> {
         let params = json!([{
             "address": address,
             "topics": [topic0],
@@ -94,7 +107,9 @@ impl RpcClient {
             "toBlock": format!("0x{to:x}"),
         }]);
         let result = self.call("eth_getLogs", params).await?;
-        let arr = result.as_array().ok_or_else(|| anyhow!("eth_getLogs did not return an array"))?;
+        let arr = result
+            .as_array()
+            .ok_or_else(|| anyhow!("eth_getLogs did not return an array"))?;
         arr.iter().map(parse_log).collect()
     }
 }
@@ -103,7 +118,11 @@ fn parse_log(v: &Value) -> Result<Log> {
     let topics = v
         .get("topics")
         .and_then(Value::as_array)
-        .map(|t| t.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .map(|t| {
+            t.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     Ok(Log {
         address: field_str(v, "address")?,

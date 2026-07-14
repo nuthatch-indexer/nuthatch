@@ -129,7 +129,11 @@ async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoR
     let result = tokio::task::spawn_blocking(move || analytics::query(&dir, &q.q)).await;
     match result {
         Ok(Ok(rows)) => Json(json!({ "count": rows.len(), "rows": rows })).into_response(),
-        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("{e:#}") }))).into_response(),
+        Ok(Err(e)) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("{e:#}") })),
+        )
+            .into_response(),
         Err(e) => error(format!("{e}")),
     }
 }
@@ -151,7 +155,11 @@ async fn balance(State(s): State<AppState>, Path(address): Path<String>) -> impl
     let address = address.to_ascii_lowercase();
     match s.balances.balance(&address) {
         Some(b) => Json(json!({ "address": address, "balance": b })).into_response(),
-        None => (StatusCode::NOT_FOUND, Json(json!({ "error": "no balance", "address": address }))).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "no balance", "address": address })),
+        )
+            .into_response(),
     }
 }
 
@@ -162,9 +170,17 @@ fn parse_id(id: &str) -> Option<(u64, u64)> {
 }
 
 fn not_found(id: &str) -> axum::response::Response {
-    (StatusCode::NOT_FOUND, Json(json!({ "error": "not found", "id": id }))).into_response()
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": "not found", "id": id })),
+    )
+        .into_response()
 }
 
 fn error(msg: String) -> axum::response::Response {
-    (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": msg }))).into_response()
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({ "error": msg })),
+    )
+        .into_response()
 }

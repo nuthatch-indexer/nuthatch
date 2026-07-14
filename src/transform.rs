@@ -30,7 +30,10 @@ struct HostState {
 
 impl WasiView for HostState {
     fn ctx(&mut self) -> WasiCtxView<'_> {
-        WasiCtxView { ctx: &mut self.wasi, table: &mut self.table }
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
+        }
     }
 }
 
@@ -56,13 +59,23 @@ impl TransformRuntime {
 
         let component = Component::from_file(&engine, wasm)
             .map_err(|e| anyhow!("loading component {}: {e}", wasm.display()))?;
-        Ok(Self { engine, component, linker })
+        Ok(Self {
+            engine,
+            component,
+            linker,
+        })
     }
 
     /// Run the transform over one Arrow IPC batch; returns the derived Arrow IPC batch.
     pub fn run(&self, batch_ipc: &[u8]) -> Result<Vec<u8>> {
         let wasi = WasiCtxBuilder::new().inherit_stderr().build();
-        let mut store = Store::new(&self.engine, HostState { wasi, table: ResourceTable::new() });
+        let mut store = Store::new(
+            &self.engine,
+            HostState {
+                wasi,
+                table: ResourceTable::new(),
+            },
+        );
         let bindings = PureTransform::instantiate(&mut store, &self.component, &self.linker)
             .map_err(|e| anyhow!("instantiating pure-transform component: {e}"))?;
         bindings
@@ -95,8 +108,12 @@ pub fn transfers_to_ipc(entity_json: &[String]) -> Result<Vec<u8>> {
     let mut value = Vec::new();
     for j in entity_json {
         let v: serde_json::Value = serde_json::from_str(j).context("corrupt entity JSON")?;
-        let (Some(f), Some(t)) = (v["from"].as_str(), v["to"].as_str()) else { continue };
-        let Some(val) = v["value"].as_str().and_then(|s| s.parse::<i64>().ok()) else { continue };
+        let (Some(f), Some(t)) = (v["from"].as_str(), v["to"].as_str()) else {
+            continue;
+        };
+        let Some(val) = v["value"].as_str().and_then(|s| s.parse::<i64>().ok()) else {
+            continue;
+        };
         blocks.push(v["block_number"].as_u64().unwrap_or(0));
         logidx.push(v["log_index"].as_u64().unwrap_or(0));
         from.push(f.to_string());
@@ -126,9 +143,9 @@ pub fn batch_to_ipc(batch: &RecordBatch) -> Result<Vec<u8>> {
 
 /// Decode an Arrow IPC batch (the transform's output) back into JSON rows for serving/printing.
 pub fn ipc_to_json(bytes: &[u8]) -> Result<Vec<serde_json::Value>> {
-    let mut reader = StreamReader::try_new(std::io::Cursor::new(bytes), None).context("ipc reader")?;
+    let reader = StreamReader::try_new(std::io::Cursor::new(bytes), None).context("ipc reader")?;
     let mut rows = Vec::new();
-    while let Some(batch) = reader.next() {
+    for batch in reader {
         let batch = batch.context("ipc batch")?;
         let blocks = col_u64(&batch, "block_number")?;
         let logidx = col_u64(&batch, "log_index")?;
@@ -189,16 +206,25 @@ mod tests {
     fn pure_component_filters_large_transfers() {
         let wasm = Path::new("components/large-transfers.wasm");
         if !wasm.exists() {
-            eprintln!("skipping: {} not staged (build the guest first)", wasm.display());
+            eprintln!(
+                "skipping: {} not staged (build the guest first)",
+                wasm.display()
+            );
             return;
         }
         let rt = TransformRuntime::load(wasm).unwrap();
         // three transfers: 5, 2_000_000_000 (≥1e9), 1_500_000_000 (≥1e9) → two survive the filter.
-        let entities = vec![entity(1, 0, 5), entity(1, 1, 2_000_000_000), entity(2, 0, 1_500_000_000)];
+        let entities = vec![
+            entity(1, 0, 5),
+            entity(1, 1, 2_000_000_000),
+            entity(2, 0, 1_500_000_000),
+        ];
         let input = transfers_to_ipc(&entities).unwrap();
         let output = rt.run(&input).unwrap();
         let rows = ipc_to_json(&output).unwrap();
         assert_eq!(rows.len(), 2, "only transfers ≥ 1e9 base units survive");
-        assert!(rows.iter().all(|r| r["value"].as_i64().unwrap() >= 1_000_000_000));
+        assert!(rows
+            .iter()
+            .all(|r| r["value"].as_i64().unwrap() >= 1_000_000_000));
     }
 }
