@@ -48,6 +48,17 @@ Transfers into an embedded `nuthatch.redb`, and serves the API on `127.0.0.1:828
 - **Determinism in the core** — decode, reorg, and entity derivation are deterministic and
   re-executable. LLMs write code and tests; they never sit in the runtime data path.
 
+## Progress log
+
+Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
+
+- **2026-07-14 — Slice 1: walking skeleton.** `init` (ABI via Sourcify v2, Etherscan fallback) →
+  `dev` (RPC log polling with round-robin failover) → deterministic ERC-20 `Transfer` decode →
+  redb hot store → axum HTTP API. Verified alive against live mainnet USDC, keyless: 170+ transfers
+  indexed in ~1.5s with correct decimal values. Scope: one chain, Transfer-only, RPC-poll, redb-only.
+
+_Next: Slice 2 — Parquet sealing past finality + DuckDB read-only analytical SQL + reorg property tests._
+
 ## Licence
 
 [AGPL-3.0-only](LICENSE).
