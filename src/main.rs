@@ -20,6 +20,7 @@ mod rpc;
 mod seal;
 mod serve;
 mod store;
+mod views;
 
 use anyhow::Result;
 use clap::Parser;

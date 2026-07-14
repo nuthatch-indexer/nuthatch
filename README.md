@@ -19,7 +19,8 @@ This is the thinnest end-to-end path that actually runs — deliberately minimal
 | Deterministic ERC-20 `Transfer` decode | WASM transform runtime, Arrow WIT (slice 4) |
 | Reorg self-healing (hot-store rollback) | MCP server + `llms.txt` + skills (slice 5) |
 | Finality-gated Parquet sealing (content-addressed) | DBSP declarative views / IVM (slice 3) |
-| Read-only analytical SQL (DuckDB) over sealed segments | reth ExEx tip mode, scaled Postgres mode (slice 6) |
+| Read-only analytical SQL (DuckDB) over sealed segments | WASM transform runtime, Arrow WIT (slice 4) |
+| **IVM balance view (DBSP) — reorg = retraction** | reth ExEx tip mode, scaled Postgres mode (slice 6) |
 | redb hot store, point-reads with cold fallback | |
 | HTTP API (`/`, `/entities`, `/entity/{id}`) | reth ExEx tip mode, scaled Postgres mode (slice 6) |
 
@@ -31,7 +32,7 @@ No IVM, no DuckDB/Parquet, no MCP yet.
 | | |
 |---|---|
 | **Peak RAM** | **~37 MB** (hot indexing + sealing + DuckDB SQL, live mainnet) |
-| Binary size | 44 MB (release; DuckDB statically bundled — 5.8 MB without it) |
+| Binary size | 49 MB (release; DuckDB + DBSP statically bundled — 5.8 MB without them) |
 | Budget | ≤2 GB RAM — **using 1.8%** of it |
 
 Honest and reproducible: `nuthatch init 0xA0b8…eB48 && nuthatch dev --backfill 200`, sampled with
@@ -69,6 +70,16 @@ Transfers into an embedded `nuthatch.redb`, and serves the API on `127.0.0.1:828
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-14 — Slice 3: DBSP declarative views (the IVM core).** The first derived entity —
+  per-address token balances — is now a **declarative incremental view**, not a hand-rolled handler.
+  Balance is stated as Σ(in) − Σ(out) and maintained by a DBSP circuit: a new transfer is a +1 delta,
+  and a **reorg is the same transfer re-fed with weight −1** (a retraction) — the identical circuit
+  serves backfill and tip. Served at `/balances` and `/balance/{address}`. Verified: a deterministic
+  golden test proves incremental maintenance + retraction convergence; live run derived 2,257 holder
+  balances (top holder correctly the zero/burn address), **peak RAM 36.9 MB**. 14 tests green.
+  _Known limits (this slice): balances accumulate in i64 base units (fine for USDC-class tokens); the
+  view is in-memory and rebuilt per process — a warm restart resumes indexing but does not yet replay
+  prior balances (persistence/replay is a later slice)._
 - **2026-07-14 — Slice 2 complete: DuckDB SQL + hot-store pruning.** A read-only `/sql` endpoint
   runs analytical queries over the sealed segments via an embedded, memory-capped DuckDB (segments
   attached read-only; ingestion never writes DuckDB). Once a range is sealed and catalogued, its
@@ -97,7 +108,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   redb hot store → axum HTTP API. Verified alive against live mainnet USDC, keyless: 170+ transfers
   indexed in ~1.5s with correct decimal values. Scope: one chain, Transfer-only, RPC-poll, redb-only.
 
-_Next: Slice 3 — DBSP declarative views (the IVM core), replacing hand-rolled entity updates._
+_Next: Slice 4 — WASM transform runtime (ported from liminal) with batched Arrow WIT interfaces._
 
 ## Licence
 

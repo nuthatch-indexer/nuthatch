@@ -12,6 +12,7 @@ use crate::rpc::RpcClient;
 use crate::seal;
 use crate::serve;
 use crate::store::Store;
+use crate::views::{self, BalanceView};
 
 /// Block window per `eth_getLogs` call. Kept small so high-volume contracts (e.g. USDC, ~thousands
 /// of Transfers per handful of blocks) stay under public-RPC result-size caps.
@@ -28,6 +29,7 @@ pub async fn dev(args: DevArgs) -> Result<()> {
     let config = Config::load(&dir)?;
     let store = Store::open(&dir.join(DB_FILE))?;
     let rpc = Arc::new(RpcClient::new(config.rpc_urls.clone())?);
+    let balances = BalanceView::start()?;
 
     tracing::info!(
         "indexing {} on {} — Transfer events only (skeleton)",
@@ -42,6 +44,7 @@ pub async fn dev(args: DevArgs) -> Result<()> {
         config.address.clone(),
         args.backfill,
         dir.clone(),
+        balances.clone(),
     ));
 
     let app_state = serve::AppState {
@@ -49,6 +52,7 @@ pub async fn dev(args: DevArgs) -> Result<()> {
         address: config.address.clone(),
         chain: config.chain.clone(),
         dir: dir.clone(),
+        balances,
     };
     serve::run(&args.listen, app_state).await?;
 
@@ -62,6 +66,7 @@ async fn index_loop(
     address: String,
     backfill: u64,
     dir: PathBuf,
+    balances: BalanceView,
 ) -> Result<()> {
     // Resume from the last committed block, else start `backfill` blocks behind the tip.
     let mut next = match store.get_meta(LAST_BLOCK_KEY)? {
@@ -91,6 +96,15 @@ async fn index_loop(
         if next > 0 {
             match detect_reorg(&rpc, &store, next - 1).await {
                 Ok(Some(ancestor)) => {
+                    // Retract the rolled-back transfers from the IVM view *before* dropping them
+                    // from the hot store — a reorg is just the same facts re-fed with weight −1.
+                    let last_indexed = store
+                        .get_meta(LAST_BLOCK_KEY)?
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(ancestor);
+                    let doomed = store.entities_in_range(ancestor + 1, last_indexed)?;
+                    balances.apply(retraction_batch(&doomed));
+
                     let removed = store.rollback_to(ancestor)?;
                     store.set_meta(LAST_BLOCK_KEY, &ancestor.to_string())?;
                     tracing::warn!("reorg detected: rolled back to block {ancestor} (removed {removed} entities)");
@@ -112,14 +126,21 @@ async fn index_loop(
         match rpc.get_logs(&address, TRANSFER_TOPIC0, next, to).await {
             Ok(logs) => {
                 let mut stored = 0usize;
+                let mut deltas = Vec::new();
                 for log in &logs {
                     if let Some(t) = decode::transfer(log) {
                         let key = Store::entity_key(t.block_number, t.log_index);
                         let json = serde_json::to_string(&t)?;
                         store.put_entity(&key, &json)?;
                         stored += 1;
+                        // Feed the IVM balance view (weight +1). Values that don't fit i64 are
+                        // skipped for now — the view accumulates in i64 base units.
+                        if let Some(v) = t.value.as_deref().and_then(|s| s.parse::<i64>().ok()) {
+                            deltas.extend(views::transfer_deltas(&t.from, &t.to, v, 1));
+                        }
                     }
                 }
+                balances.apply(deltas);
                 // Checkpoint the window boundary's canonical hash for future reorg detection.
                 if let Ok(Some(hash)) = rpc.block_hash(to).await {
                     store.set_block_hash(to, &hash)?;
@@ -215,6 +236,19 @@ fn maybe_seal(dir: &std::path::Path, store: &Store, tip: u64) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Build a weight −1 retraction batch from stored transfer JSON (used on reorg rollback).
+fn retraction_batch(entity_json: &[String]) -> Vec<dbsp::utils::Tup2<dbsp::utils::Tup2<String, i64>, i64>> {
+    let mut batch = Vec::new();
+    for j in entity_json {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(j) else { continue };
+        let (Some(from), Some(to)) = (v["from"].as_str(), v["to"].as_str()) else { continue };
+        if let Some(val) = v["value"].as_str().and_then(|s| s.parse::<i64>().ok()) {
+            batch.extend(views::transfer_deltas(from, to, val, -1));
+        }
+    }
+    batch
 }
 
 async fn sleep_secs(s: u64) {

@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 use crate::analytics;
 use crate::store::Store;
+use crate::views::BalanceView;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -22,6 +23,7 @@ pub struct AppState {
     pub address: String,
     pub chain: String,
     pub dir: PathBuf,
+    pub balances: BalanceView,
 }
 
 pub async fn run(listen: &str, state: AppState) -> Result<()> {
@@ -31,6 +33,8 @@ pub async fn run(listen: &str, state: AppState) -> Result<()> {
         .route("/entities", get(entities))
         .route("/entity/{id}", get(entity))
         .route("/sql", get(sql))
+        .route("/balances", get(balances))
+        .route("/balance/{address}", get(balance))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(listen)
@@ -52,11 +56,15 @@ async fn summary(State(s): State<AppState>) -> impl IntoResponse {
         "entities": count,
         "last_block": last_block,
         "sealed_through": s.store.get_meta("sealed_through").ok().flatten(),
+        "holders": s.balances.holders(),
+        "views": ["balances (IVM)"],
         "endpoints": [
             "/health",
             "/entities?limit=100",
             "/entity/{block:012}-{log_index:06}",
             "/sql?q=SELECT count(*) FROM transfers",
+            "/balances?limit=100",
+            "/balance/{address}",
         ],
     }))
 }
@@ -123,6 +131,27 @@ async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoR
         Ok(Ok(rows)) => Json(json!({ "count": rows.len(), "rows": rows })).into_response(),
         Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("{e:#}") }))).into_response(),
         Err(e) => error(format!("{e}")),
+    }
+}
+
+/// Top balances from the IVM view, descending. Balances are in i64 token base units.
+async fn balances(State(s): State<AppState>, Query(q): Query<EntitiesQuery>) -> impl IntoResponse {
+    let limit = q.limit.unwrap_or(100).min(1000);
+    let items: Vec<Value> = s
+        .balances
+        .top(limit)
+        .into_iter()
+        .map(|(address, balance)| json!({ "address": address, "balance": balance }))
+        .collect();
+    Json(json!({ "holders": s.balances.holders(), "count": items.len(), "items": items }))
+}
+
+/// Point-read a single address's derived balance.
+async fn balance(State(s): State<AppState>, Path(address): Path<String>) -> impl IntoResponse {
+    let address = address.to_ascii_lowercase();
+    match s.balances.balance(&address) {
+        Some(b) => Json(json!({ "address": address, "balance": b })).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(json!({ "error": "no balance", "address": address }))).into_response(),
     }
 }
 
