@@ -177,6 +177,30 @@ impl Store {
         Ok(removed)
     }
 
+    /// Prune sealed entities from the hot store: remove entity rows whose block is in `[from, to]`.
+    /// Only ever called on a finalized, already-sealed range — the data survives in Parquet and is
+    /// reachable via the DuckDB point-read fallback. Returns the number of rows removed.
+    pub fn prune_range(&self, from: u64, to: u64) -> Result<u64> {
+        let lo = format!("{from:012}-000000");
+        let hi = format!("{to:012}-999999");
+        let wtx = self.db.begin_write()?;
+        let mut removed = 0u64;
+        {
+            let mut t = wtx.open_table(ENTITIES)?;
+            let doomed: Vec<String> = t
+                .range(lo.as_str()..=hi.as_str())?
+                .filter_map(|row| row.ok())
+                .map(|(k, _)| k.value().to_string())
+                .collect();
+            for k in doomed {
+                t.remove(k.as_str())?;
+                removed += 1;
+            }
+        }
+        wtx.commit()?;
+        Ok(removed)
+    }
+
     /// Test/consistency helper: the set of entity keys currently stored (chain-ordered).
     #[cfg(test)]
     pub fn entity_keys(&self) -> Result<Vec<String>> {

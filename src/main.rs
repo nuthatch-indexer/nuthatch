@@ -9,6 +9,7 @@
 //! onto this spine — see docs/ROADMAP as it lands. What matters here is that it's *alive*.
 
 mod abi;
+mod analytics;
 mod chains;
 mod cli;
 mod config;

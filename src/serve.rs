@@ -11,7 +11,9 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::path::PathBuf;
 
+use crate::analytics;
 use crate::store::Store;
 
 #[derive(Clone)]
@@ -19,6 +21,7 @@ pub struct AppState {
     pub store: Store,
     pub address: String,
     pub chain: String,
+    pub dir: PathBuf,
 }
 
 pub async fn run(listen: &str, state: AppState) -> Result<()> {
@@ -27,6 +30,7 @@ pub async fn run(listen: &str, state: AppState) -> Result<()> {
         .route("/health", get(|| async { "ok" }))
         .route("/entities", get(entities))
         .route("/entity/{id}", get(entity))
+        .route("/sql", get(sql))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(listen)
@@ -47,7 +51,13 @@ async fn summary(State(s): State<AppState>) -> impl IntoResponse {
         "event": "Transfer",
         "entities": count,
         "last_block": last_block,
-        "endpoints": ["/health", "/entities?limit=100", "/entity/{block:012}-{log_index:06}"],
+        "sealed_through": s.store.get_meta("sealed_through").ok().flatten(),
+        "endpoints": [
+            "/health",
+            "/entities?limit=100",
+            "/entity/{block:012}-{log_index:06}",
+            "/sql?q=SELECT count(*) FROM transfers",
+        ],
     }))
 }
 
@@ -71,14 +81,59 @@ async fn entities(State(s): State<AppState>, Query(q): Query<EntitiesQuery>) -> 
 }
 
 async fn entity(State(s): State<AppState>, Path(id): Path<String>) -> impl IntoResponse {
+    // Hot path first (redb). On a miss, fall back to the sealed segments (DuckDB), so a point-read
+    // keeps working across the hot→cold seam even after the hot store has been pruned.
     match s.store.get_entity(&id) {
         Ok(Some(raw)) => match serde_json::from_str::<Value>(&raw) {
-            Ok(v) => Json(v).into_response(),
-            Err(e) => error(format!("{e:#}")),
+            Ok(v) => return Json(v).into_response(),
+            Err(e) => return error(format!("{e:#}")),
         },
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "not found", "id": id }))).into_response(),
-        Err(e) => error(format!("{e:#}")),
+        Ok(None) => {}
+        Err(e) => return error(format!("{e:#}")),
     }
+
+    match parse_id(&id) {
+        Some((block, log_index)) => {
+            let dir = s.dir.clone();
+            let sealed = tokio::task::spawn_blocking(move || {
+                analytics::get_transfer(&dir, block, log_index)
+            })
+            .await;
+            match sealed {
+                Ok(Ok(Some(v))) => Json(v).into_response(),
+                Ok(Ok(None)) => not_found(&id),
+                Ok(Err(e)) => error(format!("{e:#}")),
+                Err(e) => error(format!("{e}")),
+            }
+        }
+        None => not_found(&id),
+    }
+}
+
+#[derive(Deserialize)]
+struct SqlQuery {
+    q: String,
+}
+
+/// Read-only analytical SQL over the sealed segments. A `transfers` view is in scope.
+async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoResponse {
+    let dir = s.dir.clone();
+    let result = tokio::task::spawn_blocking(move || analytics::query(&dir, &q.q)).await;
+    match result {
+        Ok(Ok(rows)) => Json(json!({ "count": rows.len(), "rows": rows })).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("{e:#}") }))).into_response(),
+        Err(e) => error(format!("{e}")),
+    }
+}
+
+/// Parse an entity id `{block:012}-{log_index:06}` back into its components.
+fn parse_id(id: &str) -> Option<(u64, u64)> {
+    let (b, l) = id.split_once('-')?;
+    Some((b.parse().ok()?, l.parse().ok()?))
+}
+
+fn not_found(id: &str) -> axum::response::Response {
+    (StatusCode::NOT_FOUND, Json(json!({ "error": "not found", "id": id }))).into_response()
 }
 
 fn error(msg: String) -> axum::response::Response {

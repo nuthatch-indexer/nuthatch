@@ -21,6 +21,7 @@ toml = "0.8"
 redb = "2"
 arrow = "56"
 parquet = { version = "56", default-features = false, features = ["arrow", "snap"] }
+duckdb = { version = "1", features = ["bundled"] }
 sha2 = "0.10"
 axum = "0.8"
 anyhow = "1"

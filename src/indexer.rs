@@ -48,6 +48,7 @@ pub async fn dev(args: DevArgs) -> Result<()> {
         store: store.clone(),
         address: config.address.clone(),
         chain: config.chain.clone(),
+        dir: dir.clone(),
     };
     serve::run(&args.listen, app_state).await?;
 
@@ -196,14 +197,23 @@ fn maybe_seal(dir: &std::path::Path, store: &Store, tip: u64) -> Result<()> {
 
     let entities = store.entities_in_range(from, ceiling)?;
     match seal::seal_range(dir, &entities, from, ceiling)? {
-        Some(seg) => tracing::info!(
-            "sealed segment {}… blocks {from}..={ceiling} ({} rows)",
-            &seg.hash[..12],
-            seg.rows
-        ),
-        None => tracing::debug!("blocks {from}..={ceiling} finalized with no transfers; watermark advanced"),
+        Some(seg) => {
+            // Watermark advances only after the segment is durably on disk + catalogued; only then
+            // is it safe to prune the now-redundant rows from the hot store.
+            store.set_meta(SEALED_THROUGH_KEY, &ceiling.to_string())?;
+            let pruned = store.prune_range(from, ceiling)?;
+            tracing::info!(
+                "sealed segment {}… blocks {from}..={ceiling} ({} rows); pruned {pruned} from hot",
+                &seg.hash[..12],
+                seg.rows
+            );
+        }
+        None => {
+            // Finalized range with no transfers — just advance the watermark.
+            store.set_meta(SEALED_THROUGH_KEY, &ceiling.to_string())?;
+            tracing::debug!("blocks {from}..={ceiling} finalized with no transfers; watermark advanced");
+        }
     }
-    store.set_meta(SEALED_THROUGH_KEY, &ceiling.to_string())?;
     Ok(())
 }
 

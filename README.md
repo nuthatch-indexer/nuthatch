@@ -18,8 +18,9 @@ This is the thinnest end-to-end path that actually runs — deliberately minimal
 | RPC log polling with round-robin failover | DBSP declarative views / IVM (slice 3) |
 | Deterministic ERC-20 `Transfer` decode | WASM transform runtime, Arrow WIT (slice 4) |
 | Reorg self-healing (hot-store rollback) | MCP server + `llms.txt` + skills (slice 5) |
-| Finality-gated Parquet sealing (content-addressed) | DuckDB read-only analytical SQL (slice 2, next) |
-| redb hot store, entity point-reads | reth ExEx tip mode, scaled Postgres mode (slice 6) |
+| Finality-gated Parquet sealing (content-addressed) | DBSP declarative views / IVM (slice 3) |
+| Read-only analytical SQL (DuckDB) over sealed segments | reth ExEx tip mode, scaled Postgres mode (slice 6) |
+| redb hot store, point-reads with cold fallback | |
 | HTTP API (`/`, `/entities`, `/entity/{id}`) | reth ExEx tip mode, scaled Postgres mode (slice 6) |
 
 Scope of the skeleton: **one chain (Ethereum), Transfer events only, RPC polling, redb-only.**
@@ -29,13 +30,15 @@ No IVM, no DuckDB/Parquet, no MCP yet.
 
 | | |
 |---|---|
-| **Peak RAM** | **~33 MB** (indexing 7,013 USDC Transfers, live mainnet) |
-| Binary size | 5.8 MB (release, stripped) |
-| Budget | ≤2 GB RAM — **using 1.6%** of it |
+| **Peak RAM** | **~37 MB** (hot indexing + sealing + DuckDB SQL, live mainnet) |
+| Binary size | 44 MB (release; DuckDB statically bundled — 5.8 MB without it) |
+| Budget | ≤2 GB RAM — **using 1.8%** of it |
 
-Honest and reproducible: `nuthatch init 0xA0b8…eB48 && nuthatch dev --backfill 500`, sampled with
-`ps -o rss`. Measured on the release build. This is the embedded-mode skeleton; the budget holds
-as later slices land (Parquet/DuckDB attach read-only, redb hot layer stays bounded).
+Honest and reproducible: `nuthatch init 0xA0b8…eB48 && nuthatch dev --backfill 200`, sampled with
+`ps -o rss`. Measured on the release build with the full slice-2 pipeline active. The RAM budget is
+the CI-enforced one and holds comfortably; the binary grew because DuckDB bundles a C++ engine
+statically (still a single file — the embedded-mode non-negotiable). Hot layer stays bounded by
+pruning sealed rows to Parquet past finality.
 
 ## Quickstart
 
@@ -66,6 +69,13 @@ Transfers into an embedded `nuthatch.redb`, and serves the API on `127.0.0.1:828
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-14 — Slice 2 complete: DuckDB SQL + hot-store pruning.** A read-only `/sql` endpoint
+  runs analytical queries over the sealed segments via an embedded, memory-capped DuckDB (segments
+  attached read-only; ingestion never writes DuckDB). Once a range is sealed and catalogued, its
+  rows are pruned from the redb hot store — and `/entity/{id}` transparently falls back to DuckDB for
+  pruned rows, so point-reads work seamlessly across the hot→cold seam. Verified live: sealed +
+  pruned a 2,497-row segment, `/sql` aggregations correct, a pruned id resolved via the cold path;
+  **peak RAM 37 MB** with the full pipeline. Binary is now 44 MB (DuckDB bundled). 13 tests green.
 - **2026-07-14 — Slice 2 (in progress): Parquet sealing.** Once a block range passes finality
   (a conservative 64-block depth for now), its entities are sealed to an immutable, content-addressed
   (sha256) Snappy Parquet segment under `segments/`, catalogued in `manifest.json` with block bounds
@@ -87,7 +97,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   redb hot store → axum HTTP API. Verified alive against live mainnet USDC, keyless: 170+ transfers
   indexed in ~1.5s with correct decimal values. Scope: one chain, Transfer-only, RPC-poll, redb-only.
 
-_Next: finish Slice 2 — DuckDB read-only analytical SQL over sealed segments, then prune the hot store._
+_Next: Slice 3 — DBSP declarative views (the IVM core), replacing hand-rolled entity updates._
 
 ## Licence
 
