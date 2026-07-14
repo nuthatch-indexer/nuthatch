@@ -22,6 +22,7 @@ This is the thinnest end-to-end path that actually runs — deliberately minimal
 | Read-only analytical SQL (DuckDB) over sealed segments | MCP server + `llms.txt` + skills (slice 5) |
 | **IVM balance view (DBSP) — reorg = retraction** | reth ExEx tip mode, scaled Postgres mode (slice 6) |
 | **WASM transform runtime (pure, sandboxed, batched Arrow)** | effectful transform worlds + pipeline manifests (later) |
+| **MCP server (stdio, 6 tools, offline) + `llms.txt` + skills scaffold** | governed semantic layer + NL queries (later) |
 | redb hot store, point-reads with cold fallback | |
 | HTTP API (`/`, `/entities`, `/entity/{id}`) | reth ExEx tip mode, scaled Postgres mode (slice 6) |
 
@@ -59,6 +60,17 @@ curl localhost:8288/entities?limit=5
 `init` writes `nuthatch.toml` (config) and `abi.json` (resolved ABI). `dev` polls logs, decodes
 Transfers into an embedded `nuthatch.redb`, and serves the API on `127.0.0.1:8288`.
 
+### AI-native, offline
+
+`init` also scaffolds an `llms.txt` and a `.claude/skills/nuthatch/` skill so coding agents learn
+the real query surface. Expose a running index to an agent over the Model Context Protocol:
+
+```sh
+nuthatch mcp                 # stdio MCP server: status, schema, sql, entity, balance, top_balances
+```
+
+It bridges to the local `nuthatch dev` — no external calls, no telemetry, no gated data API.
+
 ## Design principles (non-negotiable)
 
 - **Single static binary**, zero external services in embedded mode.
@@ -71,6 +83,16 @@ Transfers into an embedded `nuthatch.redb`, and serves the API on `127.0.0.1:828
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-14 — Slice 5: MCP server + AI surface.** `nuthatch mcp` speaks the Model Context
+  Protocol over stdio (newline-delimited JSON-RPC), so a coding agent can query a running index
+  directly. Six tools — `status`, `schema`, `sql`, `entity`, `balance`, `top_balances` — not a thin
+  one-endpoint wrapper; `schema` returns a semantic hint (the seed of the governed semantic layer).
+  It's a thin **offline** bridge to the local `nuthatch dev` HTTP API, so it never contends with the
+  single-writer store and nothing phones home. `nuthatch init` now scaffolds `llms.txt` and a
+  `.claude/skills/nuthatch/` skill into the project so agents learn the real query surface instead of
+  hallucinating it. Verified: 18 tests green; a live MCP session (initialize → tools/list → tools/call)
+  bridged `status`/`sql`/`top_balances` to a running index. _Deferred: the governed semantic layer
+  + NL queries, streaming subscribe, Ollama/BYO-key AI authoring._
 - **2026-07-14 — Slice 4 (first cut): WASM transform runtime.** Ported from
   [liminal](https://github.com/lodestar-team/liminal) with the brief's key change — **the WIT call
   boundary is a whole batch (Arrow IPC), not one event** (liminal was per-event; that can't keep up
@@ -120,7 +142,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   redb hot store → axum HTTP API. Verified alive against live mainnet USDC, keyless: 170+ transfers
   indexed in ~1.5s with correct decimal values. Scope: one chain, Transfer-only, RPC-poll, redb-only.
 
-_Next: Slice 5 — MCP server compiled into the binary (schema discovery, SQL, entity lookup, subscribe) + `llms.txt` + scaffolded `.claude/skills/`._
+_Next: Slice 6 — reth ExEx tip-ingestion mode (colocated, the "no third-party" upgrade), then scaled Postgres/DataFusion mode._
 
 ## Licence
 

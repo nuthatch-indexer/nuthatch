@@ -1,0 +1,189 @@
+//! MCP server, compiled into the binary. `nuthatch mcp` speaks the Model Context Protocol over
+//! stdio (newline-delimited JSON-RPC), so a coding agent (Claude Code, Cursor, …) can query a
+//! running index directly. It is a thin, fully-offline bridge to the local HTTP API of a running
+//! `nuthatch dev` — no external calls, no telemetry, no gated data service. Nothing phones home.
+//!
+//! Bridging (rather than reopening the redb/segments) means the MCP server never contends with the
+//! indexer for the single-writer store, and it automatically reflects the live IVM views.
+
+use anyhow::{anyhow, bail, Result};
+use serde_json::{json, Value};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+const PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Run the stdio MCP loop, bridging tool calls to `base` (a running `nuthatch dev` HTTP API).
+pub async fn serve(base: String) -> Result<()> {
+    let client = reqwest::Client::new();
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut stdout = tokio::io::stdout();
+    while let Some(line) = lines.next_line().await? {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(req) = serde_json::from_str::<Value>(line) else { continue };
+        if let Some(resp) = handle(&req, &client, &base).await {
+            stdout.write_all(serde_json::to_string(&resp)?.as_bytes()).await?;
+            stdout.write_all(b"\n").await?;
+            stdout.flush().await?;
+        }
+    }
+    Ok(())
+}
+
+/// Dispatch one JSON-RPC message. Returns None for notifications (no response expected).
+async fn handle(req: &Value, client: &reqwest::Client, base: &str) -> Option<Value> {
+    let id = req.get("id").cloned();
+    match req.get("method").and_then(Value::as_str).unwrap_or("") {
+        "initialize" => Some(ok(id?, initialize_result(req))),
+        "notifications/initialized" => None,
+        "ping" => Some(ok(id?, json!({}))),
+        "tools/list" => Some(ok(id?, json!({ "tools": tool_specs() }))),
+        "tools/call" => {
+            let id = id?;
+            let params = req.get("params").cloned().unwrap_or_else(|| json!({}));
+            match call_tool(&params, client, base).await {
+                Ok(text) => Some(ok(id, content(&text, false))),
+                Err(e) => Some(ok(id, content(&format!("{e:#}"), true))),
+            }
+        }
+        _ => Some(err(id?, -32601, "method not found")),
+    }
+}
+
+fn initialize_result(req: &Value) -> Value {
+    // Echo the client's requested protocol version when present.
+    let pv = req
+        .pointer("/params/protocolVersion")
+        .and_then(Value::as_str)
+        .unwrap_or(PROTOCOL_VERSION);
+    json!({
+        "protocolVersion": pv,
+        "capabilities": { "tools": {} },
+        "serverInfo": { "name": "nuthatch", "version": env!("CARGO_PKG_VERSION") },
+    })
+}
+
+/// The tool surface. Not a thin single-endpoint wrapper — schema discovery, SQL, point-reads, and
+/// the IVM views, each with an LLM-friendly description.
+pub fn tool_specs() -> Value {
+    json!([
+        { "name": "status", "description": "Index status: contract, chain, transfers indexed, holders, last & sealed block.",
+          "inputSchema": { "type": "object", "properties": {} } },
+        { "name": "schema", "description": "The data model — entities, the derived balances view, and how to query it. Read this first.",
+          "inputSchema": { "type": "object", "properties": {} } },
+        { "name": "sql", "description": "Run a read-only SQL query over sealed (finalized) transfers. A `transfers` view (columns: block_number, log_index, from, to, value, value_hex, tx_hash) is in scope. SELECT/WITH only.",
+          "inputSchema": { "type": "object", "properties": { "query": { "type": "string", "description": "A SELECT or WITH query." } }, "required": ["query"] } },
+        { "name": "entity", "description": "Look up one transfer by its id, formatted `{block:012}-{logindex:06}`.",
+          "inputSchema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
+        { "name": "balance", "description": "Derived token balance for an address (IVM view, i64 base units).",
+          "inputSchema": { "type": "object", "properties": { "address": { "type": "string" } }, "required": ["address"] } },
+        { "name": "top_balances", "description": "Top holder balances, descending (IVM view).",
+          "inputSchema": { "type": "object", "properties": { "limit": { "type": "integer", "default": 20 } } } }
+    ])
+}
+
+async fn call_tool(params: &Value, client: &reqwest::Client, base: &str) -> Result<String> {
+    let name = params.get("name").and_then(Value::as_str).ok_or_else(|| anyhow!("missing tool name"))?;
+    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    match name {
+        "status" => get(client, &format!("{base}/")).await,
+        "schema" => Ok(schema_doc()),
+        "sql" => {
+            let q = args["query"].as_str().ok_or_else(|| anyhow!("`query` is required"))?;
+            get_query(client, &format!("{base}/sql"), &[("q", q)]).await
+        }
+        "entity" => {
+            let id = args["id"].as_str().ok_or_else(|| anyhow!("`id` is required"))?;
+            get(client, &format!("{base}/entity/{id}")).await
+        }
+        "balance" => {
+            let a = args["address"].as_str().ok_or_else(|| anyhow!("`address` is required"))?;
+            get(client, &format!("{base}/balance/{a}")).await
+        }
+        "top_balances" => {
+            let n = args["limit"].as_u64().unwrap_or(20);
+            get(client, &format!("{base}/balances?limit={n}")).await
+        }
+        other => bail!("unknown tool `{other}`"),
+    }
+}
+
+async fn get(client: &reqwest::Client, url: &str) -> Result<String> {
+    fetch(client.get(url), url).await
+}
+
+async fn get_query(client: &reqwest::Client, url: &str, q: &[(&str, &str)]) -> Result<String> {
+    fetch(client.get(url).query(q), url).await
+}
+
+async fn fetch(req: reqwest::RequestBuilder, url: &str) -> Result<String> {
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| anyhow!("cannot reach nuthatch at {url} — is `nuthatch dev` running? ({e})"))?;
+    Ok(resp.text().await?)
+}
+
+/// The semantic hint an agent reads before querying — the seed of the governed semantic layer.
+fn schema_doc() -> String {
+    r#"nuthatch data model (skeleton)
+
+ENTITIES
+  transfer — one ERC-20 Transfer. id = "{block:012}-{logindex:06}".
+    fields: block_number, log_index, from, to, value (decimal base units, i64), value_hex, tx_hash
+
+VIEWS (incrementally maintained)
+  balances — per-address net balance = Σ(received) − Σ(sent), in i64 base units.
+             query via `balance`/`top_balances`. Reorgs retract automatically.
+
+SQL (tool `sql`, read-only, over FINALIZED transfers)
+  A `transfers` view is in scope. Examples:
+    SELECT count(*) FROM transfers
+    SELECT "to", count(*) n FROM transfers GROUP BY "to" ORDER BY n DESC LIMIT 10
+    SELECT * FROM transfers WHERE value > 1000000000 ORDER BY value DESC LIMIT 20
+  Note: `sql` sees only sealed (past-finality) data; recent tip data is served by the point-read
+  tools (`entity`) and the live IVM views (`balance`, `top_balances`)."#
+        .to_string()
+}
+
+fn ok(id: Value, result: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+}
+
+fn err(id: Value, code: i64, message: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+}
+
+fn content(text: &str, is_error: bool) -> Value {
+    json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn initialize_and_tools_list_need_no_network() {
+        let client = reqwest::Client::new();
+        let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": { "protocolVersion": "2025-03-26" } });
+        let resp = handle(&init, &client, "http://127.0.0.1:1").await.unwrap();
+        assert_eq!(resp["result"]["serverInfo"]["name"], "nuthatch");
+        assert_eq!(resp["result"]["protocolVersion"], "2025-03-26", "echoes client version");
+
+        let list = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
+        let resp = handle(&list, &client, "http://127.0.0.1:1").await.unwrap();
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 6);
+        assert!(tools.iter().any(|t| t["name"] == "sql"));
+    }
+
+    #[tokio::test]
+    async fn notifications_get_no_response() {
+        let client = reqwest::Client::new();
+        let note = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
+        assert!(handle(&note, &client, "http://127.0.0.1:1").await.is_none());
+    }
+}

@@ -17,6 +17,15 @@ pub enum Command {
     Dev(DevArgs),
     /// Run a WASM transform component over a project's stored transfers.
     Transform(TransformArgs),
+    /// Serve the Model Context Protocol over stdio (bridges to a running `nuthatch dev`).
+    Mcp(McpArgs),
+}
+
+#[derive(Args)]
+pub struct McpArgs {
+    /// Base URL of the running `nuthatch dev` HTTP API to bridge to.
+    #[arg(long, default_value = "http://127.0.0.1:8288")]
+    pub url: String,
 }
 
 #[derive(Args)]

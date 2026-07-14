@@ -15,6 +15,7 @@ mod cli;
 mod config;
 mod decode;
 mod indexer;
+mod mcp;
 mod project;
 mod rpc;
 mod seal;
@@ -40,6 +41,7 @@ async fn main() -> Result<()> {
         cli::Command::Init(args) => project::init(args).await,
         cli::Command::Dev(args) => indexer::dev(args).await,
         cli::Command::Transform(args) => run_transform(args),
+        cli::Command::Mcp(args) => mcp::serve(args.url).await,
     }
 }
 
