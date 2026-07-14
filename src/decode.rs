@@ -48,7 +48,7 @@ fn address_from_topic(topic: &str) -> Option<String> {
     if h.len() != 64 {
         return None;
     }
-    Some(format!("0x{}", &h[24..].to_ascii_lowercase()))
+    Some(format!("0x{}", h[24..].to_ascii_lowercase()))
 }
 
 /// Normalise a 32-byte data word to 64 lowercase hex chars (no 0x).

@@ -1,0 +1,8 @@
+# Pinned to 1.94.1: rustc 1.97.0 hits an internal compiler error (ICE) in the next-trait-solver
+# (rustc_next_trait_solver/.../structural_traits.rs) when building this dependency graph in release
+# mode. 1.94.1 is known-good. This pin keeps local builds, CI, `cargo publish`, and the release
+# binary consistent and ICE-free. Revert to a newer stable once the upstream regression is fixed.
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
