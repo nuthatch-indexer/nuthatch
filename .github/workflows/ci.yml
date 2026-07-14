@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test --locked
+
+  build-release:
+    name: build release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build
+        run: cargo build --release --locked
+      - name: upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuthatch-release
+          path: target/release/nuthatch
+          retention-days: 1
+
+  footprint:
+    name: footprint (RAM budget)
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: nuthatch-release
+          path: bin
+      - name: measure peak RSS
+        # Ceiling is 256 MB: generous headroom over the measured ~37 MB, far under the 2 GB product
+        # budget, so public-RPC flakiness in CI never trips a false failure. The script retries once
+        # if the first run indexes nothing. It is NOT continue-on-error — the RAM budget is a real gate.
+        env:
+          BIN: bin/nuthatch
+          MAX_RSS_MB: "256"
+        run: |
+          chmod +x bin/nuthatch
+          bash .github/workflows/footprint.sh
