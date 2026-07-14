@@ -21,11 +21,16 @@ pub async fn resolve(chain_id: u64, address: &str) -> Result<Value> {
 async fn sourcify(chain_id: u64, address: &str) -> Result<Value> {
     // Sourcify server API v2. The legacy /server/files endpoint is retired.
     let url = format!("https://sourcify.dev/server/v2/contract/{chain_id}/{address}?fields=abi");
-    let resp = reqwest::get(&url).await.context("Sourcify request failed")?;
+    let resp = reqwest::get(&url)
+        .await
+        .context("Sourcify request failed")?;
     if !resp.status().is_success() {
         bail!("Sourcify returned HTTP {}", resp.status());
     }
-    let body: Value = resp.json().await.context("Sourcify response was not JSON")?;
+    let body: Value = resp
+        .json()
+        .await
+        .context("Sourcify response was not JSON")?;
     body.get("abi")
         .filter(|a| a.is_array())
         .cloned()
@@ -34,8 +39,10 @@ async fn sourcify(chain_id: u64, address: &str) -> Result<Value> {
 
 async fn etherscan(chain_id: u64, address: &str) -> Result<Value> {
     let key = std::env::var("ETHERSCAN_API_KEY").map_err(|_| {
-        anyhow!("Sourcify had no verified ABI and ETHERSCAN_API_KEY is not set — \
-                 set it, or use a Sourcify-verified contract")
+        anyhow!(
+            "Sourcify had no verified ABI and ETHERSCAN_API_KEY is not set — \
+                 set it, or use a Sourcify-verified contract"
+        )
     })?;
     let url = format!(
         "https://api.etherscan.io/v2/api?chainid={chain_id}&module=contract&action=getabi&address={address}&apikey={key}"
@@ -47,7 +54,10 @@ async fn etherscan(chain_id: u64, address: &str) -> Result<Value> {
         .await
         .context("Etherscan response was not JSON")?;
     if body.get("status").and_then(Value::as_str) != Some("1") {
-        let msg = body.get("result").and_then(Value::as_str).unwrap_or("unknown error");
+        let msg = body
+            .get("result")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown error");
         bail!("Etherscan could not return an ABI: {msg}");
     }
     let result = body

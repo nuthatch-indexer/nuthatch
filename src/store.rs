@@ -122,7 +122,8 @@ impl Store {
     pub fn get_block_hash(&self, block: u64) -> Result<Option<String>> {
         let rtx = self.db.begin_read()?;
         let t = rtx.open_table(BLOCKS)?;
-        Ok(t.get(Self::block_key(block).as_str())?.map(|v| v.value().to_string()))
+        Ok(t.get(Self::block_key(block).as_str())?
+            .map(|v| v.value().to_string()))
     }
 
     /// All recorded checkpoints, highest block first — for walking back to a common ancestor.

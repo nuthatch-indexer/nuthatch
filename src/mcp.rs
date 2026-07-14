@@ -22,9 +22,13 @@ pub async fn serve(base: String) -> Result<()> {
         if line.is_empty() {
             continue;
         }
-        let Ok(req) = serde_json::from_str::<Value>(line) else { continue };
+        let Ok(req) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
         if let Some(resp) = handle(&req, &client, &base).await {
-            stdout.write_all(serde_json::to_string(&resp)?.as_bytes()).await?;
+            stdout
+                .write_all(serde_json::to_string(&resp)?.as_bytes())
+                .await?;
             stdout.write_all(b"\n").await?;
             stdout.flush().await?;
         }
@@ -85,21 +89,33 @@ pub fn tool_specs() -> Value {
 }
 
 async fn call_tool(params: &Value, client: &reqwest::Client, base: &str) -> Result<String> {
-    let name = params.get("name").and_then(Value::as_str).ok_or_else(|| anyhow!("missing tool name"))?;
-    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing tool name"))?;
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     match name {
         "status" => get(client, &format!("{base}/")).await,
         "schema" => Ok(schema_doc()),
         "sql" => {
-            let q = args["query"].as_str().ok_or_else(|| anyhow!("`query` is required"))?;
+            let q = args["query"]
+                .as_str()
+                .ok_or_else(|| anyhow!("`query` is required"))?;
             get_query(client, &format!("{base}/sql"), &[("q", q)]).await
         }
         "entity" => {
-            let id = args["id"].as_str().ok_or_else(|| anyhow!("`id` is required"))?;
+            let id = args["id"]
+                .as_str()
+                .ok_or_else(|| anyhow!("`id` is required"))?;
             get(client, &format!("{base}/entity/{id}")).await
         }
         "balance" => {
-            let a = args["address"].as_str().ok_or_else(|| anyhow!("`address` is required"))?;
+            let a = args["address"]
+                .as_str()
+                .ok_or_else(|| anyhow!("`address` is required"))?;
             get(client, &format!("{base}/balance/{a}")).await
         }
         "top_balances" => {
@@ -119,10 +135,9 @@ async fn get_query(client: &reqwest::Client, url: &str, q: &[(&str, &str)]) -> R
 }
 
 async fn fetch(req: reqwest::RequestBuilder, url: &str) -> Result<String> {
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| anyhow!("cannot reach nuthatch at {url} — is `nuthatch dev` running? ({e})"))?;
+    let resp = req.send().await.map_err(|e| {
+        anyhow!("cannot reach nuthatch at {url} — is `nuthatch dev` running? ({e})")
+    })?;
     Ok(resp.text().await?)
 }
 
@@ -171,7 +186,10 @@ mod tests {
             "params": { "protocolVersion": "2025-03-26" } });
         let resp = handle(&init, &client, "http://127.0.0.1:1").await.unwrap();
         assert_eq!(resp["result"]["serverInfo"]["name"], "nuthatch");
-        assert_eq!(resp["result"]["protocolVersion"], "2025-03-26", "echoes client version");
+        assert_eq!(
+            resp["result"]["protocolVersion"], "2025-03-26",
+            "echoes client version"
+        );
 
         let list = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
         let resp = handle(&list, &client, "http://127.0.0.1:1").await.unwrap();

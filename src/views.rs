@@ -27,6 +27,12 @@ pub fn transfer_deltas(from: &str, to: &str, value: i64, weight: i64) -> Weighte
     ]
 }
 
+/// The input and output handles of the balance circuit.
+type CircuitHandles = (
+    dbsp::ZSetHandle<Delta>,
+    OutputHandle<OrdZSet<Tup2<String, i64>>>,
+);
+
 /// Owns the DBSP circuit. `step` applies a weighted batch and folds the resulting changes into
 /// `balances`. Kept separate from the threading so it can be driven deterministically in tests.
 struct BalanceCircuit {
@@ -39,26 +45,38 @@ impl BalanceCircuit {
     fn new() -> Result<Self> {
         let (circuit, (input, output)) = Runtime::init_circuit(1, build_circuit)
             .map_err(|e| anyhow!("failed to build IVM circuit: {e}"))?;
-        Ok(Self { circuit, input, output })
+        Ok(Self {
+            circuit,
+            input,
+            output,
+        })
     }
 
     /// Feed a batch, advance the circuit one transaction, and apply the emitted changes.
-    fn step(&mut self, mut batch: WeightedBatch, balances: &mut HashMap<String, i64>) -> Result<()> {
+    fn step(
+        &mut self,
+        mut batch: WeightedBatch,
+        balances: &mut HashMap<String, i64>,
+    ) -> Result<()> {
         self.input.append(&mut batch);
-        self.circuit.transaction().map_err(|e| anyhow!("IVM transaction: {e}"))?;
+        self.circuit
+            .transaction()
+            .map_err(|e| anyhow!("IVM transaction: {e}"))?;
 
         // The aggregate emits a change stream: a key whose balance moves from old→new appears as
         // (key,old,−1) and (key,new,+1); a key falling to zero appears only as (key,old,−1).
         let changes = self.output.consolidate();
         let mut set: HashMap<String, i64> = HashMap::new();
         let mut cleared: Vec<String> = Vec::new();
-        changes.iter().for_each(|(rec, (), weight): (Tup2<String, i64>, (), i64)| {
-            if weight > 0 {
-                set.insert(rec.0.clone(), rec.1);
-            } else if weight < 0 {
-                cleared.push(rec.0);
-            }
-        });
+        changes
+            .iter()
+            .for_each(|(rec, (), weight): (Tup2<String, i64>, (), i64)| {
+                if weight > 0 {
+                    set.insert(rec.0.clone(), rec.1);
+                } else if weight < 0 {
+                    cleared.push(rec.0);
+                }
+            });
         for (k, v) in set.iter() {
             balances.insert(k.clone(), *v);
         }
@@ -71,9 +89,7 @@ impl BalanceCircuit {
     }
 }
 
-fn build_circuit(
-    circuit: &mut RootCircuit,
-) -> Result<(dbsp::ZSetHandle<Delta>, OutputHandle<OrdZSet<Tup2<String, i64>>>), anyhow::Error> {
+fn build_circuit(circuit: &mut RootCircuit) -> Result<CircuitHandles, anyhow::Error> {
     let (stream, handle) = circuit.add_input_zset::<Delta>();
     // Sum the signed values per address. aggregate_linear is the incremental Σ; the Z-set weight
     // carries insert/retract, so a retraction subtracts automatically.
@@ -161,14 +177,20 @@ mod tests {
         let mut bal = HashMap::new();
 
         // alice→bob 100, then bob→carol 30.
-        circuit.step(transfer_deltas("alice", "bob", 100, 1), &mut bal).unwrap();
-        circuit.step(transfer_deltas("bob", "carol", 30, 1), &mut bal).unwrap();
+        circuit
+            .step(transfer_deltas("alice", "bob", 100, 1), &mut bal)
+            .unwrap();
+        circuit
+            .step(transfer_deltas("bob", "carol", 30, 1), &mut bal)
+            .unwrap();
         assert_eq!(bal.get("alice"), Some(&-100));
         assert_eq!(bal.get("bob"), Some(&70));
         assert_eq!(bal.get("carol"), Some(&30));
 
         // Reorg: retract bob→carol 30. carol returns to zero (key dropped); bob back to −100+...
-        circuit.step(transfer_deltas("bob", "carol", 30, -1), &mut bal).unwrap();
+        circuit
+            .step(transfer_deltas("bob", "carol", 30, -1), &mut bal)
+            .unwrap();
         assert_eq!(bal.get("alice"), Some(&-100));
         assert_eq!(bal.get("bob"), Some(&100));
         assert_eq!(bal.get("carol"), None, "zero balance must drop the key");

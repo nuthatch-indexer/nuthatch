@@ -3,7 +3,11 @@
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "nuthatch", version, about = "Be your own indexer — one binary, one command.")]
+#[command(
+    name = "nuthatch",
+    version,
+    about = "Be your own indexer — one binary, one command."
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,

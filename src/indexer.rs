@@ -10,8 +10,8 @@ use crate::config::{Config, DB_FILE};
 use crate::decode::{self, TRANSFER_TOPIC0};
 use crate::rpc::RpcClient;
 use crate::seal;
-use crate::source::Source;
 use crate::serve;
+use crate::source::Source;
 use crate::store::Store;
 use crate::views::{self, BalanceView};
 
@@ -150,7 +150,10 @@ async fn index_loop(
                 }
                 store.set_meta(LAST_BLOCK_KEY, &to.to_string())?;
                 if stored > 0 {
-                    tracing::info!("blocks {next}..={to}: +{stored} transfers (total {})", store.count()?);
+                    tracing::info!(
+                        "blocks {next}..={to}: +{stored} transfers (total {})",
+                        store.count()?
+                    );
                 }
                 next = to + 1;
 
@@ -235,18 +238,26 @@ fn maybe_seal(dir: &std::path::Path, store: &Store, tip: u64) -> Result<()> {
         None => {
             // Finalized range with no transfers — just advance the watermark.
             store.set_meta(SEALED_THROUGH_KEY, &ceiling.to_string())?;
-            tracing::debug!("blocks {from}..={ceiling} finalized with no transfers; watermark advanced");
+            tracing::debug!(
+                "blocks {from}..={ceiling} finalized with no transfers; watermark advanced"
+            );
         }
     }
     Ok(())
 }
 
 /// Build a weight −1 retraction batch from stored transfer JSON (used on reorg rollback).
-fn retraction_batch(entity_json: &[String]) -> Vec<dbsp::utils::Tup2<dbsp::utils::Tup2<String, i64>, i64>> {
+fn retraction_batch(
+    entity_json: &[String],
+) -> Vec<dbsp::utils::Tup2<dbsp::utils::Tup2<String, i64>, i64>> {
     let mut batch = Vec::new();
     for j in entity_json {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(j) else { continue };
-        let (Some(from), Some(to)) = (v["from"].as_str(), v["to"].as_str()) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(j) else {
+            continue;
+        };
+        let (Some(from), Some(to)) = (v["from"].as_str(), v["to"].as_str()) else {
+            continue;
+        };
         if let Some(val) = v["value"].as_str().and_then(|s| s.parse::<i64>().ok()) {
             batch.extend(views::transfer_deltas(from, to, val, -1));
         }

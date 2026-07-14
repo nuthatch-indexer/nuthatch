@@ -98,7 +98,10 @@ mod tests {
         assert_eq!(t.from, "0x943f303a8019652d3a14b29954b2d780dde42ca3");
         assert_eq!(t.to, "0xdb5985dbd132b9e5cc4bf0a18a8fb04a396ba0a0");
         assert_eq!(t.value.as_deref(), Some("483700000")); // 483.70 USDC (6 decimals)
-        assert_eq!(t.value_hex, "0x000000000000000000000000000000000000000000000000000000001cd4ad20");
+        assert_eq!(
+            t.value_hex,
+            "0x000000000000000000000000000000000000000000000000000000001cd4ad20"
+        );
         assert_eq!(t.block_number, 25529850);
         assert_eq!(t.log_index, 139);
     }
@@ -131,8 +134,7 @@ mod tests {
     #[test]
     fn addresses_are_lowercased_and_right_aligned() {
         let mut log = usdc_log();
-        log.topics[1] =
-            "0x000000000000000000000000AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into();
+        log.topics[1] = "0x000000000000000000000000AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into();
         let t = transfer(&log).expect("should decode");
         assert_eq!(t.from, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     }

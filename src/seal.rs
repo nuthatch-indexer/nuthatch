@@ -56,7 +56,12 @@ fn schema() -> Arc<Schema> {
 
 /// Seal the given entity-JSON values (a finalized `[from, to]` range) into a content-addressed
 /// Parquet segment under `dir/segments/`, and append it to the manifest. Returns None if empty.
-pub fn seal_range(dir: &Path, entity_json: &[String], from: u64, to: u64) -> Result<Option<Segment>> {
+pub fn seal_range(
+    dir: &Path,
+    entity_json: &[String],
+    from: u64,
+    to: u64,
+) -> Result<Option<Segment>> {
     if entity_json.is_empty() {
         return Ok(None);
     }
@@ -71,7 +76,8 @@ pub fn seal_range(dir: &Path, entity_json: &[String], from: u64, to: u64) -> Res
     // Content address: sha256 of the exact file bytes.
     let hash = hex::encode(Sha256::digest(&bytes));
     let seg_dir = dir.join(SEGMENTS_DIR);
-    std::fs::create_dir_all(&seg_dir).with_context(|| format!("cannot create {}", seg_dir.display()))?;
+    std::fs::create_dir_all(&seg_dir)
+        .with_context(|| format!("cannot create {}", seg_dir.display()))?;
     let file_name = format!("{hash}.parquet");
     std::fs::write(seg_dir.join(&file_name), &bytes).context("failed to write segment")?;
 
@@ -87,20 +93,43 @@ pub fn seal_range(dir: &Path, entity_json: &[String], from: u64, to: u64) -> Res
 }
 
 fn to_batch(rows: &[Row]) -> Result<RecordBatch> {
-    let blocks: ArrayRef = Arc::new(UInt64Array::from(rows.iter().map(|r| r.block_number).collect::<Vec<_>>()));
-    let logidx: ArrayRef = Arc::new(UInt64Array::from(rows.iter().map(|r| r.log_index).collect::<Vec<_>>()));
-    let from: ArrayRef = Arc::new(StringArray::from(rows.iter().map(|r| r.from.as_str()).collect::<Vec<_>>()));
-    let to: ArrayRef = Arc::new(StringArray::from(rows.iter().map(|r| r.to.as_str()).collect::<Vec<_>>()));
-    let value: ArrayRef = Arc::new(StringArray::from(rows.iter().map(|r| r.value.clone()).collect::<Vec<Option<String>>>()));
-    let value_hex: ArrayRef = Arc::new(StringArray::from(rows.iter().map(|r| r.value_hex.as_str()).collect::<Vec<_>>()));
-    let tx: ArrayRef = Arc::new(StringArray::from(rows.iter().map(|r| r.tx_hash.as_str()).collect::<Vec<_>>()));
-    RecordBatch::try_new(schema(), vec![blocks, logidx, from, to, value, value_hex, tx])
-        .context("failed to build record batch")
+    let blocks: ArrayRef = Arc::new(UInt64Array::from(
+        rows.iter().map(|r| r.block_number).collect::<Vec<_>>(),
+    ));
+    let logidx: ArrayRef = Arc::new(UInt64Array::from(
+        rows.iter().map(|r| r.log_index).collect::<Vec<_>>(),
+    ));
+    let from: ArrayRef = Arc::new(StringArray::from(
+        rows.iter().map(|r| r.from.as_str()).collect::<Vec<_>>(),
+    ));
+    let to: ArrayRef = Arc::new(StringArray::from(
+        rows.iter().map(|r| r.to.as_str()).collect::<Vec<_>>(),
+    ));
+    let value: ArrayRef = Arc::new(StringArray::from(
+        rows.iter()
+            .map(|r| r.value.clone())
+            .collect::<Vec<Option<String>>>(),
+    ));
+    let value_hex: ArrayRef = Arc::new(StringArray::from(
+        rows.iter()
+            .map(|r| r.value_hex.as_str())
+            .collect::<Vec<_>>(),
+    ));
+    let tx: ArrayRef = Arc::new(StringArray::from(
+        rows.iter().map(|r| r.tx_hash.as_str()).collect::<Vec<_>>(),
+    ));
+    RecordBatch::try_new(
+        schema(),
+        vec![blocks, logidx, from, to, value, value_hex, tx],
+    )
+    .context("failed to build record batch")
 }
 
 fn write_parquet(batch: &RecordBatch) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
-    let props = WriterProperties::builder().set_compression(Compression::SNAPPY).build();
+    let props = WriterProperties::builder()
+        .set_compression(Compression::SNAPPY)
+        .build();
     let mut writer = ArrowWriter::try_new(&mut buf, batch.schema(), Some(props))
         .context("failed to create parquet writer")?;
     writer.write(batch).context("failed to write batch")?;
@@ -145,8 +174,14 @@ mod tests {
     #[test]
     fn seals_and_reads_back_a_segment() {
         let dir = tempfile::tempdir().unwrap();
-        let entities = vec![entity(100, 0, "5"), entity(100, 1, "7"), entity(101, 0, "9")];
-        let seg = seal_range(dir.path(), &entities, 100, 101).unwrap().unwrap();
+        let entities = vec![
+            entity(100, 0, "5"),
+            entity(100, 1, "7"),
+            entity(101, 0, "9"),
+        ];
+        let seg = seal_range(dir.path(), &entities, 100, 101)
+            .unwrap()
+            .unwrap();
         assert_eq!(seg.rows, 3);
         assert_eq!((seg.from_block, seg.to_block), (100, 101));
 
@@ -158,7 +193,10 @@ mod tests {
         // The Parquet file reads back with the right rows (round-trips through Arrow).
         let path = dir.path().join(SEGMENTS_DIR).join(&seg.file);
         let file = File::open(path).unwrap();
-        let reader = ParquetRecordBatchReaderBuilder::try_new(file).unwrap().build().unwrap();
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)
+            .unwrap()
+            .build()
+            .unwrap();
         let total: usize = reader.map(|b| b.unwrap().num_rows()).sum();
         assert_eq!(total, 3);
     }
