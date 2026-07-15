@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 use duckdb::types::ValueRef;
 use duckdb::Connection;
 use serde_json::{Map, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Cap DuckDB's working memory so `/sql` can't breach the embedded footprint budget.
 const MEM_LIMIT: &str = "512MB";
@@ -29,6 +29,10 @@ pub fn query(dir: &Path, sql: &str) -> Result<Vec<Value>> {
     ))
     .context("failed to configure DuckDB")?;
     define_views(&conn, dir)?;
+    // A nest can ship derived-entity views (`views/*.sql`) that build on the per-event tables; the
+    // analytical `/sql` surface sees them. Point-reads (`net_balances`, `get_row`) deliberately skip
+    // this — they only touch the raw per-event tables.
+    define_nest_views(&conn, dir);
 
     let mut stmt = conn.prepare(sql).context("failed to prepare query")?;
     let mut rows = stmt.query([]).context("query failed")?;
@@ -132,6 +136,31 @@ fn define_views(conn: &Connection, dir: &Path) -> Result<()> {
             .with_context(|| format!("failed to define view {table}"))?;
     }
     Ok(())
+}
+
+/// Load a nest's derived-entity views from `{dir}/views/*.sql` into the connection, in sorted
+/// filename order (so `10-foo.sql` can build on nothing and `20-bar.sql` can build on foo). Run
+/// after the per-event table views (§4 of RFC-0002), so views may reference `{alias}__{event}`
+/// tables. Best-effort: a view over a table with no sealed segment yet — or a bad statement — is
+/// skipped with a debug log rather than failing the whole query. Nest SQL is authored by the nest
+/// you chose to consume; it runs read-only in this ephemeral in-memory DuckDB, same trust as `/sql`.
+fn define_nest_views(conn: &Connection, dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir.join("views")) else {
+        return; // no views/ dir — nothing to load
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "sql"))
+        .collect();
+    files.sort();
+    for f in files {
+        let Ok(sql) = std::fs::read_to_string(&f) else {
+            continue;
+        };
+        if let Err(e) = conn.execute_batch(&sql) {
+            tracing::debug!("nest view {} skipped: {e}", f.display());
+        }
+    }
 }
 
 /// Big-integer (uint/int > 64-bit) columns per table, read from the nest's `schema.json` (the decode
@@ -296,6 +325,46 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s[0]["s"], Value::from(fits));
+    }
+
+    /// RFC-0002 §4: a nest's `views/*.sql` derived views are loaded and queryable via `/sql`, and
+    /// can build on both the per-event tables and earlier (sorted) view files.
+    #[test]
+    fn nest_defined_views_are_loaded_and_queryable() {
+        let dir = tempfile::tempdir().unwrap();
+        let entities = vec![
+            r#"{"table":"usdc__transfer","from":"0xa","to":"0xb","value":"5","block_number":10,"tx_hash":"0xt","log_index":0}"#.to_string(),
+            r#"{"table":"usdc__transfer","from":"0xa","to":"0xb","value":"7","block_number":11,"tx_hash":"0xu","log_index":0}"#.to_string(),
+            r#"{"table":"usdc__transfer","from":"0xa","to":"0xc","value":"3","block_number":12,"tx_hash":"0xv","log_index":0}"#.to_string(),
+        ];
+        crate::seal::seal_range(dir.path(), &entities, 10, 12).unwrap();
+
+        // Two view files: the second builds on the first — proves sorted load order.
+        std::fs::create_dir_all(dir.path().join("views")).unwrap();
+        std::fs::write(
+            dir.path().join("views/10-recipients.sql"),
+            r#"CREATE VIEW recipients AS SELECT "to" AS addr, count(*) AS n FROM "usdc__transfer" GROUP BY "to";"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("views/20-top_recipient.sql"),
+            "CREATE VIEW top_recipient AS SELECT addr, n FROM recipients ORDER BY n DESC LIMIT 1;",
+        )
+        .unwrap();
+
+        let rows = query(dir.path(), "SELECT addr, n FROM top_recipient").unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["addr"], Value::from("0xb")); // 0xb received 2, 0xc received 1
+        assert_eq!(rows[0]["n"], Value::from(2u64));
+
+        // A broken view file doesn't blow up the surface — the good views still resolve.
+        std::fs::write(
+            dir.path().join("views/30-broken.sql"),
+            "CREATE VIEW broken AS SELECT * FROM nonexistent_table;",
+        )
+        .unwrap();
+        let again = query(dir.path(), "SELECT n FROM recipients WHERE addr = '0xb'").unwrap();
+        assert_eq!(again[0]["n"], Value::from(2u64));
     }
 
     /// RFC-0001 acceptance: `/sql` can JOIN across two per-event tables.

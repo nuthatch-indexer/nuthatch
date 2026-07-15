@@ -106,6 +106,15 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   compares committed fixtures, not a live endpoint, so it runs in CI with no network. `--update`
   re-records fixtures from current results (authoring). Verified live: recorded 5-row fixtures on USDC,
   a matching run passed (exit 0), a tampered fixture failed with a clear diff (exit 1). 43 tests.
+- **2026-07-15 — RFC-0002 step 4a: nest-defined derived-entity views.** A nest can ship
+  `views/*.sql` — DuckDB views over its per-event tables (e.g. fold Created/Resized/Closed into a
+  current-allocation view) — and the analytical `/sql` surface now loads them, in sorted filename
+  order (so `20-*.sql` can build on `10-*.sql`), after the per-event table views. Best-effort: a view
+  over a not-yet-sealed table, or a bad statement, is skipped with a debug log rather than failing
+  the surface. Point-reads deliberately skip them (they touch only raw tables). This is the serving
+  side of the Horizon nest's derived entities; DuckDB views read *sealed* data, so derived entities
+  lag the tip by the finality window (raw tables stay tip-fresh) — the honest freshness tradeoff the
+  RFC documents, and the concrete motivation for IVM generalisation later. 42 tests.
 - **2026-07-15 — RFC-0002 step 3: `init --from` + config schema versioning.** A nest is just a repo
   (committed `nuthatch.toml` + vendored ABIs), so publishing one is `git push` and consuming one is
   `nuthatch init --from <git-url | ./dir>` — no registry service, deliberately. `--from` clones (shallow)
