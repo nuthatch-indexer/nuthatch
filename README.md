@@ -89,6 +89,14 @@ It bridges to the local `nuthatch dev` — no external calls, no telemetry, no g
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-15 — RFC-0001 step 2: multi-contract `init` + `nuthatch.toml` v2.** `init` now takes N
+  addresses (+ optional `--alias`), resolves each ABI to `abis/{alias}.json`, and auto-detects each
+  deployment block via an `eth_getCode` binary search (~25 calls — verified live: USDC→6,082,465,
+  WETH→4,719,568). Config is now a `[nest]` header + `[[contracts]]` array; v1 single-contract files
+  migrate transparently on load. `dev` runs the existing single-contract Transfer path on the nest's
+  primary contract (and warns about the rest) until step 3 generalises decode + storage to every
+  contract via the `DecodeRegistry`. 30 tests green (config migrate/roundtrip, alias validation,
+  deploy binary-search, address normalisation).
 - **2026-07-14 — RFC-0001 step 1: ABI-driven decode engine.** New `src/registry.rs` — a
   `DecodeRegistry` built from N contract ABIs (via alloy-json-abi / alloy-dyn-abi) maps topic0 →
   per-`{alias}__{event}` tables, filters by emitting address, and decodes any log into typed rows

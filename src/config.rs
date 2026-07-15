@@ -1,26 +1,42 @@
-//! The one config file a project has: `nuthatch.toml`. Deliberately tiny.
+//! The one config file a nest has: `nuthatch.toml`.
+//!
+//! v2 (RFC-0001) is a `[nest]` header plus a `[[contracts]]` array — many contracts per nest. A
+//! v1 file (single top-level `address`) is migrated transparently on load, so existing projects
+//! keep working.
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub const CONFIG_FILE: &str = "nuthatch.toml";
-pub const ABI_FILE: &str = "abi.json";
 pub const DB_FILE: &str = "nuthatch.redb";
+/// v1 default ABI filename, retained for migration of old single-contract projects.
+pub const ABI_FILE: &str = "abi.json";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub chain: String,
-    pub chain_id: u64,
-    pub address: String,
-    pub rpc_urls: Vec<String>,
-    /// The event this skeleton decodes. Only "Transfer" is wired up so far.
-    #[serde(default = "default_event")]
-    pub event: String,
+    pub nest: Nest,
+    #[serde(default)]
+    pub contracts: Vec<Contract>,
 }
 
-fn default_event() -> String {
-    "Transfer".to_string()
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Nest {
+    pub name: String,
+    pub chain: String,
+    pub chain_id: u64,
+    pub rpc_urls: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Contract {
+    pub alias: String,
+    pub address: String,
+    /// Deployment block (auto-detected at init); None → backfill from a tip offset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_block: Option<u64>,
+    /// ABI path relative to the nest dir, e.g. "abis/usdc.json".
+    pub abi: String,
 }
 
 impl Config {
@@ -32,7 +48,38 @@ impl Config {
                 dir.display()
             )
         })?;
-        toml::from_str(&raw).context("failed to parse nuthatch.toml")
+        // v2 first; fall back to migrating a v1 file.
+        match toml::from_str::<Config>(&raw) {
+            Ok(cfg) => Ok(cfg),
+            Err(v2_err) => Self::from_v1(&raw).map_err(|v1_err| {
+                anyhow!("nuthatch.toml is neither v2 ({v2_err}) nor v1 ({v1_err})")
+            }),
+        }
+    }
+
+    fn from_v1(raw: &str) -> Result<Config> {
+        #[derive(Deserialize)]
+        struct V1 {
+            chain: String,
+            chain_id: u64,
+            address: String,
+            rpc_urls: Vec<String>,
+        }
+        let v1: V1 = toml::from_str(raw)?;
+        Ok(Config {
+            nest: Nest {
+                name: "nest".to_string(),
+                chain: v1.chain,
+                chain_id: v1.chain_id,
+                rpc_urls: v1.rpc_urls,
+            },
+            contracts: vec![Contract {
+                alias: "c0".to_string(),
+                address: v1.address,
+                start_block: None,
+                abi: ABI_FILE.to_string(),
+            }],
+        })
     }
 
     pub fn save(&self, dir: &Path) -> Result<()> {
@@ -41,5 +88,68 @@ impl Config {
         std::fs::write(&path, raw)
             .with_context(|| format!("failed to write {}", path.display()))?;
         Ok(())
+    }
+
+    /// The first contract — the indexer's single-contract path uses this until step 3 generalises
+    /// decode + storage to every contract in the nest.
+    pub fn primary(&self) -> Result<&Contract> {
+        self.contracts
+            .first()
+            .ok_or_else(|| anyhow!("nest has no contracts"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_a_v1_file() {
+        let v1 = r#"
+            chain = "mainnet"
+            chain_id = 1
+            address = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+            rpc_urls = ["https://rpc.example"]
+            event = "Transfer"
+        "#;
+        let cfg = Config::from_v1(v1).unwrap();
+        assert_eq!(cfg.nest.chain, "mainnet");
+        assert_eq!(cfg.nest.chain_id, 1);
+        assert_eq!(cfg.contracts.len(), 1);
+        assert_eq!(cfg.contracts[0].alias, "c0");
+        assert_eq!(cfg.contracts[0].abi, ABI_FILE);
+        assert!(cfg.contracts[0].start_block.is_none());
+    }
+
+    #[test]
+    fn roundtrips_a_v2_file() {
+        let cfg = Config {
+            nest: Nest {
+                name: "my-nest".into(),
+                chain: "mainnet".into(),
+                chain_id: 1,
+                rpc_urls: vec!["https://rpc.example".into()],
+            },
+            contracts: vec![
+                Contract {
+                    alias: "usdc".into(),
+                    address: "0xaaaa".into(),
+                    start_block: Some(6_082_465),
+                    abi: "abis/usdc.json".into(),
+                },
+                Contract {
+                    alias: "weth".into(),
+                    address: "0xbbbb".into(),
+                    start_block: None,
+                    abi: "abis/weth.json".into(),
+                },
+            ],
+        };
+        let raw = toml::to_string_pretty(&cfg).unwrap();
+        let back: Config = toml::from_str(&raw).unwrap();
+        assert_eq!(back.contracts.len(), 2);
+        assert_eq!(back.contracts[0].start_block, Some(6_082_465));
+        assert_eq!(back.contracts[1].start_block, None);
+        assert_eq!(back.primary().unwrap().alias, "usdc");
     }
 }

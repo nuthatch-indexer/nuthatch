@@ -68,15 +68,3 @@ async fn etherscan(chain_id: u64, address: &str) -> Result<Value> {
     tracing::info!("ABI resolved via Etherscan");
     Ok(abi)
 }
-
-/// Does this ABI declare a `Transfer` event? (The only event the skeleton can decode.)
-pub fn has_transfer_event(abi: &Value) -> bool {
-    abi.as_array()
-        .map(|items| {
-            items.iter().any(|it| {
-                it.get("type").and_then(Value::as_str) == Some("event")
-                    && it.get("name").and_then(Value::as_str) == Some("Transfer")
-            })
-        })
-        .unwrap_or(false)
-}

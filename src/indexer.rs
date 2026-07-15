@@ -28,23 +28,34 @@ const START_BLOCK_KEY: &str = "start_block";
 pub async fn dev(args: DevArgs) -> Result<()> {
     let dir = PathBuf::from(&args.dir);
     let config = Config::load(&dir)?;
+    // Step 2 runs the existing single-contract Transfer path on the nest's primary contract; step 3
+    // generalises decode + storage to every contract via the DecodeRegistry.
+    let primary = config.primary()?.clone();
     let store = Store::open(&dir.join(DB_FILE))?;
     // Today: RPC polling. The indexer only sees `dyn Source`, so an ExEx tip source (feature = "exex")
     // slots in here with no change to anything downstream.
-    let source: Arc<dyn Source> = Arc::new(RpcClient::new(config.rpc_urls.clone())?);
+    let source: Arc<dyn Source> = Arc::new(RpcClient::new(config.nest.rpc_urls.clone())?);
     let balances = BalanceView::start()?;
 
+    if config.contracts.len() > 1 {
+        tracing::warn!(
+            "nest has {} contracts; `dev` indexes only the primary ('{}') until RFC-0001 step 3",
+            config.contracts.len(),
+            primary.alias
+        );
+    }
     tracing::info!(
-        "indexing {} on {} — Transfer events only (skeleton)",
-        config.address,
-        config.chain
+        "indexing {} ({}) on {} — Transfer events only",
+        primary.address,
+        primary.alias,
+        config.nest.chain
     );
 
     // Kick off the indexing loop in the background; serve the API on this task.
     let ingest = tokio::spawn(index_loop(
         source.clone(),
         store.clone(),
-        config.address.clone(),
+        primary.address.clone(),
         args.backfill,
         dir.clone(),
         balances.clone(),
@@ -52,8 +63,8 @@ pub async fn dev(args: DevArgs) -> Result<()> {
 
     let app_state = serve::AppState {
         store: store.clone(),
-        address: config.address.clone(),
-        chain: config.chain.clone(),
+        address: primary.address.clone(),
+        chain: config.nest.chain.clone(),
         dir: dir.clone(),
         balances,
     };
