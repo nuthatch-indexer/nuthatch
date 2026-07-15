@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::chains::{self, Finality};
 use crate::cli::DevArgs;
 use crate::config::{Config, DB_FILE};
 use crate::registry::DecodeRegistry;
@@ -15,12 +16,10 @@ use crate::source::Source;
 use crate::store::Store;
 use crate::views::{self, BalanceView};
 
-/// Block window per `eth_getLogs` call. Kept small so high-volume contracts (e.g. USDC, ~thousands
-/// of Transfers per handful of blocks) stay under public-RPC result-size caps.
-const WINDOW: u64 = 20;
-/// Blocks behind the tip a block must be before we treat it as final and seal it. A conservative
-/// proxy for Ethereum finality (~2 epochs); real finality signals come with the ExEx mode.
-const FINALITY_DEPTH: u64 = 64;
+/// Defaults for a chain not in the registry (a custom `rpc_urls` nest): a small `eth_getLogs` window
+/// and a conservative Ethereum-style finality depth.
+const DEFAULT_WINDOW: u64 = 20;
+const DEFAULT_FINALITY: Finality = Finality::Depth(64);
 const LAST_BLOCK_KEY: &str = "last_block";
 const SEALED_THROUGH_KEY: &str = "sealed_through";
 const START_BLOCK_KEY: &str = "start_block";
@@ -57,13 +56,21 @@ pub async fn dev(args: DevArgs) -> Result<()> {
         .map(|t| format!("0x{}", hex::encode(t)))
         .collect();
 
+    // Per-chain policy from the registry; a custom (unregistered) chain falls back to defaults.
+    let (finality, window) = match chains::lookup(&config.nest.chain) {
+        Some(c) => (c.finality, c.log_window),
+        None => (DEFAULT_FINALITY, DEFAULT_WINDOW),
+    };
+
     tracing::info!(
-        "indexing nest '{}' on {}: {} contract(s), {} table(s), {} anonymous skipped, registry {}…",
+        "indexing nest '{}' on {}: {} contract(s), {} table(s), {} anonymous skipped, finality {:?}, window {}, registry {}…",
         config.nest.name,
         config.nest.chain,
         config.contracts.len(),
         registry.tables().len(),
         registry.skipped_anonymous(),
+        finality,
+        window,
         &hex::encode(registry.hash())[..12],
     );
 
@@ -77,6 +84,8 @@ pub async fn dev(args: DevArgs) -> Result<()> {
         args.backfill,
         dir.clone(),
         balances.clone(),
+        finality,
+        window,
     ));
 
     let app_state = serve::AppState {
@@ -103,6 +112,8 @@ async fn index_loop(
     backfill: u64,
     dir: PathBuf,
     balances: BalanceView,
+    finality: Finality,
+    window: u64,
 ) -> Result<()> {
     // Resume from the last committed block, else start `backfill` blocks behind the tip.
     let mut next = match store.get_meta(LAST_BLOCK_KEY)? {
@@ -158,7 +169,7 @@ async fn index_loop(
             continue;
         }
 
-        let to = (next + WINDOW - 1).min(tip);
+        let to = (next + window - 1).min(tip);
         match source.logs(&addresses, &topic0s, next, to).await {
             Ok(logs) => {
                 let mut stored = 0usize;
@@ -198,8 +209,16 @@ async fn index_loop(
                 }
                 next = to + 1;
 
+                // The highest block considered final under this chain's policy. For an L2 with the
+                // `finalized` tag we ask the node; otherwise (and on tag failure) it's a fixed depth.
+                let finalized_tag = match finality {
+                    Finality::FinalizedTag { .. } => source.finalized().await.ok().flatten(),
+                    Finality::Depth(_) => None,
+                };
+                let finalized_through = seal_ceiling(finality, tip, finalized_tag);
+
                 // Seal any newly-finalized range to an immutable Parquet segment.
-                if let Err(e) = maybe_seal(&dir, &store, tip) {
+                if let Err(e) = maybe_seal(&dir, &store, finalized_through) {
                     tracing::warn!("sealing failed: {e:#}");
                 }
             }
@@ -238,14 +257,24 @@ async fn detect_reorg(source: &dyn Source, store: &Store, last: u64) -> Result<O
     Ok(Some(0))
 }
 
-/// Seal every indexed block that has passed finality but isn't sealed yet, advancing the
-/// `sealed_through` watermark. The hot store is deliberately NOT pruned here (that lands with the
-/// DuckDB serving path), so point-reads keep working against redb meanwhile.
-fn maybe_seal(dir: &std::path::Path, store: &Store, tip: u64) -> Result<()> {
-    if tip < FINALITY_DEPTH {
+/// The highest block safe to seal under `finality`: the `finalized` tag when the chain uses it and
+/// the node serves it, else a fixed depth below the tip. Pure, so the policy is unit-testable.
+fn seal_ceiling(finality: Finality, tip: u64, finalized_tag: Option<u64>) -> u64 {
+    match finality {
+        Finality::Depth(d) => tip.saturating_sub(d),
+        Finality::FinalizedTag { fallback_depth } => match finalized_tag {
+            Some(n) => n.min(tip),
+            None => tip.saturating_sub(fallback_depth),
+        },
+    }
+}
+
+/// Seal every indexed block up to `finalized_through` (the finality-safe ceiling) that isn't sealed
+/// yet, advancing the `sealed_through` watermark and pruning the sealed range from the hot store.
+fn maybe_seal(dir: &std::path::Path, store: &Store, finalized_through: u64) -> Result<()> {
+    if finalized_through == 0 {
         return Ok(());
     }
-    let finalized_through = tip - FINALITY_DEPTH;
     let last_indexed = match store.get_meta(LAST_BLOCK_KEY)? {
         Some(v) => v.parse::<u64>().context("corrupt last_block")?,
         None => return Ok(()),
@@ -389,4 +418,28 @@ fn rebuild_balances(
 
 async fn sleep_secs(s: u64) {
     tokio::time::sleep(std::time::Duration::from_secs(s)).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn depth_finality_seals_behind_the_tip() {
+        assert_eq!(seal_ceiling(Finality::Depth(64), 1000, None), 936);
+        // Never underflow near genesis.
+        assert_eq!(seal_ceiling(Finality::Depth(64), 10, None), 0);
+    }
+
+    #[test]
+    fn finalized_tag_is_used_when_present_else_falls_back() {
+        let f = Finality::FinalizedTag {
+            fallback_depth: 1800,
+        };
+        // Tag present: seal up to it (clamped to tip).
+        assert_eq!(seal_ceiling(f, 10_000, Some(8_500)), 8_500);
+        assert_eq!(seal_ceiling(f, 10_000, Some(10_050)), 10_000);
+        // Tag absent (endpoint doesn't serve it): fixed-depth fallback.
+        assert_eq!(seal_ceiling(f, 10_000, None), 8_200);
+    }
 }

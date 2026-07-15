@@ -97,6 +97,16 @@ It bridges to the local `nuthatch dev` — no external calls, no telemetry, no g
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-15 — RFC-0002 step 1: chain registry + Arbitrum One + L2 finality.** The chain registry
+  generalises beyond mainnet — each chain now carries a **finality policy** and an `eth_getLogs`
+  window, so an L2 is a data entry, not a fork of the indexing loop. New `arbitrum-one` (chain 42161,
+  keyless RPCs) uses a `FinalizedTag` policy: it prefers the node's L1-aware `finalized` block tag
+  (correct by construction on an L2), falling back to a fixed depth (~7.5 min) when an endpoint
+  doesn't serve the tag. `Source` gained `finalized()`; the seal ceiling is now a pure, unit-tested
+  `seal_ceiling(finality, tip, tag)`. Mainnet keeps `Depth(64)`/window 20; Arbitrum uses window 2000
+  (sparse events, fast blocks). Verified live: `init 0x00669A…eF03 --chain arbitrum-one` resolved the
+  Horizon staking proxy via Sourcify (28 tables); `dev` sealed exactly up to Arbitrum's live
+  `finalized` block (484091237, *not* the depth fallback), 2000-block windows. 39 tests (+5).
 - **2026-07-15 — RFC-0001 finished to the letter.** Closed the last deviations between the shipped
   indexer and RFC-0001's design. **u256 SQL ergonomics (§2):** every big-integer column now gets two
   derived DuckDB view columns — `{col}_dec` (the value as `DECIMAL(38,0)` when it fits, else NULL) and

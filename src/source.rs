@@ -24,6 +24,12 @@ pub trait Source: Send + Sync {
     /// Canonical block hash at `number`, or `None` if the source can't answer (retry later).
     async fn block_hash(&self, number: u64) -> Result<Option<String>>;
 
+    /// The source's `finalized` block number, if it exposes one (L1-aware on an L2). `None` means
+    /// "no finalized signal available" — the caller falls back to a depth-based finality policy.
+    async fn finalized(&self) -> Result<Option<u64>> {
+        Ok(None)
+    }
+
     /// Logs matching any of `addresses` + any of `topic0s` over the inclusive range `[from, to]`.
     async fn logs(
         &self,
@@ -43,6 +49,10 @@ impl Source for RpcClient {
     async fn block_hash(&self, number: u64) -> Result<Option<String>> {
         // Disambiguate from this trait method — call the inherent one.
         RpcClient::block_hash(self, number).await
+    }
+
+    async fn finalized(&self) -> Result<Option<u64>> {
+        self.finalized_block().await
     }
 
     async fn logs(
