@@ -99,6 +99,18 @@ impl RpcClient {
         Ok(result.as_str().unwrap_or("0x").to_string())
     }
 
+    /// The node's `finalized` block number (L1-aware on an L2 like Arbitrum), or None if the
+    /// endpoint doesn't serve the `finalized` tag. Used by the `FinalizedTag` finality policy.
+    pub async fn finalized_block(&self) -> Result<Option<u64>> {
+        let result = self
+            .call("eth_getBlockByNumber", json!(["finalized", false]))
+            .await?;
+        Ok(result
+            .get("number")
+            .and_then(Value::as_str)
+            .and_then(|s| parse_hex_u64(s).ok()))
+    }
+
     /// Canonical block hash for a height, or None if the node doesn't have that block.
     pub async fn block_hash(&self, number: u64) -> Result<Option<String>> {
         let result = self
