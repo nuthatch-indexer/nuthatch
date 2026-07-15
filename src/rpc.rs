@@ -82,6 +82,14 @@ impl RpcClient {
         parse_hex_u64(result.as_str().unwrap_or_default())
     }
 
+    /// Contract bytecode at `address` as of `block`. `"0x"` (empty) means not yet deployed.
+    pub async fn get_code(&self, address: &str, block: u64) -> Result<String> {
+        let result = self
+            .call("eth_getCode", json!([address, format!("0x{block:x}")]))
+            .await?;
+        Ok(result.as_str().unwrap_or("0x").to_string())
+    }
+
     /// Canonical block hash for a height, or None if the node doesn't have that block.
     pub async fn block_hash(&self, number: u64) -> Result<Option<String>> {
         let result = self

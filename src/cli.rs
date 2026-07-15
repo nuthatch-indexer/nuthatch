@@ -48,8 +48,13 @@ pub struct TransformArgs {
 
 #[derive(Args)]
 pub struct InitArgs {
-    /// Contract address to index, e.g. 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 (USDC).
-    pub address: String,
+    /// One or more contract addresses to index, e.g. 0xA0b8…eB48 (USDC).
+    #[arg(required = true, num_args = 1..)]
+    pub addresses: Vec<String>,
+
+    /// Optional aliases, one per address in order (comma-separated). Defaults to c0, c1, ….
+    #[arg(long, value_delimiter = ',')]
+    pub alias: Vec<String>,
 
     /// Chain to index. Currently: mainnet.
     #[arg(long, default_value = "mainnet")]
