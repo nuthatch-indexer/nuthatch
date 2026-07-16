@@ -153,7 +153,20 @@ pub struct DevArgs {
     #[arg(long, default_value = "127.0.0.1:8288")]
     pub listen: String,
 
-    /// How many blocks back from the tip to begin the (skeleton) backfill.
-    #[arg(long, default_value_t = 5_000)]
-    pub backfill: u64,
+    /// Index only this many blocks back from the tip (recent-history mode). Explicitly overrides a
+    /// nest's vendored `start_block`s. Omit to backfill from deployment when the nest declares start
+    /// blocks, else from a default recent window.
+    #[arg(long)]
+    pub backfill: Option<u64>,
+
+    /// Backfill finalized history straight to Parquet (skip the hot store) before tip-following —
+    /// much faster for a from-deployment backfill (RFC-0004). The near-tip window still uses the hot
+    /// path; the IVM view is rebuilt from the sealed segments.
+    #[arg(long)]
+    pub seal_direct: bool,
+
+    /// Concurrent window fetches during the seal-direct history backfill (overlaps RPC latency).
+    /// Try 8–16 against your own node; keep low on rate-limited public RPC.
+    #[arg(long, default_value_t = 1)]
+    pub concurrency: usize,
 }
