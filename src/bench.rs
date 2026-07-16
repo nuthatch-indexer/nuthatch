@@ -44,6 +44,7 @@ pub struct BenchReport {
     pub blocks: u64,
     pub window: u64,
     pub seal_direct: bool,
+    pub concurrency: usize,
     pub runs: usize,
     /// Medians across runs.
     pub events: u64,
@@ -92,11 +93,16 @@ pub async fn backfill(args: BackfillBenchArgs) -> Result<()> {
     );
 
     println!(
-        "storage path: {}",
+        "storage path: {}{}",
         if args.seal_direct {
             "seal-direct (decode → Parquet, no hot store)"
         } else {
             "hot store (decode → redb)"
+        },
+        if args.seal_direct && args.concurrency > 1 {
+            format!(", {}-way concurrent fetch", args.concurrency)
+        } else {
+            String::new()
         }
     );
 
@@ -111,6 +117,7 @@ pub async fn backfill(args: BackfillBenchArgs) -> Result<()> {
             args.to,
             window,
             args.seal_direct,
+            args.concurrency,
             run,
         )
         .await?;
@@ -131,6 +138,11 @@ pub async fn backfill(args: BackfillBenchArgs) -> Result<()> {
         blocks: args.to - args.from + 1,
         window,
         seal_direct: args.seal_direct,
+        concurrency: if args.seal_direct {
+            args.concurrency
+        } else {
+            1
+        },
         runs: args.runs,
         events: median_u64(runs.iter().map(|r| r.events)),
         wall_clock_s: round2(median_f64(runs.iter().map(|r| r.wall_clock_s))),
@@ -159,6 +171,7 @@ async fn one_run(
     to: u64,
     window: u64,
     seal_direct: bool,
+    concurrency: usize,
     run: usize,
 ) -> Result<Run> {
     let source = RpcClient::new(rpc_urls.to_vec())?;
@@ -169,7 +182,21 @@ async fn one_run(
 
     let rss = RssSampler::start();
     let start = Instant::now();
-    let events = if seal_direct {
+    let events = if seal_direct && concurrency > 1 {
+        // Pipelined seal-direct: concurrent fetch, in-order deterministic sealing.
+        crate::indexer::backfill_direct_pipelined(
+            &source,
+            registry,
+            &work,
+            addresses,
+            topic0s,
+            from,
+            to,
+            window,
+            concurrency,
+        )
+        .await?
+    } else if seal_direct {
         // Seal-direct: decode → Parquet, bypassing the hot store. Exactly the production path.
         crate::indexer::backfill_direct(
             &source, registry, &work, addresses, topic0s, from, to, window,

@@ -192,6 +192,87 @@ pub async fn backfill_direct(
     Ok(total)
 }
 
+/// Concurrent-fetch variant of [`backfill_direct`]: up to `concurrency` window fetches are in flight
+/// at once (overlapping the RPC round-trip latency that dominates once the storage path is cheap),
+/// while results are consumed strictly **in block order** — so the buffered rows, the batch
+/// boundaries, and therefore the sealed segments are identical to the sequential path. `buffered`
+/// preserves input order, which is what makes concurrency safe for content-addressed sealing.
+#[allow(clippy::too_many_arguments)]
+pub async fn backfill_direct_pipelined(
+    source: &dyn Source,
+    registry: &DecodeRegistry,
+    dir: &std::path::Path,
+    addresses: &[String],
+    topic0s: &[String],
+    from: u64,
+    to: u64,
+    window: u64,
+    concurrency: usize,
+) -> Result<u64> {
+    use futures::stream::StreamExt;
+
+    let mut windows = Vec::new();
+    let mut n = from;
+    while n <= to {
+        let chunk_to = (n + window - 1).min(to);
+        windows.push((n, chunk_to));
+        n = chunk_to + 1;
+    }
+
+    // Each window future fetches logs + timestamps and returns its decoded rows as JSON. Borrows
+    // (`source`, `registry`, filters) are shared across the concurrent futures — fine, they run on
+    // one task; `buffered` yields them back in window order.
+    let mut stream = futures::stream::iter(windows)
+        .map(|(w_from, w_to)| async move {
+            let logs = source
+                .logs(addresses, topic0s, w_from, w_to)
+                .await
+                .with_context(|| format!("getLogs {w_from}..={w_to}"))?;
+            let mut rows: Vec<_> = logs
+                .iter()
+                .filter_map(|log| match registry.decode(log) {
+                    Ok(Some(r)) => Some(r),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::debug!("decode skipped: {e:#}");
+                        None
+                    }
+                })
+                .collect();
+            let mut blocks: Vec<u64> = rows.iter().map(|r| r.block_number).collect();
+            blocks.sort_unstable();
+            blocks.dedup();
+            let ts = source.block_timestamps(&blocks).await.unwrap_or_default();
+            let json: Vec<String> = rows
+                .iter_mut()
+                .map(|r| {
+                    r.block_timestamp = ts.get(&r.block_number).copied().unwrap_or(0);
+                    r.to_json().to_string()
+                })
+                .collect();
+            Ok::<(u64, Vec<String>), anyhow::Error>((w_to, json))
+        })
+        .buffered(concurrency.max(1));
+
+    let mut buf: Vec<String> = Vec::new();
+    let mut batch_from = from;
+    let mut total = 0u64;
+    while let Some(res) = stream.next().await {
+        let (w_to, json) = res?;
+        total += json.len() as u64;
+        buf.extend(json);
+        if buf.len() >= SEAL_DIRECT_BATCH {
+            seal::seal_range(dir, &buf, batch_from, w_to)?;
+            buf.clear();
+            batch_from = w_to + 1;
+        }
+    }
+    if !buf.is_empty() {
+        seal::seal_range(dir, &buf, batch_from, to)?;
+    }
+    Ok(total)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn index_loop(
     source: Arc<dyn Source>,
@@ -580,5 +661,126 @@ mod tests {
         assert_eq!(seal_ceiling(f, 10_000, Some(10_050)), 10_000);
         // Tag absent (endpoint doesn't serve it): fixed-depth fallback.
         assert_eq!(seal_ceiling(f, 10_000, None), 8_200);
+    }
+
+    // A Source backed by canned logs — lets us drive both backfill paths deterministically, offline.
+    struct MockSource {
+        logs: Vec<crate::rpc::Log>,
+    }
+
+    #[async_trait::async_trait]
+    impl Source for MockSource {
+        async fn tip(&self) -> Result<u64> {
+            Ok(self.logs.iter().map(|l| l.block_number).max().unwrap_or(0))
+        }
+        async fn block_hash(&self, _n: u64) -> Result<Option<String>> {
+            Ok(None)
+        }
+        async fn logs(
+            &self,
+            _a: &[String],
+            _t: &[String],
+            from: u64,
+            to: u64,
+        ) -> Result<Vec<crate::rpc::Log>> {
+            Ok(self
+                .logs
+                .iter()
+                .filter(|l| l.block_number >= from && l.block_number <= to)
+                .cloned()
+                .collect())
+        }
+        async fn block_timestamps(
+            &self,
+            blocks: &[u64],
+        ) -> Result<std::collections::HashMap<u64, u64>> {
+            Ok(blocks.iter().map(|&b| (b, b * 1000)).collect())
+        }
+    }
+
+    fn transfer_log(block: u64, li: u64) -> crate::rpc::Log {
+        crate::rpc::Log {
+            address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".into(),
+            topics: vec![
+                "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef".into(),
+                "0x000000000000000000000000943f303a8019652d3a14b29954b2d780dde42ca3".into(),
+                "0x000000000000000000000000db5985dbd132b9e5cc4bf0a18a8fb04a396ba0a0".into(),
+            ],
+            data: "0x000000000000000000000000000000000000000000000000000000001cd4ad20".into(),
+            block_number: block,
+            block_hash: "0xbh".into(),
+            tx_hash: "0xtx".into(),
+            log_index: li,
+        }
+    }
+
+    /// RFC-0004 §3: the pipelined (concurrent-fetch) backfill produces **byte-identical** segments to
+    /// the sequential path — concurrency overlaps latency without changing the output.
+    #[tokio::test]
+    async fn pipelined_backfill_matches_sequential() {
+        use crate::registry::{ContractSpec, DecodeRegistry};
+        const ERC20: &str = r#"[{"type":"event","name":"Transfer","inputs":[
+            {"name":"from","type":"address","indexed":true},
+            {"name":"to","type":"address","indexed":true},
+            {"name":"value","type":"uint256","indexed":false}],"anonymous":false}]"#;
+        let abi: alloy_json_abi::JsonAbi = serde_json::from_str(ERC20).unwrap();
+        let addr: alloy_primitives::Address = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+            .parse()
+            .unwrap();
+        let reg = DecodeRegistry::build(vec![ContractSpec {
+            alias: "usdc".into(),
+            address: addr,
+            abi,
+        }])
+        .unwrap();
+
+        let logs: Vec<_> = (10u64..40)
+            .flat_map(|b| [transfer_log(b, 0), transfer_log(b, 1)])
+            .collect();
+        let source = MockSource { logs };
+        let addresses: Vec<String> = reg
+            .addresses()
+            .iter()
+            .map(|a| format!("0x{}", hex::encode(a)))
+            .collect();
+        let topic0s: Vec<String> = reg
+            .topic0s()
+            .iter()
+            .map(|t| format!("0x{}", hex::encode(t)))
+            .collect();
+
+        let d_seq = tempfile::tempdir().unwrap();
+        let seq = backfill_direct(&source, &reg, d_seq.path(), &addresses, &topic0s, 10, 39, 5)
+            .await
+            .unwrap();
+        let d_pipe = tempfile::tempdir().unwrap();
+        let pipe = backfill_direct_pipelined(
+            &source,
+            &reg,
+            d_pipe.path(),
+            &addresses,
+            &topic0s,
+            10,
+            39,
+            5,
+            8,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(seq, pipe, "same event count");
+        assert!(seq > 0);
+        let hashes = |dir: &std::path::Path| -> Vec<(String, String)> {
+            let m = seal::load_manifest(dir).unwrap();
+            m.tables
+                .iter()
+                .flat_map(|(t, segs)| segs.iter().map(move |s| (t.clone(), s.hash.clone())))
+                .collect()
+        };
+        assert_eq!(
+            hashes(d_seq.path()),
+            hashes(d_pipe.path()),
+            "concurrency must not change the sealed bytes"
+        );
     }
 }

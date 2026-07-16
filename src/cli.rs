@@ -75,6 +75,11 @@ pub struct BackfillBenchArgs {
     /// default decode → redb hot-store path. Use to compare the two backfill storage paths.
     #[arg(long)]
     pub seal_direct: bool,
+
+    /// Concurrent window fetches (seal-direct only). >1 overlaps RPC round-trip latency; results are
+    /// still consumed in block order so segments are identical. Try 8–16 against your own node.
+    #[arg(long, default_value_t = 1)]
+    pub concurrency: usize,
 }
 
 #[derive(Args)]

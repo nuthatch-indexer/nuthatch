@@ -4245,6 +4245,7 @@ dependencies = [
  "clap",
  "dbsp",
  "duckdb",
+ "futures",
  "hex",
  "parquet",
  "proptest",
