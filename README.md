@@ -97,6 +97,16 @@ It bridges to the local `nuthatch dev` — no external calls, no telemetry, no g
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-16 — RFC-0004 step 4: `dev --seal-direct` (the 20× in production) + backfill-semantics
+  fix.** The seal-direct + pipeline win now lives in `dev`, not just the bench. `nuthatch dev
+  --seal-direct [--concurrency K]` runs a **phased** cold-start backfill: fast-seal the finalized
+  history straight to Parquet (no redb), rebuild the IVM view from those segments, then hand the
+  near-tip window to the normal hot loop. Verified live on USDC: 39,943 rows sealed in ~8 s, 9,615
+  holders rebuilt from cold, then tip-following resumed cleanly. **Also fixes a regression** the CI
+  footprint job caught: since `dev` learned to honour vendored `start_block`s, `--backfill` was being
+  silently ignored on a nest that declares them. Now `--backfill N` is an `Option` that **explicitly
+  overrides** `start_block` (recent-history mode); omitting it backfills from deployment. `cold_start_block`
+  policy tightened + re-tested. 51 tests.
 - **2026-07-16 — RFC-0004 step 3: pipelined backfill (~20× stacked, measured).** With storage cheap
   (seal-direct), wall-clock is dominated by sequential `getLogs` latency. `indexer::backfill_direct_pipelined`
   fetches `K` windows concurrently (`futures::stream::buffered`) but consumes results **in block

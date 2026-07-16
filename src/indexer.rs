@@ -23,6 +23,8 @@ const DEFAULT_FINALITY: Finality = Finality::Depth(64);
 const LAST_BLOCK_KEY: &str = "last_block";
 const SEALED_THROUGH_KEY: &str = "sealed_through";
 const START_BLOCK_KEY: &str = "start_block";
+/// Cold-start origin when a nest declares neither `start_block`s nor an explicit `--backfill`.
+const DEFAULT_BACKFILL: u64 = 5_000;
 
 /// `nuthatch dev` — the RPC front-end. Builds an RPC `Source` from the nest's `rpc_urls` and runs
 /// the shared pipeline. The colocated-reth front-end (`nuthatch-node`, RFC-0003) builds an ExEx
@@ -33,18 +35,30 @@ pub async fn dev(args: DevArgs) -> Result<()> {
     // Today: RPC polling. The indexer only sees `dyn Source`, so an ExEx tip source slots in here
     // with no change to anything downstream.
     let source: Arc<dyn Source> = Arc::new(RpcClient::new(config.nest.rpc_urls.clone())?);
-    run(source, dir, config, args.listen, args.backfill).await
+    run(
+        source,
+        dir,
+        config,
+        args.listen,
+        args.backfill,
+        args.seal_direct,
+        args.concurrency,
+    )
+    .await
 }
 
 /// Run the indexing pipeline against any `Source` and serve the API — the source-agnostic entry both
 /// front-ends share. Decode → hot store → seal → IVM → serve is identical regardless of whether tips
 /// arrive by RPC polling or in-process from a reth ExEx.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     source: Arc<dyn Source>,
     dir: PathBuf,
     config: Config,
     listen: String,
-    backfill: u64,
+    backfill: Option<u64>,
+    seal_direct: bool,
+    concurrency: usize,
 ) -> Result<()> {
     let store = Store::open(&dir.join(DB_FILE))?;
     // The decode registry drives all contracts; the indexer decodes every declared event of every
@@ -107,6 +121,8 @@ pub async fn run(
         balances.clone(),
         finality,
         window,
+        seal_direct,
+        concurrency,
     ));
 
     let app_state = serve::AppState {
@@ -280,13 +296,55 @@ async fn index_loop(
     registry: Arc<DecodeRegistry>,
     addresses: Vec<String>,
     topic0s: Vec<String>,
-    backfill: u64,
+    backfill: Option<u64>,
     start_block: Option<u64>,
     dir: PathBuf,
     balances: BalanceView,
     finality: Finality,
     window: u64,
+    seal_direct: bool,
+    concurrency: usize,
 ) -> Result<()> {
+    // Phase 0 (cold start, `--seal-direct`): fast-seal the finalized history straight to Parquet,
+    // bypassing the hot store, then rebuild the IVM view from those segments. The tip-following loop
+    // below picks up from where this left off and handles the near-tip (un-finalized) window the
+    // normal way. Nothing here can reorg — it is all strictly past finality.
+    if seal_direct && store.get_meta(LAST_BLOCK_KEY)?.is_none() {
+        let tip = source.tip().await?;
+        let origin = cold_start_block(start_block, backfill, tip);
+        let finalized_tag = match finality {
+            Finality::FinalizedTag { .. } => source.finalized().await.ok().flatten(),
+            Finality::Depth(_) => None,
+        };
+        let finalized_through = seal_ceiling(finality, tip, finalized_tag);
+        if origin <= finalized_through {
+            store.set_meta(START_BLOCK_KEY, &origin.to_string())?;
+            tracing::info!(
+                "seal-direct backfill: {origin}..={finalized_through} (tip {tip}, {concurrency}-way)…"
+            );
+            let sealed = backfill_direct_pipelined(
+                source.as_ref(),
+                &registry,
+                &dir,
+                &addresses,
+                &topic0s,
+                origin,
+                finalized_through,
+                window,
+                concurrency,
+            )
+            .await?;
+            store.set_meta(SEALED_THROUGH_KEY, &finalized_through.to_string())?;
+            store.set_meta(LAST_BLOCK_KEY, &finalized_through.to_string())?;
+            tracing::info!(
+                "seal-direct backfill done: {sealed} rows sealed over {origin}..={finalized_through}"
+            );
+            if let Err(e) = rebuild_balances(&dir, &store, &registry, &balances) {
+                tracing::warn!("balance rebuild after seal-direct failed: {e:#}");
+            }
+        }
+    }
+
     // Resume from the last committed block; on a cold start, backfill from the nest's earliest
     // vendored deployment block (full history) if it has one, else from `--backfill` behind the tip.
     let mut next = match store.get_meta(LAST_BLOCK_KEY)? {
@@ -295,14 +353,12 @@ async fn index_loop(
             let tip = source.tip().await?;
             let start = cold_start_block(start_block, backfill, tip);
             store.set_meta(START_BLOCK_KEY, &start.to_string())?;
-            match start_block {
-                Some(b) => {
-                    tracing::info!("cold start: backfilling from deployment block {b} (tip {tip})")
-                }
-                None => {
-                    tracing::info!("cold start: backfilling from block {start} (tip {tip})")
-                }
-            }
+            let src = if backfill.is_none() && start_block.is_some() {
+                " (from deployment)"
+            } else {
+                ""
+            };
+            tracing::info!("cold start: backfilling from block {start}{src} (tip {tip})");
             start
         }
     };
@@ -454,13 +510,15 @@ async fn detect_reorg(source: &dyn Source, store: &Store, last: u64) -> Result<O
     Ok(Some(0))
 }
 
-/// Where a cold start begins backfilling: the nest's earliest vendored deployment block (clamped to
-/// the tip) when present — full history from deployment — else `--backfill` blocks behind the tip.
-/// Pure, so the origin policy is unit-testable.
-fn cold_start_block(start_block: Option<u64>, backfill: u64, tip: u64) -> u64 {
-    match start_block {
-        Some(b) => b.min(tip),
-        None => tip.saturating_sub(backfill),
+/// Where a cold start begins backfilling. An explicit `--backfill N` always wins — "index the last N
+/// blocks", overriding a vendored deploy block (this is what keeps the recent-history use working on
+/// a nest that declares start blocks). Otherwise, the nest's earliest vendored `start_block` gives
+/// full history from deployment; failing that, a default recent window. Pure, so it's unit-testable.
+fn cold_start_block(start_block: Option<u64>, backfill: Option<u64>, tip: u64) -> u64 {
+    match (backfill, start_block) {
+        (Some(n), _) => tip.saturating_sub(n),
+        (None, Some(b)) => b.min(tip),
+        (None, None) => tip.saturating_sub(DEFAULT_BACKFILL),
     }
 }
 
@@ -632,16 +690,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cold_start_prefers_vendored_deploy_block() {
-        // A vendored start_block wins (full history), clamped to the tip.
+    fn cold_start_origin_policy() {
+        // No --backfill + vendored start_block → full history from deployment (clamped to tip).
         assert_eq!(
-            cold_start_block(Some(42_449_585), 5_000, 484_000_000),
+            cold_start_block(Some(42_449_585), None, 484_000_000),
             42_449_585
         );
-        assert_eq!(cold_start_block(Some(999), 5_000, 500), 500); // clamp to tip
-                                                                  // No start_block → fall back to the --backfill offset.
-        assert_eq!(cold_start_block(None, 5_000, 1_000_000), 995_000);
-        assert_eq!(cold_start_block(None, 5_000, 100), 0); // no underflow
+        assert_eq!(cold_start_block(Some(999), None, 500), 500); // clamp to tip
+                                                                 // Explicit --backfill always wins — recent-history mode, even with a start_block present.
+        assert_eq!(
+            cold_start_block(Some(42_449_585), Some(200), 484_000_000),
+            483_999_800
+        );
+        assert_eq!(cold_start_block(None, Some(5_000), 1_000_000), 995_000);
+        assert_eq!(cold_start_block(None, Some(5_000), 100), 0); // no underflow
+                                                                 // Neither → a default recent window.
+        assert_eq!(cold_start_block(None, None, 1_000_000), 995_000);
     }
 
     #[test]
