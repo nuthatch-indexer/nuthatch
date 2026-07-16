@@ -4,12 +4,14 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 pub struct RpcClient {
     http: reqwest::Client,
     urls: Vec<String>,
     cursor: AtomicUsize,
+    /// Total HTTP requests attempted (incl. failover retries) — a benchmark/observability metric.
+    requests: AtomicU64,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +41,13 @@ impl RpcClient {
             http,
             urls,
             cursor: AtomicUsize::new(0),
+            requests: AtomicU64::new(0),
         })
+    }
+
+    /// Total HTTP requests attempted so far (including failover retries).
+    pub fn request_count(&self) -> u64 {
+        self.requests.load(Ordering::Relaxed)
     }
 
     /// Try each endpoint once, starting from the round-robin cursor, until one answers.
@@ -49,6 +57,7 @@ impl RpcClient {
         let mut last_err = anyhow!("all RPC endpoints failed");
         for i in 0..n {
             let url = &self.urls[(start + i) % n];
+            self.requests.fetch_add(1, Ordering::Relaxed);
             match self.call_one(url, method, &params).await {
                 Ok(v) => return Ok(v),
                 Err(e) => {
@@ -68,6 +77,7 @@ impl RpcClient {
         let mut last_err = anyhow!("all RPC endpoints failed");
         for i in 0..n {
             let url = &self.urls[(start + i) % n];
+            self.requests.fetch_add(1, Ordering::Relaxed);
             match self.post_one(url, body).await {
                 Ok(v) => return Ok(v),
                 Err(e) => {

@@ -25,6 +25,51 @@ pub enum Command {
     Mcp(McpArgs),
     /// Run a nest's invariant/parity checks (`checks/*.sql`) against recorded expected results.
     Check(CheckArgs),
+    /// Benchmark the indexing pipeline (measure first, optimise second — RFC-0004).
+    Bench(BenchArgs),
+}
+
+#[derive(Args)]
+pub struct BenchArgs {
+    #[command(subcommand)]
+    pub what: BenchWhat,
+}
+
+#[derive(Subcommand)]
+pub enum BenchWhat {
+    /// Measure backfill throughput (events/sec, wall-clock, peak RSS) over a pinned block range.
+    Backfill(BackfillBenchArgs),
+}
+
+#[derive(Args)]
+pub struct BackfillBenchArgs {
+    /// Nest directory (must contain a `nuthatch.toml`).
+    #[arg(long, default_value = ".")]
+    pub dir: String,
+
+    /// First block of the pinned range (inclusive).
+    #[arg(long)]
+    pub from: u64,
+
+    /// Last block of the pinned range (inclusive).
+    #[arg(long)]
+    pub to: u64,
+
+    /// How many runs to take (the report is the median). Public RPC is noisy — 3 is sensible.
+    #[arg(long, default_value_t = 3)]
+    pub runs: usize,
+
+    /// Override the nest's `rpc_urls` (e.g. point at your own archive node for a T2 run).
+    #[arg(long)]
+    pub rpc: Option<String>,
+
+    /// Write the bench-report JSON here (e.g. `docs/bench/w1.json`). Prints to stdout regardless.
+    #[arg(long)]
+    pub out: Option<String>,
+
+    /// A label for the workload in the report (e.g. "W1: USDC 100k dense").
+    #[arg(long)]
+    pub label: Option<String>,
 }
 
 #[derive(Args)]

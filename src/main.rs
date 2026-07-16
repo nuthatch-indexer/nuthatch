@@ -8,7 +8,7 @@
 //! redb-only storage (no DuckDB/Parquet yet), no IVM, no MCP. Those are the next layers to grow
 //! onto this spine — see docs/ROADMAP as it lands. What matters here is that it's *alive*.
 
-use nuthatch::{check, cli, config, indexer, mcp, project, store, transform};
+use nuthatch::{bench, check, cli, config, indexer, mcp, project, store, transform};
 
 use anyhow::Result;
 use clap::Parser;
@@ -29,6 +29,9 @@ async fn main() -> Result<()> {
         cli::Command::Transform(args) => run_transform(args),
         cli::Command::Mcp(args) => mcp::serve(args.url).await,
         cli::Command::Check(args) => check::check(args),
+        cli::Command::Bench(args) => match args.what {
+            cli::BenchWhat::Backfill(a) => bench::backfill(a).await,
+        },
     }
 }
 
