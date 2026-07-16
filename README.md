@@ -97,6 +97,16 @@ It bridges to the local `nuthatch dev` — no external calls, no telemetry, no g
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-16 — RFC-0004 step 1: `nuthatch bench backfill` (measure first).** An honest,
+  reproducible backfill-throughput harness — runs the real fetch → decode → store path over a *pinned*
+  block range and reports the **median** of events/sec, wall-clock, peak RSS, and RPC requests (incl.
+  failover retries), emitting a `bench-report.json`. Throwaway store per run; `--rpc` overrides the
+  endpoints for an own-node tier. The house rule is codified: every published number traces to a
+  report artifact — no hand-typed figures. Nothing is optimised yet; this is the baseline the
+  seal-direct / adaptive-chunker / pipeline slices must each beat on a measured before/after. Added
+  `RpcClient::request_count()` and `docs/benchmarks.md` (methodology, workloads W1–W3, tiers T1–T3).
+  Verified live: USDC over 201 blocks = 21,171 events in 53.6 s = ~395 ev/s, 47 MB peak, on public
+  RPC (latency-bound, single-threaded — exactly the number the optimisations target). 49 tests.
 - **2026-07-15 — RFC-0003 groundwork: source-agnostic `indexer::run`.** Split `dev` into the RPC
   front-end (builds an `RpcClient` source) and a shared `run(source, dir, config, listen, backfill)`
   that drives the whole pipeline — decode → hot store → seal → IVM → serve — against any `Source`.

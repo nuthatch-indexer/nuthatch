@@ -7,6 +7,7 @@
 
 pub mod abi;
 pub mod analytics;
+pub mod bench;
 pub mod chains;
 pub mod check;
 pub mod cli;
