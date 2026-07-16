@@ -107,6 +107,14 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   metrics, lifecycle, 0.x stability contract). The `/sql` guards themselves (timeout + row cap +
   concurrency) already shipped. Verified live: `/metrics` served real values, bind warning fired on
   `0.0.0.0`, SIGTERM exited 0. 63 tests (+2).
+- **2026-07-16 — RFC-0005 step 1: Base chain registry entry.** Adds `base` (chain 8453, OP-stack) to
+  the registry — keyless Base RPCs, the same L1-aware `FinalizedTag` finality policy as Arbitrum, a
+  moderate `log_window` the adaptive chunker tunes. Completes the operator launch matrix the RFC-0005
+  (v2) release criteria call for (Ethereum + Arbitrum One + Base), an afternoon of registry work under
+  the RFC-0002 §1 design. Verified live: Base serves the `finalized` tag (latest vs finalized ~470
+  blocks apart), and `init 0x8335…2913 --chain base` resolved Base USDC via Sourcify and `dev` decoded
+  6,516 Base events. (RFC-0005 rewritten to v2: adds the GraphOps operator channel — OCI image,
+  `/metrics`, query guards, config-stability contract — as first-class v0.1.0 release criteria.)
 - **2026-07-16 — RFC-0004 step 5: adaptive `getLogs` range chunker.** Replaces the fixed per-chain
   window with a controller (`chunker::AdaptiveWindow`) targeting ~2,000 logs/response: overshoot or a
   provider "result too large" error shrinks it (and retries the same range), an undershoot grows it —
