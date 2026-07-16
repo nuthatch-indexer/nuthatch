@@ -19,6 +19,7 @@ use crate::seal;
 use crate::serve;
 use crate::source::Source;
 use crate::store::Store;
+use crate::velocity::{self, VelocityView};
 use crate::views::{self, BalanceView};
 
 /// Defaults for a chain not in the registry (a custom `rpc_urls` nest): a small `eth_getLogs` window
@@ -88,14 +89,31 @@ pub async fn run(
         &config.screening.lists,
     )?);
 
-    // Warm restart: the derived views (balances, exposure) aren't persisted, so rebuild them from
-    // stored facts before serving or ingesting. On a cold start there is nothing stored → no-op.
+    // Optional threshold & velocity flags (RFC-0008 C3). Threshold flags are per-transfer stored
+    // annotations (block-keyed → roll back with their transfer); velocity is a DBSP windowed view
+    // (rebuilt on restart like balances/exposure).
+    let threshold = config.flags.threshold_amount();
+    let velocity_cfg = config.flags.velocity();
+    let velocity = VelocityView::start()?;
+    if threshold.is_some() || velocity_cfg.is_some() {
+        tracing::info!("flags enabled: threshold={threshold:?}, velocity={velocity_cfg:?}");
+    }
+
+    // Warm restart: the derived views (balances, exposure, velocity) aren't persisted, so rebuild
+    // them from stored facts before serving or ingesting. Cold start → nothing stored → no-op.
     if store.get_meta(LAST_BLOCK_KEY)?.is_some() {
         if let Err(e) = rebuild_balances(&dir, &store, &registry, &balances) {
             tracing::warn!("balance view rebuild failed (will re-derive as it indexes): {e:#}");
         }
         if let Err(e) = rebuild_exposure(&dir, &store, &registry, &labels, &exposure) {
             tracing::warn!("exposure view rebuild failed (will re-derive as it indexes): {e:#}");
+        }
+        if let Some((_, w)) = velocity_cfg {
+            if let Err(e) = rebuild_velocity(&dir, &store, &registry, w, &velocity) {
+                tracing::warn!(
+                    "velocity view rebuild failed (will re-derive as it indexes): {e:#}"
+                );
+            }
         }
     }
 
@@ -147,6 +165,9 @@ pub async fn run(
         exposure.clone(),
         labels.clone(),
         screener.clone(),
+        velocity.clone(),
+        threshold,
+        velocity_cfg,
         finality,
         window,
         seal_direct,
@@ -160,6 +181,9 @@ pub async fn run(
         dir: dir.clone(),
         balances,
         exposure,
+        velocity,
+        threshold,
+        velocity_threshold: velocity_cfg.map(|(amt, _)| amt),
         tables: Arc::new(registry.schema()),
         sql_gate: Arc::new(tokio::sync::Semaphore::new(serve::SQL_MAX_CONCURRENCY)),
     };
@@ -345,6 +369,9 @@ async fn index_loop(
     exposure: ExposureView,
     labels: Arc<LabelSet>,
     screener: Arc<Option<LiveScreener>>,
+    velocity: VelocityView,
+    threshold: Option<i128>,
+    velocity_cfg: Option<(i128, u64)>,
     finality: Finality,
     window: u64,
     seal_direct: bool,
@@ -389,6 +416,11 @@ async fn index_loop(
             }
             if let Err(e) = rebuild_exposure(&dir, &store, &registry, &labels, &exposure) {
                 tracing::warn!("exposure rebuild after seal-direct failed: {e:#}");
+            }
+            if let Some((_, w)) = velocity_cfg {
+                if let Err(e) = rebuild_velocity(&dir, &store, &registry, w, &velocity) {
+                    tracing::warn!("velocity rebuild after seal-direct failed: {e:#}");
+                }
             }
         }
     }
@@ -439,6 +471,9 @@ async fn index_loop(
                     let doomed = store.entities_in_range(ancestor + 1, last_indexed)?;
                     balances.apply(retraction_batch(&doomed));
                     exposure.apply(exposure_retraction_batch(&doomed, &registry, &labels));
+                    if let Some((_, w)) = velocity_cfg {
+                        velocity.apply(velocity_retraction_batch(&doomed, &registry, w));
+                    }
 
                     let removed = store.rollback_to(ancestor)?;
                     store.set_meta(LAST_BLOCK_KEY, &ancestor.to_string())?;
@@ -490,6 +525,7 @@ async fn index_loop(
                 let mut stored = 0usize;
                 let mut deltas = Vec::new();
                 let mut exp_deltas = Vec::new();
+                let mut vel_deltas = Vec::new();
                 // Transfers to screen this window (only collected when screening is on).
                 let mut to_screen: Vec<TransferRow> = Vec::new();
                 for row in &mut rows {
@@ -502,6 +538,30 @@ async fn index_loop(
                             // Direct exposure to the labeled set (empty when neither side is labeled).
                             exp_deltas
                                 .extend(exposure::exposure_deltas(&from, &to_addr, v, 1, &labels));
+                            // Velocity: the sender's outbound volume in this block's window (C3).
+                            if let Some((_, w)) = velocity_cfg {
+                                vel_deltas.extend(velocity::velocity_deltas(
+                                    &from,
+                                    row.block_number,
+                                    v,
+                                    1,
+                                    w,
+                                ));
+                            }
+                            // Threshold flag: a single transfer at/above the configured amount (C3).
+                            if let Some(t) = threshold {
+                                if let Some((fkey, ann)) = crate::flags::threshold_annotation(
+                                    &from,
+                                    &to_addr,
+                                    v,
+                                    row.block_number,
+                                    row.log_index,
+                                    &row.tx_hash,
+                                    t,
+                                ) {
+                                    store.put_entity(&fkey, &ann.to_string())?;
+                                }
+                            }
                         }
                         if screener.is_some() {
                             to_screen.push(TransferRow {
@@ -521,6 +581,7 @@ async fn index_loop(
                 }
                 balances.apply(deltas);
                 exposure.apply(exp_deltas);
+                velocity.apply(vel_deltas);
 
                 // Live sanctions screening (RFC-0008 C2): screen this window's transfers against the
                 // configured list snapshots and store `sanction_hit` annotations. They share the
@@ -751,6 +812,44 @@ fn exposure_retraction_batch(
     batch
 }
 
+/// Build a weight −1 velocity retraction batch from rolled-back transfer rows (reorg). Re-derives the
+/// sender's outbound-volume delta the live path fed, with weight −1, so a reorged velocity flag drops.
+fn velocity_retraction_batch(
+    entity_json: &[String],
+    registry: &DecodeRegistry,
+    window: u64,
+) -> velocity::VelocityBatch {
+    let cols: std::collections::HashMap<String, (String, String)> = registry
+        .tables()
+        .iter()
+        .filter_map(|d| {
+            d.transfer_columns()
+                .map(|(f, _t, v)| (d.table.clone(), (f.to_string(), v.to_string())))
+        })
+        .collect();
+
+    let mut batch = Vec::new();
+    for j in entity_json {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(j) else {
+            continue;
+        };
+        let Some(table) = v.get("table").and_then(|t| t.as_str()) else {
+            continue;
+        };
+        let Some((from_col, val_col)) = cols.get(table) else {
+            continue;
+        };
+        if let (Some(from), Some(block), Some(val)) = (
+            v[from_col].as_str(),
+            v["block_number"].as_u64(),
+            v[val_col].as_str().and_then(|s| s.parse::<i128>().ok()),
+        ) {
+            batch.extend(velocity::velocity_deltas(from, block, val, -1, window));
+        }
+    }
+    batch
+}
+
 /// Rebuild the in-memory IVM balance view from stored facts on a warm restart. The view is derived
 /// state, not durable state — so rather than persist it (and risk drift from the canonical store),
 /// we reconstruct it from the facts that *are* durable, using the same circuit that maintains it
@@ -897,6 +996,73 @@ fn rebuild_exposure(
     tracing::info!(
         "rebuilt exposure view: {} entries ({cold} cold-seeded + {hot} hot transfer(s) replayed)",
         exposure.entries()
+    );
+    Ok(())
+}
+
+/// Rebuild the derived velocity view on a warm restart (RFC-0008 C3), mirroring `rebuild_exposure`:
+/// cold sealed segments fold to pre-summed (address, window) volume+count in DuckDB and seed; only
+/// the un-sealed hot tail replays. Windowing is by `window` (the same block-bucketing the live path
+/// uses), so cold and hot land in identical buckets.
+fn rebuild_velocity(
+    dir: &std::path::Path,
+    store: &Store,
+    registry: &DecodeRegistry,
+    window: u64,
+    velocity: &VelocityView,
+) -> Result<()> {
+    let transfer_tables: Vec<(String, String, String)> = registry
+        .tables()
+        .iter()
+        .filter_map(|d| {
+            d.transfer_columns()
+                .map(|(f, _t, v)| (d.table.clone(), f.to_string(), v.to_string()))
+        })
+        .collect();
+    if transfer_tables.is_empty() {
+        return Ok(());
+    }
+
+    let mut batch: velocity::VelocityBatch = Vec::new();
+
+    let mut cold = 0usize;
+    for (table, from_col, val_col) in &transfer_tables {
+        match crate::analytics::cold_velocity(dir, table, from_col, val_col, window) {
+            Ok(rows) => {
+                cold += rows.len();
+                for (key, volume, count) in rows {
+                    batch.push(velocity::seed_item(key, volume, count));
+                }
+            }
+            Err(e) => tracing::debug!("no cold velocity seed for {table}: {e:#}"),
+        }
+    }
+
+    let mut hot = 0usize;
+    for (table, from_col, val_col) in &transfer_tables {
+        for raw in store.recent_by_table(table, usize::MAX).unwrap_or_default() {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                continue;
+            };
+            if let (Some(from), Some(block), Some(val)) = (
+                v[from_col].as_str(),
+                v["block_number"].as_u64(),
+                v[val_col].as_str().and_then(|s| s.parse::<i128>().ok()),
+            ) {
+                batch.extend(velocity::velocity_deltas(from, block, val, 1, window));
+                hot += 1;
+            }
+        }
+    }
+
+    if batch.is_empty() {
+        return Ok(());
+    }
+    velocity.apply(batch);
+    velocity.flush();
+    tracing::info!(
+        "rebuilt velocity view: {} bucket(s) ({cold} cold-seeded + {hot} hot transfer(s) replayed)",
+        velocity.entries()
     );
     Ok(())
 }

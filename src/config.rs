@@ -31,6 +31,9 @@ pub struct Config {
     /// annotations. Absent → no screening, zero cost. Not serialised when empty (keeps nests clean).
     #[serde(default, skip_serializing_if = "Screening::is_empty")]
     pub screening: Screening,
+    /// Optional threshold & velocity flags (RFC-0008 C3). Absent → no flags, zero cost.
+    #[serde(default, skip_serializing_if = "Flags::is_empty")]
+    pub flags: Flags,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -43,6 +46,49 @@ pub struct Screening {
 impl Screening {
     fn is_empty(&self) -> bool {
         self.lists.is_empty()
+    }
+}
+
+/// Threshold & velocity flag configuration (RFC-0008 C3). Amounts are token **base units** as decimal
+/// strings (i128 — no currency conversion in-core, per the RFC). Both flavours are opt-in.
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct Flags {
+    /// Flag any single transfer whose value ≥ this many base units (travel-rule style).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<String>,
+    /// Flag an address whose outbound volume within a block-window reaches this many base units.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_amount: Option<String>,
+    /// The velocity block-window size. Blocks, not wall-clock: an honest approximation of "~24h"
+    /// (≈ 7200 blocks on 12s-block mainnet). Defaults to [`DEFAULT_VELOCITY_WINDOW`] when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_window: Option<u64>,
+}
+
+/// Default velocity window (~24h of 12s mainnet blocks). Documented as a block-count approximation.
+pub const DEFAULT_VELOCITY_WINDOW: u64 = 7_200;
+
+impl Flags {
+    fn is_empty(&self) -> bool {
+        self.threshold.is_none() && self.velocity_amount.is_none() && self.velocity_window.is_none()
+    }
+
+    /// The single-transfer threshold in base units, if configured and parseable.
+    pub fn threshold_amount(&self) -> Option<i128> {
+        self.threshold.as_deref().and_then(|s| s.parse().ok())
+    }
+
+    /// The velocity `(amount, window)` in `(base units, blocks)`, if an amount is configured.
+    pub fn velocity(&self) -> Option<(i128, u64)> {
+        let amount = self
+            .velocity_amount
+            .as_deref()
+            .and_then(|s| s.parse::<i128>().ok())?;
+        let window = self
+            .velocity_window
+            .unwrap_or(DEFAULT_VELOCITY_WINDOW)
+            .max(1);
+        Some((amount, window))
     }
 }
 
@@ -118,6 +164,7 @@ impl Config {
                 abi: ABI_FILE.to_string(),
             }],
             screening: Screening::default(),
+            flags: Flags::default(),
         })
     }
 
@@ -185,6 +232,7 @@ mod tests {
                 },
             ],
             screening: Screening::default(),
+            flags: Flags::default(),
         };
         let raw = toml::to_string_pretty(&cfg).unwrap();
         let back: Config = toml::from_str(&raw).unwrap();
