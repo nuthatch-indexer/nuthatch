@@ -32,9 +32,11 @@ remains is the scaled (Postgres / DataFusion) mode and wiring reth ExEx to a nod
 | MCP server (stdio, 8 tools, offline) + `schema.json` + `llms.txt` + `.claude/skills` scaffold | |
 | redb hot store, entity point-reads with cold (DuckDB) fallback | |
 
-Scope today: **one chain (Ethereum), all contract events decoded across a multi-contract nest, RPC
-polling (reth ExEx designed + stubbed), embedded storage (redb hot + DuckDB/Parquet cold).**
-Multi-chain and the scaled mode are not built yet.
+Scope today (**v0.1.0**): **Ethereum + Arbitrum One + Base**, all contract events decoded across a
+multi-contract nest, RPC polling (reth ExEx designed + stubbed), embedded storage (redb hot +
+DuckDB/Parquet cold), ~20× faster seal-direct backfill, and an operator surface (`/metrics`, `/sql`
+guards, graceful shutdown). The scaled (Postgres/DataFusion) mode and reth ExEx tip-following are the
+main things not built yet.
 
 ### Measured footprint (the number nobody else publishes)
 
@@ -107,6 +109,11 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   metrics, lifecycle, 0.x stability contract). The `/sql` guards themselves (timeout + row cap +
   concurrency) already shipped. Verified live: `/metrics` served real values, bind warning fired on
   `0.0.0.0`, SIGTERM exited 0. 63 tests (+2).
+- **2026-07-16 — v0.1.0 release.** First tagged release: multi-contract full-ABI decode across
+  Ethereum + Arbitrum One + Base, finality-sealed Parquet + DuckDB SQL, DBSP i128 balance view, the
+  ~20× seal-direct/pipelined backfill, and the operator surface (`/metrics`, `/sql` guards, graceful
+  shutdown). Published to crates.io and as prebuilt binaries on the GitHub Release. `cargo install`
+  compiles on rustc ≥ 1.95; the binaries are the recommended path (no compile, no toolchain quirks).
 - **2026-07-16 — RFC-0005 step 1: Base chain registry entry.** Adds `base` (chain 8453, OP-stack) to
   the registry — keyless Base RPCs, the same L1-aware `FinalizedTag` finality policy as Arbitrum, a
   moderate `log_window` the adaptive chunker tunes. Completes the operator launch matrix the RFC-0005
