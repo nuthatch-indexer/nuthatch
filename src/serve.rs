@@ -18,6 +18,7 @@ use crate::analytics;
 use crate::exposure::ExposureView;
 use crate::registry::TableSchema;
 use crate::store::Store;
+use crate::velocity::VelocityView;
 use crate::views::BalanceView;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -45,6 +46,12 @@ pub struct AppState {
     pub balances: BalanceView,
     /// Direct counterparty-exposure to the labeled set (RFC-0008 C1) — served at `/exposure/{addr}`.
     pub exposure: ExposureView,
+    /// Windowed per-address velocity view (RFC-0008 C3) — served at `/flags?kind=velocity`.
+    pub velocity: VelocityView,
+    /// Single-transfer threshold in base units, if configured (RFC-0008 C3) — for `/`'s flag summary.
+    pub threshold: Option<i128>,
+    /// Velocity flag threshold in base units, if configured — the cutoff `/flags?kind=velocity` uses.
+    pub velocity_threshold: Option<i128>,
     /// The nest's table schemas (from the decode registry) — the source of truth for `/tables`.
     pub tables: Arc<Vec<TableSchema>>,
     /// Admission control for the analytical (DuckDB) surface: bounds how many `/sql` and cold
@@ -66,6 +73,7 @@ pub async fn run(listen: &str, state: AppState) -> Result<()> {
         .route("/balances", get(balances))
         .route("/balance/{address}", get(balance))
         .route("/exposure/{address}", get(exposure))
+        .route("/flags", get(flags))
         // Count every served request for `/metrics` (the operator's billing signal).
         .layer(axum::middleware::from_fn(count_request))
         .with_state(state);
@@ -151,8 +159,9 @@ async fn summary(State(s): State<AppState>) -> impl IntoResponse {
         "sealed_through": s.store.get_meta("sealed_through").ok().flatten(),
         "holders": s.balances.holders(),
         "exposure_entries": s.exposure.entries(),
+        "velocity_buckets": s.velocity.entries(),
         "tables": s.tables.len(),
-        "views": ["balances (IVM)", "exposure (IVM)"],
+        "views": ["balances (IVM)", "exposure (IVM)", "velocity (IVM)"],
         "endpoints": [
             "/health",
             "/tables",
@@ -163,6 +172,7 @@ async fn summary(State(s): State<AppState>) -> impl IntoResponse {
             "/balances?limit=100",
             "/balance/{address}",
             "/exposure/{address}",
+            "/flags?kind=threshold|velocity",
         ],
     }))
 }
@@ -417,6 +427,73 @@ async fn exposure(State(s): State<AppState>, Path(address): Path<String>) -> imp
     Json(json!({ "address": address, "count": items.len(), "exposure": items }))
 }
 
+#[derive(Deserialize)]
+struct FlagsQuery {
+    kind: Option<String>,
+    limit: Option<usize>,
+}
+
+/// Compliance flags (RFC-0008 C3). `?kind=velocity` returns the live windowed velocity flags (address
+/// volume ≥ the configured threshold within a block-window); `?kind=threshold` returns recent
+/// `threshold_flag` annotations (hot store; the full sealed history is at `/sql SELECT * FROM
+/// threshold_flag`). Omit `kind` for both. Amounts are i128 base units, serialised as decimal strings.
+async fn flags(State(s): State<AppState>, Query(q): Query<FlagsQuery>) -> impl IntoResponse {
+    let limit = q.limit.unwrap_or(100).min(1000);
+    let kind = q.kind.as_deref();
+
+    let velocity = |s: &AppState| -> Vec<Value> {
+        let threshold = s.velocity_threshold.unwrap_or(i128::MIN);
+        s.velocity
+            .flags(threshold)
+            .into_iter()
+            .take(limit)
+            .map(|f| {
+                json!({
+                    "address": f.address,
+                    "window_start": f.window_start,
+                    "count": f.count.to_string(),
+                    "volume": f.volume.to_string(),
+                })
+            })
+            .collect()
+    };
+    // Recent threshold_flag annotations from the hot store (newest first). Sealed history via /sql.
+    let threshold = |s: &AppState| -> Vec<Value> {
+        s.store
+            .recent_by_table("threshold_flag", limit)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|r| serde_json::from_str::<Value>(r).ok())
+            .collect()
+    };
+
+    match kind {
+        Some("velocity") => Json(json!({
+            "kind": "velocity",
+            "threshold": s.velocity_threshold.map(|t| t.to_string()),
+            "flags": velocity(&s),
+        }))
+        .into_response(),
+        Some("threshold") => Json(json!({
+            "kind": "threshold",
+            "threshold": s.threshold.map(|t| t.to_string()),
+            "flags": threshold(&s),
+            "note": "recent hot flags; full sealed history: /sql?q=SELECT * FROM threshold_flag",
+        }))
+        .into_response(),
+        Some(other) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": format!("unknown flag kind '{other}' (want: threshold, velocity)") })),
+        )
+            .into_response(),
+        None => Json(json!({
+            "threshold": { "configured": s.threshold.map(|t| t.to_string()), "flags": threshold(&s) },
+            "velocity": { "configured": s.velocity_threshold.map(|t| t.to_string()), "flags": velocity(&s) },
+        }))
+        .into_response(),
+    }
+}
+
 /// Parse an entity id `{block:012}-{log_index:06}` back into its components.
 fn parse_id(id: &str) -> Option<(u64, u64)> {
     let (b, l) = id.split_once('-')?;
@@ -453,6 +530,9 @@ mod tests {
             dir: dir.to_path_buf(),
             balances: BalanceView::start().unwrap(),
             exposure: ExposureView::start().unwrap(),
+            velocity: VelocityView::start().unwrap(),
+            threshold: None,
+            velocity_threshold: None,
             tables: Arc::new(vec![]),
             sql_gate: Arc::new(Semaphore::new(permits)),
         }

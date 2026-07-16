@@ -31,6 +31,7 @@ remains is the scaled (Postgres / DataFusion) mode and wiring reth ExEx to a nod
 | IVM restart-replay — the views rebuild from stored facts on restart | |
 | Labels + direct counterparty-exposure view (DBSP) — content-addressed label snapshots, `/exposure/{addr}` | threshold/velocity flags, effectful worlds, alert webhooks (RFC-0008 C3–C6) |
 | Pure sanctions screening — content-addressed list snapshots × a zero-capability WASM component → sealed `sanction_hit` annotations, replayable `nuthatch screen` | signed pack manifest + `pack verify` / `audit replay` (RFC-0008 C6) |
+| Threshold & velocity flags — per-transfer `threshold_flag` annotations + a DBSP windowed velocity view (i128, reorg = retraction), served at `/flags` | effectful worlds + alert webhooks (RFC-0008 C4–C5) |
 | WASM transform runtime (pure, sandboxed, batched Arrow) | |
 | MCP server (stdio, 8 tools, offline) + `schema.json` + `llms.txt` + `.claude/skills` scaffold | |
 | redb hot store, entity point-reads with cold (DuckDB) fallback | |
@@ -101,6 +102,26 @@ It bridges to the local `nuthatch dev` — no external calls, no telemetry, no g
 ## Progress log
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
+
+- **2026-07-16 — RFC-0008 C3: threshold & velocity flags.** Two flavours of compliance flag, both
+  configured in `nuthatch.toml` (`[flags]`), amounts in token **base units** (i128 — no currency
+  conversion in-core). **Threshold** (`flags.threshold`): any single transfer ≥ N becomes an
+  append-only `threshold_flag` annotation, block-keyed so it seals to its own Parquet table and rolls
+  back with its transfer — a pure per-transfer predicate, no aggregation needed. **Velocity**
+  (`flags.velocity_amount` + `velocity_window`): a new DBSP windowed view (`velocity.rs`, the same IVM
+  machinery as balances/exposure) tracking per-address outbound volume + count per **tumbling
+  block-bucket** — an honest, documented approximation of "~24h" (blocks, not wall-clock; a true
+  sliding window would need per-block aging). A reorg re-feeds the transfer at weight −1 and the
+  bucket's volume retracts, so an invalidated flag disappears; restart-safe via `rebuild_velocity`
+  (cold DuckDB fold + hot replay, like the other views). Both served at **`/flags?kind=threshold|
+  velocity`** (velocity from the live view; threshold's sealed history via `/sql SELECT * FROM
+  threshold_flag`). **Gate met:** golden tests for the velocity aggregate + retraction convergence and
+  the threshold predicate, both with the **i128 overflow-adjacent** case the RFC asks for; 86 tests
+  green, clippy clean. Verified live on USDC (threshold 100k, velocity 1M over 50-block windows):
+  `/flags?kind=threshold` surfaced 148k & 1.4M-USDC transfers (168 sealed), `/flags?kind=velocity`
+  surfaced an address moving 90M USDC across 11 transfers in one window; 3,384 velocity buckets tracked.
+  6 new tests (+4 velocity, +2 flags). Reorg retraction wired for velocity; threshold flags roll back
+  via the block-keyed store.
 
 - **2026-07-16 — RFC-0008 C2: pure sanctions screening.** The audit centrepiece: screening is a
   **pure, zero-capability WASM component**, and lists are **content-addressed data** — so every hit

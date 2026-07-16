@@ -254,6 +254,40 @@ pub fn cold_exposure(
     Ok(out)
 }
 
+/// Cold velocity fold (RFC-0008 C3): per-address outbound volume + count per tumbling block-window,
+/// summed in DuckDB over one sealed transfer table — the restart re-seed for the velocity view (as
+/// `net_balances`/`cold_exposure` are for their views). Returns `(encoded_key, volume, count)` where
+/// the key is `address\u{1f}window_start`, matching `velocity::seed_item`. Registry-derived names.
+pub fn cold_velocity(
+    dir: &Path,
+    table: &str,
+    from_col: &str,
+    value_col: &str,
+    window: u64,
+) -> Result<Vec<(String, i128, i128)>> {
+    let w = window.max(1);
+    // window_start = (block // W) * W; sum outbound volume + count per (sender, window).
+    let sql = format!(
+        "SELECT lower(\"{from_col}\") AS addr, (block_number / {w}) * {w} AS ws, \
+                SUM(TRY_CAST(\"{value_col}\" AS HUGEINT))::VARCHAR AS vol, COUNT(*) AS cnt \
+         FROM \"{table}\" GROUP BY addr, ws"
+    );
+    let mut out = Vec::new();
+    for r in query(dir, &sql)? {
+        let (Some(addr), Some(ws), Some(cnt)) =
+            (r["addr"].as_str(), r["ws"].as_u64(), r["cnt"].as_i64())
+        else {
+            continue;
+        };
+        let vol = r["vol"]
+            .as_str()
+            .and_then(|s| s.parse::<i128>().ok())
+            .unwrap_or(0);
+        out.push((format!("{addr}\u{1f}{ws}"), vol, cnt as i128));
+    }
+    Ok(out)
+}
+
 /// Define a read-only `labels` view over the content-addressed snapshots in `dir/labels/*.json`
 /// (each a flat JSON array of `{address, label}`). No snapshots → no view, so joins against it are
 /// only attempted when labels exist. Addresses are lower-cased for a clean join with decoded hex.
