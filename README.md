@@ -105,6 +105,15 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   blocks apart), and `init 0x8335…2913 --chain base` resolved Base USDC via Sourcify and `dev` decoded
   6,516 Base events. (RFC-0005 rewritten to v2: adds the GraphOps operator channel — OCI image,
   `/metrics`, query guards, config-stability contract — as first-class v0.1.0 release criteria.)
+- **2026-07-16 — RFC-0004 step 5: adaptive `getLogs` range chunker.** Replaces the fixed per-chain
+  window with a controller (`chunker::AdaptiveWindow`) targeting ~2,000 logs/response: overshoot or a
+  provider "result too large" error shrinks it (and retries the same range), an undershoot grows it —
+  multiplicative, damped to 4×/step, bounded. One bit of code now handles dense (USDC) and sparse
+  (Horizon) ranges and self-heals into any provider's result cap, instead of hand-tuning a constant.
+  Wired into both the tip-following loop and `backfill_direct`; `is_result_too_large` matches the major
+  providers' cap phrasings. Verified: footprint green (41 MB / 2,412 transfers), 6 new tests.
+  _(This push also carries the in-progress `/sql` `QueryGuard` hardening — wall-clock deadline + row
+  cap + a concurrency semaphore — that was in the working tree; bundled because it shares `indexer.rs`.)_
 - **2026-07-16 — RFC-0004 step 4: `dev --seal-direct` (the 20× in production) + backfill-semantics
   fix.** The seal-direct + pipeline win now lives in `dev`, not just the bench. `nuthatch dev
   --seal-direct [--concurrency K]` runs a **phased** cold-start backfill: fast-seal the finalized
