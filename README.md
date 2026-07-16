@@ -31,7 +31,8 @@ remains is the scaled (Postgres / DataFusion) mode and wiring reth ExEx to a nod
 | IVM restart-replay — the views rebuild from stored facts on restart | |
 | Labels + direct counterparty-exposure view (DBSP) — content-addressed label snapshots, `/exposure/{addr}` | threshold/velocity flags, effectful worlds, alert webhooks (RFC-0008 C3–C6) |
 | Pure sanctions screening — content-addressed list snapshots × a zero-capability WASM component → sealed `sanction_hit` annotations, replayable `nuthatch screen` | signed pack manifest + `pack verify` / `audit replay` (RFC-0008 C6) |
-| Threshold & velocity flags — per-transfer `threshold_flag` annotations + a DBSP windowed velocity view (i128, reorg = retraction), served at `/flags` | effectful worlds + alert webhooks (RFC-0008 C4–C5) |
+| Threshold & velocity flags — per-transfer `threshold_flag` annotations + a DBSP windowed velocity view (i128, reorg = retraction), served at `/flags` | alert webhooks (RFC-0008 C5) |
+| Effectful WASM stages — per-component capability grants (`kv` now, HTTP next), imports checked against the grant at load, annotations-only output | outbound-HTTP wiring + `alert-webhook` (RFC-0008 C5) |
 | WASM transform runtime (pure, sandboxed, batched Arrow) | |
 | MCP server (stdio, 8 tools, offline) + `schema.json` + `llms.txt` + `.claude/skills` scaffold | |
 | redb hot store, entity point-reads with cold (DuckDB) fallback | |
@@ -102,6 +103,26 @@ It bridges to the local `nuthatch dev` — no external calls, no telemetry, no g
 ## Progress log
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
+
+- **2026-07-16 — RFC-0008 C4: effectful worlds (the capability-injection model).** The machinery that
+  lets a WASM stage reach the outside world — but only as far as it is *granted*. Ported from liminal's
+  per-component capability injection, adapted to the batched-Arrow boundary. New `wit/effectful.wit`: a
+  host-provided **`kv`** capability (get/set) and an `effectful` stage world (`effectful-kv`) that
+  imports it — the import makes the capability requirement visible in the component's *type*. New
+  `src/effectful.rs` host runtime with **two enforcement layers**: (1) it reads the component's actual
+  imports (`component_type().imports()`) and **refuses to load** one whose imports exceed its declared
+  `Grants` — a clear error, before instantiation, no code inspection; (2) the linker is wired with only
+  base WASI + the granted capabilities, so an ungranted import can't even instantiate. Grants come from
+  the host (the pack manifest in C6), never the component; an effectful stage has no import that could
+  write canonical entities, so **"annotations only" is enforced by the absence of the capability**, not
+  by convention. New toy guest `components/recurrence/` (imports `kv`, keeps a per-address seen-count
+  across batches — state a pure stage can't hold — emits `(address, seen)` annotations); its `kv`
+  import is visible via `wasm-tools component wit`. **Gate met:** (1) loading the kv-importing component
+  with no grant is rejected with a clear error; (2) with `kv` granted it runs and its state persists
+  across batches. 88 tests green, clippy clean. *Transparent slice boundary: outbound-HTTP (`wasi:http`)
+  is in the `Grants` model + the import check already, but its linker wiring lands in C5, where the
+  `alert-webhook` stage actually needs it. C4 has no indexer wiring — effectful stages are wired to
+  consume flag/hit deltas in C5.* +2 tests (the two gate cases).
 
 - **2026-07-16 — RFC-0008 C3: threshold & velocity flags.** Two flavours of compliance flag, both
   configured in `nuthatch.toml` (`[flags]`), amounts in token **base units** (i128 — no currency

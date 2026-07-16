@@ -13,6 +13,7 @@ pub mod check;
 pub mod chunker;
 pub mod cli;
 pub mod config;
+pub mod effectful;
 pub mod exposure;
 pub mod flags;
 pub mod indexer;
