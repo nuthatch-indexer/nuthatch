@@ -97,6 +97,15 @@ It bridges to the local `nuthatch dev` — no external calls, no telemetry, no g
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-16 — RFC-0004 step 3: pipelined backfill (~20× stacked, measured).** With storage cheap
+  (seal-direct), wall-clock is dominated by sequential `getLogs` latency. `indexer::backfill_direct_pipelined`
+  fetches `K` windows concurrently (`futures::stream::buffered`) but consumes results **in block
+  order** — so the sealed segments are byte-identical to the sequential path (proven by
+  `pipelined_backfill_matches_sequential`); concurrency overlaps latency without touching the output.
+  Exposed via `bench backfill --seal-direct --concurrency K`. Measured on USDC (same 120 blocks, same
+  ~24 requests): seal-direct 2,420 ev/s → **8-way pipeline 5,837 ev/s (~2.4×)**, stacking to **~20×
+  over the redb baseline** (289 ev/s). Public-RPC-bound here (4 endpoints); higher against an own node.
+  RSS 62 MB (K windows in flight — bounded, within budget). 51 tests (+1 determinism).
 - **2026-07-16 — RFC-0004 step 2: seal-direct backfill (~8.7× measured).** Past-finality history can
   skip the hot store entirely: `indexer::backfill_direct` streams decode → buffered rows →
   content-addressed Parquet segments, no redb write, no read-back, no prune — with the same implicit

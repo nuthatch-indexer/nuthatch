@@ -67,6 +67,29 @@ nuthatch bench backfill --dir <nest> --from A --to B                 # hot store
 nuthatch bench backfill --dir <nest> --from A --to B --seal-direct   # seal-direct
 ```
 
+## Pipeline (`--concurrency K`, seal-direct only)
+
+Once the storage path is cheap, wall-clock is dominated by sequential `getLogs` round-trip latency.
+The pipeline fetches `K` windows concurrently (`futures::stream::buffered`) but consumes results
+**in block order**, so the sealed segments are byte-identical to the sequential path (asserted by
+`indexer::pipelined_backfill_matches_sequential`). Bounded in-flight windows cap RSS.
+
+Stacked measured result (USDC, same 120 blocks, public RPC, same ~24 requests):
+
+| Path | events/sec | vs hot store |
+|---|---|---|
+| hot store (decode → redb) | 289 | 1× |
+| seal-direct | 2,420 | 8.4× |
+| seal-direct + 8-way pipeline | **5,837** | **~20×** |
+
+```sh
+nuthatch bench backfill --dir <nest> --from A --to B --seal-direct --concurrency 8
+```
+
+The pipeline's 2.4× here is bounded by the four public endpoints the requests spread across; against
+your own node (`--rpc`, `--concurrency 16`) it goes further. RSS rose to ~62 MB with 8 windows in
+flight — bounded by `K` and well within the 256 MB budget.
+
 ## Baseline matrix (pre-optimization)
 
 _Pending — the full W1–W3 × T1–T3 matrix is populated from archive-node runs (needed for the
