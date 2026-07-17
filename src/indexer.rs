@@ -44,7 +44,18 @@ pub async fn dev(args: DevArgs) -> Result<()> {
     // with no change to anything downstream. `--rpc` overrides are tried ahead of the configured
     // endpoints without touching the nest's config on disk.
     let rpc_urls = crate::rpc::merge_rpcs(&args.rpc, config.nest.rpc_urls.clone());
+    let endpoint_count = rpc_urls.len();
     let source: Arc<dyn Source> = Arc::new(RpcClient::new(rpc_urls)?);
+    // Guard the single-endpoint backfill deadlock (see `safe_backfill_concurrency`).
+    let concurrency = safe_backfill_concurrency(endpoint_count, args.concurrency);
+    if concurrency < args.concurrency {
+        tracing::warn!(
+            "single RPC endpoint: capping seal-direct backfill concurrency {} → {} (high concurrency \
+             to one host can stall the runtime); configure multiple rpc_urls for a parallel backfill",
+            args.concurrency,
+            concurrency
+        );
+    }
     run(
         source,
         dir,
@@ -52,7 +63,7 @@ pub async fn dev(args: DevArgs) -> Result<()> {
         args.listen,
         args.backfill,
         args.seal_direct,
-        args.concurrency,
+        concurrency,
         args.window,
         args.no_admin,
     )
@@ -1012,6 +1023,21 @@ async fn detect_reorg(source: &dyn Source, store: &Store, last: u64) -> Result<O
 /// blocks", overriding a vendored deploy block (this is what keeps the recent-history use working on
 /// a nest that declares start blocks). Otherwise, the nest's earliest vendored `start_block` gives
 /// full history from deployment; failing that, a default recent window. Pure, so it's unit-testable.
+/// The seal-direct backfill concurrency that's safe for the configured endpoints. A *single* RPC host
+/// can't absorb a high-concurrency backfill: many concurrent requests to one host stall the whole
+/// tokio runtime — a lost wakeup that parks every worker and never fires, so even the per-request
+/// timeout can't rescue it, and the backfill hangs forever (reproduced at `--concurrency 8` to one
+/// host; multiple hosts spread the load over separate connections and never hit it). So a single
+/// endpoint is capped to sequential; two or more keep the requested parallelism. The caller logs the
+/// cap so the operator knows to add endpoints for a faster backfill.
+fn safe_backfill_concurrency(endpoint_count: usize, requested: usize) -> usize {
+    if endpoint_count <= 1 {
+        1
+    } else {
+        requested
+    }
+}
+
 /// The `eth_getLogs` window to use: an explicit `--window` override, else the chain default. A zero
 /// override is ignored (a zero-block window can't make progress).
 fn effective_window(override_: Option<u64>, chain_window: u64) -> u64 {
@@ -1993,6 +2019,17 @@ template = "pool"
         assert_eq!(effective_window(Some(50_000), 2_000), 50_000);
         // A zero override is ignored — a zero-block window can't make progress.
         assert_eq!(effective_window(Some(0), 2_000), 2_000);
+    }
+
+    #[test]
+    fn single_endpoint_backfill_is_capped_to_sequential() {
+        // One endpoint → forced sequential regardless of the requested concurrency (deadlock guard).
+        assert_eq!(safe_backfill_concurrency(1, 8), 1);
+        assert_eq!(safe_backfill_concurrency(0, 8), 1);
+        assert_eq!(safe_backfill_concurrency(1, 1), 1);
+        // Two or more endpoints → the requested concurrency is honored.
+        assert_eq!(safe_backfill_concurrency(3, 8), 8);
+        assert_eq!(safe_backfill_concurrency(2, 4), 4);
     }
 
     #[test]

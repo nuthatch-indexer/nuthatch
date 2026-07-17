@@ -2,6 +2,25 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-17 - Fixed the seal-direct backfill deadlock (single-endpoint concurrency guard), v0.2.2.**
+  Root-caused the backfill hang from the previous entry. It was **not** the RPC being slow, not the DBSP
+  runtimes, and not core count - it was **high concurrency to a *single* RPC host**. A
+  `--concurrency N` seal-direct backfill fires N `getLogs` (plus batched `block_timestamps`) at once;
+  aimed at one host that stalls the whole tokio runtime - a lost wakeup that parks every worker and
+  never fires, so even the 20s per-request timeout can't rescue it and the backfill hangs forever.
+  Reproduced deterministically at `--concurrency 8` against a single URL (and *never* with the default
+  3-4 endpoints, which spread the requests over separate connections). Confirmed by thread sampling:
+  all workers parked, one on the idle I/O driver, zero in-flight requests, zero app frames. My earlier
+  "environment-sensitive / mac-vs-box" read was wrong - every failing run happened to be pinned to a
+  single endpoint (an arb1-only workaround), every passing run had several. **Fix:** cap the seal-direct
+  backfill to sequential (`--concurrency 1`) when only one RPC endpoint is configured, with a warning to
+  add endpoints for a parallel backfill; two or more keep the requested concurrency. Single-endpoint
+  backfills are now slower but *finish* instead of hanging. **Gate met:** `safe_backfill_concurrency`
+  unit test + reproduced the deadlock (concurrency 8, one host → hang), then verified the capped path
+  drains steadily to completion (RPC counter climbing, not frozen). 120 tests green (+1), clippy clean.
+  Released as v0.2.2. (The underlying reqwest/tokio stall under high single-host concurrency is a
+  deeper issue parked behind the guard - worth a proper upstream-style repro later.)
+
 - **2026-07-17 - Lodestar developer-activity panel live on nuthatch + a deadlock found.** Second
   Lodestar panel migrated (after the delegation feed): the Developer Activity chart (subgraphs
   published/week) now comes from a nuthatch nest indexing L2GNS `SubgraphPublished` on Arbitrum One.
