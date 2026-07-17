@@ -2,6 +2,17 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-17 - RFC-0009 step 4: reorg convergence for the discovered set + registry snapshot in the
+  seal manifest.** Two correctness guarantees for factories. (1) A **reorg convergence property test**
+  (`child_registry_reorg_converges`, 96 cases): discovering pools along a prefix chain, reorging at a
+  random fork, then applying an alternate branch yields the exact registry content-hash of building the
+  winning chain directly - the same convergence the hot store has, now for the discovered-child set. (2)
+  Every sealed segment now records the **`registry_snapshot`** - the child registry's content hash at
+  seal time - in its manifest entry (new `Segment.registry_snapshot`, `seal_range_with_snapshot`; wired
+  through the factory backfill and the tip-path `maybe_seal`; `None` and omitted for a static nest, so
+  pre-RFC-0009 manifests still parse). So a factory segment records exactly which discovered set
+  produced it, making its child rows reproducible. 105 tests green (+1), clippy clean.
+
 - **2026-07-17 - RFC-0009 step 3a: factory backfill determinism (byte-identical) + honest pipelining
   call.** The RFC plans a `filter_version` + supplemental-fetch machine to pipeline factory backfills,
   but its own Risks section says ship the simple correct thing first - the child-event *bulk* is

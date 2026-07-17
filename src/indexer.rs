@@ -489,7 +489,14 @@ pub async fn backfill_direct_factory(
 
         if buf.len() >= SEAL_DIRECT_BATCH || next > to {
             if !buf.is_empty() {
-                seal::seal_range(dir, &buf, batch_from, chunk_to)?;
+                // Stamp the discovered-child set that produced these rows (RFC-0009 step 4).
+                seal::seal_range_with_snapshot(
+                    dir,
+                    &buf,
+                    batch_from,
+                    chunk_to,
+                    Some(&children.hash()),
+                )?;
                 buf.clear();
             }
             batch_from = next;
@@ -841,8 +848,10 @@ async fn index_loop(
                 };
                 let finalized_through = seal_ceiling(finality, tip, finalized_tag);
 
-                // Seal any newly-finalized range to an immutable Parquet segment.
-                if let Err(e) = maybe_seal(&dir, &store, finalized_through) {
+                // Seal any newly-finalized range to an immutable Parquet segment, stamping the
+                // discovered-child registry snapshot for a factory nest (RFC-0009 step 4).
+                let snapshot = factory.as_ref().map(|_| children.hash());
+                if let Err(e) = maybe_seal(&dir, &store, finalized_through, snapshot.as_deref()) {
                     tracing::warn!("sealing failed: {e:#}");
                 }
             }
@@ -912,7 +921,12 @@ fn seal_ceiling(finality: Finality, tip: u64, finalized_tag: Option<u64>) -> u64
 
 /// Seal every indexed block up to `finalized_through` (the finality-safe ceiling) that isn't sealed
 /// yet, advancing the `sealed_through` watermark and pruning the sealed range from the hot store.
-fn maybe_seal(dir: &std::path::Path, store: &Store, finalized_through: u64) -> Result<()> {
+fn maybe_seal(
+    dir: &std::path::Path,
+    store: &Store,
+    finalized_through: u64,
+    registry_snapshot: Option<&str>,
+) -> Result<()> {
     if finalized_through == 0 {
         return Ok(());
     }
@@ -936,7 +950,7 @@ fn maybe_seal(dir: &std::path::Path, store: &Store, finalized_through: u64) -> R
     let entities = store.entities_in_range(from, ceiling)?;
     // Every table in the range seals together (per-table segments), so once sealing succeeds the
     // whole range is safe to prune from the hot store — the watermark stays global.
-    match seal::seal_range(dir, &entities, from, ceiling)? {
+    match seal::seal_range_with_snapshot(dir, &entities, from, ceiling, registry_snapshot)? {
         Some(summary) => {
             store.set_meta(SEALED_THROUGH_KEY, &ceiling.to_string())?;
             METRICS.set_sealed_through(ceiling);
@@ -1549,6 +1563,17 @@ template="pool"
         assert!(
             children.contains(pool_addr),
             "the pool was discovered during backfill"
+        );
+        // RFC-0009 step 4: every factory segment records the discovered-child registry snapshot.
+        let manifest = crate::seal::load_manifest(dir.path()).unwrap();
+        let snap = children.hash();
+        assert!(
+            manifest
+                .tables
+                .values()
+                .flatten()
+                .all(|s| s.registry_snapshot.as_deref() == Some(snap.as_str())),
+            "factory segments carry the registry snapshot"
         );
         // The child's Swap is queryable from the sealed segment.
         let n = crate::analytics::query(dir.path(), r#"SELECT count(*) AS n FROM "pool__swap""#)
