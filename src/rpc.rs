@@ -6,6 +6,19 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+/// Merge `preferred` RPC endpoints ahead of a `fallback` list, preserving order and dropping
+/// duplicates. Used by `init --rpc` and `dev --rpc` to prefer a user's own node while keeping the
+/// built-in / configured endpoints as fallback. An empty `preferred` leaves `fallback` untouched.
+pub fn merge_rpcs(preferred: &[String], fallback: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for url in preferred.iter().cloned().chain(fallback) {
+        if !out.contains(&url) {
+            out.push(url);
+        }
+    }
+    out
+}
+
 pub struct RpcClient {
     http: reqwest::Client,
     urls: Vec<String>,
@@ -262,4 +275,34 @@ fn field_str(v: &Value, key: &str) -> Result<String> {
 fn parse_hex_u64(s: &str) -> Result<u64> {
     let s = s.strip_prefix("0x").unwrap_or(s);
     u64::from_str_radix(s, 16).with_context(|| format!("bad hex number '{s}'"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_rpcs;
+
+    fn v<const N: usize>(xs: [&str; N]) -> Vec<String> {
+        xs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn empty_preferred_leaves_fallback_untouched() {
+        assert_eq!(merge_rpcs(&[], v(["a", "b"])), v(["a", "b"]));
+    }
+
+    #[test]
+    fn preferred_go_first_then_fallback() {
+        assert_eq!(
+            merge_rpcs(&v(["mine"]), v(["a", "b"])),
+            v(["mine", "a", "b"])
+        );
+    }
+
+    #[test]
+    fn duplicates_are_dropped_keeping_first_position() {
+        // A preferred URL already present in the fallback should surface once, at the front.
+        assert_eq!(merge_rpcs(&v(["a"]), v(["a", "b"])), v(["a", "b"]));
+        // Repeated preferred entries collapse too.
+        assert_eq!(merge_rpcs(&v(["m", "m", "n"]), v(["n"])), v(["m", "n"]));
+    }
 }

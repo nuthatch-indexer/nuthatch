@@ -323,6 +323,12 @@ pub struct InitArgs {
     #[arg(long, default_value = "mainnet")]
     pub chain: String,
 
+    /// Prefer these RPC URL(s) over the chain defaults (repeatable). They're written first in the
+    /// nest's `rpc_urls` and also used for ABI/deploy-block resolution during init, with the
+    /// built-in chain endpoints kept as fallback. Point at your own node to dodge public-RPC limits.
+    #[arg(long)]
+    pub rpc: Vec<String>,
+
     /// Directory to scaffold into (defaults to the current directory; for `--from`, defaults to the
     /// nest's own name).
     #[arg(long, default_value = ".")]
@@ -338,6 +344,11 @@ pub struct DevArgs {
     /// Address to bind the HTTP API to.
     #[arg(long, default_value = "127.0.0.1:8288")]
     pub listen: String,
+
+    /// Override the nest's `rpc_urls` at runtime without editing the config (repeatable). These are
+    /// tried first; the nest's configured endpoints remain as fallback. Point at your own node.
+    #[arg(long)]
+    pub rpc: Vec<String>,
 
     /// Index only this many blocks back from the tip (recent-history mode). Explicitly overrides a
     /// nest's vendored `start_block`s. Omit to backfill from deployment when the nest declares start

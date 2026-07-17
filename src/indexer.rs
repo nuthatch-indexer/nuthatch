@@ -41,8 +41,10 @@ pub async fn dev(args: DevArgs) -> Result<()> {
     let dir = PathBuf::from(&args.dir);
     let config = Config::load(&dir)?;
     // Today: RPC polling. The indexer only sees `dyn Source`, so an ExEx tip source slots in here
-    // with no change to anything downstream.
-    let source: Arc<dyn Source> = Arc::new(RpcClient::new(config.nest.rpc_urls.clone())?);
+    // with no change to anything downstream. `--rpc` overrides are tried ahead of the configured
+    // endpoints without touching the nest's config on disk.
+    let rpc_urls = crate::rpc::merge_rpcs(&args.rpc, config.nest.rpc_urls.clone());
+    let source: Arc<dyn Source> = Arc::new(RpcClient::new(rpc_urls)?);
     run(
         source,
         dir,

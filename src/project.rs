@@ -34,8 +34,12 @@ pub async fn init(args: InitArgs) -> Result<()> {
         .collect::<Result<_>>()?;
     let aliases = resolve_aliases(&args.alias, addresses.len())?;
 
+    // Prefer any user-supplied `--rpc` endpoints, falling back to the chain defaults. The same list
+    // drives both resolution below and the nest's persisted `rpc_urls`.
+    let rpc_urls = crate::rpc::merge_rpcs(&args.rpc, chain.rpc_urls.iter().map(|s| s.to_string()));
+
     // One RPC client for best-effort deployment-block detection.
-    let rpc = RpcClient::new(chain.rpc_urls.iter().map(|s| s.to_string()).collect())?;
+    let rpc = RpcClient::new(rpc_urls.clone())?;
     let tip = rpc.block_number().await.ok();
 
     let mut contracts = Vec::with_capacity(addresses.len());
@@ -77,7 +81,7 @@ pub async fn init(args: InitArgs) -> Result<()> {
             name: nest_name(&dir),
             chain: chain.name.to_string(),
             chain_id: chain.chain_id,
-            rpc_urls: chain.rpc_urls.iter().map(|s| s.to_string()).collect(),
+            rpc_urls,
             schema_version: CURRENT_SCHEMA_VERSION,
         },
         contracts,
