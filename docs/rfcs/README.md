@@ -13,6 +13,10 @@ dependencies. Status lifecycle: **Draft → Accepted → Implemented → (Supers
 | [0006](0006-grant-funding.md) | Grant funding: NLnet and EF ESP applications | 0002 (demo), 0003–0005 (roadmap) | Draft |
 | [0007](0007-launch-and-validation.md) | Launch and validation | 0005 | Draft |
 | [0008](0008-compliance-pack.md) | Compliance pack (screening, flags, exposure, audit) | P0 (i128), slice 4, 0006 M1 | Draft |
+| [0009](0009-factory-and-dynamic-contract-discovery.md) | Factory and dynamic contract discovery | 0001, 0004 | Draft (v2) |
+| [0010](0010-admin-ui-and-webhooks.md) | The admin UI and webhooks — ease-of-use parity | 0001, 0005 | Draft (v2) |
+| [0011](0011-graph-network-nest-lodestar-migration.md) | The graph-network nest and the Lodestar migration | 0001, 0002, 0004, 0005 | Draft |
+| [0012](0012-multi-nest-runtime-and-nest-packaging.md) | Multi-nest runtime and content-addressed nest packaging | 0001, 0009, 0004 | Draft |
 
 ## Conventions
 
