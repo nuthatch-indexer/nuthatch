@@ -552,9 +552,16 @@ async fn index_loop(
         if origin <= finalized_through {
             store.set_meta(START_BLOCK_KEY, &origin.to_string())?;
             // A factory nest backfills with the sequential two-pass (RFC-0009 §3, address-filtered,
-            // efficient); the pipelined path composes with factories in step 3a. A static nest uses
-            // the pipelined path as before.
+            // efficient, deterministic). Factory backfill is sequential regardless of `--concurrency`:
+            // the child-event bulk is inherently ordered until the step-5 topic0-flip makes filters
+            // version-independent, so pipelining below the flip buys little (RFC-0009 §3 risk note). A
+            // static nest uses the pipelined path as before.
             let sealed = if let Some(fs) = factory.as_deref() {
+                if concurrency > 1 {
+                    tracing::info!(
+                        "factory backfill runs sequentially (--concurrency {concurrency} ignored until the step-5 filter flip)"
+                    );
+                }
                 tracing::info!(
                     "seal-direct factory backfill: {origin}..={finalized_through} (tip {tip}, sequential two-pass)…"
                 );
@@ -1550,6 +1557,139 @@ template="pool"
         let row =
             crate::analytics::query(dir.path(), r#"SELECT address FROM "pool__swap""#).unwrap();
         assert_eq!(row[0]["address"], serde_json::Value::from(pool_addr));
+    }
+
+    /// RFC-0009 step 3a: the factory backfill is **deterministic** — the same range over the same
+    /// chain history seals byte-identical segments (identical content-address hashes). This is the
+    /// reproducibility property content-addressing needs, and the equivalence a pipelined variant
+    /// would have to preserve; factory backfill runs sequentially, so this is the guarantee that
+    /// matters (the filter-version pipeline is deferred to the step-5 flip per the RFC risk note).
+    #[tokio::test]
+    async fn factory_backfill_is_byte_identical_across_runs() {
+        use crate::registry::{ContractSpec, DecodeRegistry, TemplateSpec};
+        use crate::rpc::Log;
+
+        let factory_addr = "0x1111111111111111111111111111111111111111";
+        let pool_a = "0x2222222222222222222222222222222222222222";
+        let pool_b = "0x3333333333333333333333333333333333333333";
+        let reg = DecodeRegistry::build_with_templates(
+            vec![ContractSpec {
+                alias: "factory".into(),
+                address: factory_addr.parse().unwrap(),
+                abi: serde_json::from_str(
+                    r#"[{"type":"event","name":"PoolCreated","anonymous":false,"inputs":[{"name":"pool","type":"address","indexed":false}]}]"#,
+                ).unwrap(),
+            }],
+            vec![TemplateSpec {
+                name: "pool".into(),
+                abi: serde_json::from_str(
+                    r#"[{"type":"event","name":"Swap","anonymous":false,"inputs":[{"name":"amount","type":"uint256","indexed":false}]}]"#,
+                ).unwrap(),
+            }],
+        )
+        .unwrap();
+        let topic0 = |table: &str| {
+            format!(
+                "0x{}",
+                hex::encode(
+                    reg.tables()
+                        .iter()
+                        .find(|d| d.table == table)
+                        .unwrap()
+                        .topic0
+                )
+            )
+        };
+        let config: Config = toml::from_str(
+            r#"
+[nest]
+name="t"
+chain="mainnet"
+chain_id=1
+rpc_urls=["https://rpc"]
+[[contracts]]
+alias="factory"
+address="0x1111111111111111111111111111111111111111"
+abi="abis/f.json"
+[[templates]]
+name="pool"
+abi="abis/p.json"
+[[factories]]
+watch="factory"
+event="PoolCreated"
+child_param="pool"
+template="pool"
+"#,
+        )
+        .unwrap();
+        let fs = FactorySet::build(&config).unwrap();
+
+        let created = |block, li, pool: &str| Log {
+            address: factory_addr.into(),
+            topics: vec![topic0("factory__pool_created")],
+            data: format!("0x{:0>64}", pool.trim_start_matches("0x")),
+            block_number: block,
+            block_hash: "0xbh".into(),
+            tx_hash: "0xt".into(),
+            log_index: li,
+        };
+        let swap = |block, li, pool: &str, amt: u64| Log {
+            address: pool.into(),
+            topics: vec![topic0("pool__swap")],
+            data: format!("0x{amt:064x}"),
+            block_number: block,
+            block_hash: "0xbh".into(),
+            tx_hash: "0xt".into(),
+            log_index: li,
+        };
+        // Two pools, interleaved swaps across several blocks — a non-trivial discovered set.
+        let logs = vec![
+            created(10, 0, pool_a),
+            swap(11, 0, pool_a, 100),
+            created(12, 0, pool_b),
+            swap(13, 0, pool_b, 200),
+            swap(13, 1, pool_a, 150),
+            swap(14, 0, pool_b, 250),
+        ];
+
+        async fn seal_sig(
+            logs: Vec<crate::rpc::Log>,
+            reg: &crate::registry::DecodeRegistry,
+            fs: &FactorySet,
+        ) -> (tempfile::TempDir, Vec<String>) {
+            let source = FilteringSource { logs };
+            let dir = tempfile::tempdir().unwrap();
+            let mut children = ChildRegistry::new();
+            backfill_direct_factory(
+                &source,
+                reg,
+                fs,
+                &mut children,
+                dir.path(),
+                &[],
+                10,
+                20,
+                100,
+            )
+            .await
+            .unwrap();
+            let m = crate::seal::load_manifest(dir.path()).unwrap();
+            let mut sig: Vec<String> = m
+                .tables
+                .iter()
+                .flat_map(|(t, segs)| segs.iter().map(move |s| format!("{t}:{}", s.hash)))
+                .collect();
+            sig.sort();
+            (dir, sig)
+        }
+
+        let (_d1, sig1) = seal_sig(logs.clone(), &reg, &fs).await;
+        let (_d2, sig2) = seal_sig(logs.clone(), &reg, &fs).await;
+        assert!(!sig1.is_empty(), "something was sealed");
+        assert_eq!(
+            sig1, sig2,
+            "identical range + history → byte-identical sealed segments"
+        );
     }
 
     /// RFC-0009 step 2 gate: a child created and active in the *same* window is decoded — the
