@@ -214,7 +214,7 @@ pub async fn run(
     };
 
     // Kick off the indexing loop in the background; serve the API on this task.
-    let ingest = tokio::spawn(index_loop(
+    let mut ingest = tokio::spawn(index_loop(
         source.clone(),
         store.clone(),
         registry.clone(),
@@ -279,13 +279,23 @@ pub async fn run(
         admin_enabled,
         nest_info: Arc::new(nest_info),
     };
-    serve::run(&listen, app_state).await?;
-
+    // The indexer and the API share a fate. Previously `serve` was awaited and `ingest` only aborted
+    // afterwards, so if indexing died (an error or a panic) the process kept serving stale data as if
+    // healthy — a silent failure (deadlock-review finding C1). Select over both: whichever ends first
+    // decides the exit, and an indexing error/panic propagates out as a non-zero exit.
+    let result = tokio::select! {
+        r = serve::run(&listen, app_state) => r,
+        joined = &mut ingest => match joined {
+            Ok(inner) => inner, // index_loop's own Result (Ok only on a clean shutdown break)
+            Err(e) if e.is_panic() => Err(anyhow::anyhow!("indexing loop panicked")),
+            Err(e) => Err(anyhow::anyhow!("indexing loop task failed: {e}")),
+        },
+    };
     ingest.abort();
     if let Some(w) = alert_worker {
         w.abort();
     }
-    Ok(())
+    result
 }
 
 /// Batch size (rows) at which `backfill_direct` flushes a sealed segment — bounds RSS during a
@@ -390,6 +400,10 @@ pub async fn backfill_direct_pipelined(
     to: u64,
     window: u64,
     concurrency: usize,
+    // Called after each segment seals, with the highest block now durably sealed — the caller
+    // persists it as a resume watermark so a mid-backfill failure resumes here instead of restarting
+    // from `from` (which would re-fetch, and on an adaptive path re-seal, already-sealed ranges).
+    mut on_seal: impl FnMut(u64) -> Result<()>,
 ) -> Result<u64> {
     use futures::stream::StreamExt;
 
@@ -447,10 +461,12 @@ pub async fn backfill_direct_pipelined(
             seal::seal_range(dir, &buf, batch_from, w_to)?;
             buf.clear();
             batch_from = w_to + 1;
+            on_seal(w_to)?;
         }
     }
     if !buf.is_empty() {
         seal::seal_range(dir, &buf, batch_from, to)?;
+        on_seal(to)?;
     }
     Ok(total)
 }
@@ -474,6 +490,10 @@ pub async fn backfill_direct_factory(
     to: u64,
     window: u64,
     force_topic0: bool,
+    // Resume watermark callback — see [`backfill_direct_pipelined`]. The factory path uses an adaptive
+    // window (non-deterministic boundaries), so resuming from the last sealed block instead of `from`
+    // is what prevents a re-run from re-sealing overlapping ranges under new hashes (duplicate data).
+    mut on_seal: impl FnMut(u64) -> Result<()>,
 ) -> Result<u64> {
     use std::collections::HashSet;
     let base: Vec<String> = registry
@@ -591,6 +611,7 @@ pub async fn backfill_direct_factory(
                     Some(&children.hash()),
                 )?;
                 buf.clear();
+                on_seal(chunk_to)?;
             }
             batch_from = next;
         }
@@ -661,8 +682,31 @@ async fn index_loop(
             Finality::Depth(_) => None,
         };
         let finalized_through = seal_ceiling(finality, tip, finalized_tag);
-        if origin <= finalized_through {
-            store.set_meta(START_BLOCK_KEY, &origin.to_string())?;
+        // Resume a partial backfill instead of restarting from `origin`. A mid-backfill failure (a
+        // transient RPC error) leaves `SEALED_THROUGH` at the last durably-sealed block but `LAST_BLOCK`
+        // unset, so we re-enter here; resuming from the watermark re-fetches nothing already sealed —
+        // which on the adaptive factory path also avoids re-sealing overlapping ranges under fresh
+        // content hashes (duplicate, permanently double-counted segments). A fresh start has no
+        // watermark and resumes from `origin`.
+        let sealed_watermark = store
+            .get_meta(SEALED_THROUGH_KEY)?
+            .and_then(|s| s.parse::<u64>().ok());
+        let resume_from = resume_from_watermark(sealed_watermark, origin);
+        if resume_from <= finalized_through {
+            // Record where the backfill *began* once; a resume keeps the original origin.
+            if store.get_meta(START_BLOCK_KEY)?.is_none() {
+                store.set_meta(START_BLOCK_KEY, &origin.to_string())?;
+            }
+            if resume_from > origin {
+                tracing::info!(
+                    "resuming seal-direct backfill from block {resume_from} (a prior run sealed through {})",
+                    resume_from - 1
+                );
+            }
+            // Persist the sealed watermark after every segment, so the backfill is resumable rather
+            // than all-or-nothing (deadlock-review finding C1).
+            let on_seal =
+                |sealed_to: u64| store.set_meta(SEALED_THROUGH_KEY, &sealed_to.to_string());
             // A factory nest backfills with the sequential two-pass (RFC-0009 §3, address-filtered,
             // efficient, deterministic). Factory backfill is sequential regardless of `--concurrency`:
             // the child-event bulk is inherently ordered until the step-5 topic0-flip makes filters
@@ -675,7 +719,7 @@ async fn index_loop(
                     );
                 }
                 tracing::info!(
-                    "seal-direct factory backfill: {origin}..={finalized_through} (tip {tip}, sequential two-pass)…"
+                    "seal-direct factory backfill: {resume_from}..={finalized_through} (tip {tip}, sequential two-pass)…"
                 );
                 backfill_direct_factory(
                     source.as_ref(),
@@ -684,15 +728,16 @@ async fn index_loop(
                     &mut children,
                     &dir,
                     &topic0s,
-                    origin,
+                    resume_from,
                     finalized_through,
                     window,
                     fs.force_topic0(),
+                    on_seal,
                 )
                 .await?
             } else {
                 tracing::info!(
-                    "seal-direct backfill: {origin}..={finalized_through} (tip {tip}, {concurrency}-way)…"
+                    "seal-direct backfill: {resume_from}..={finalized_through} (tip {tip}, {concurrency}-way)…"
                 );
                 backfill_direct_pipelined(
                     source.as_ref(),
@@ -700,17 +745,18 @@ async fn index_loop(
                     &dir,
                     &addresses,
                     &topic0s,
-                    origin,
+                    resume_from,
                     finalized_through,
                     window,
                     concurrency,
+                    on_seal,
                 )
                 .await?
             };
             store.set_meta(SEALED_THROUGH_KEY, &finalized_through.to_string())?;
             store.set_meta(LAST_BLOCK_KEY, &finalized_through.to_string())?;
             tracing::info!(
-                "seal-direct backfill done: {sealed} rows sealed over {origin}..={finalized_through}"
+                "seal-direct backfill done: {sealed} rows sealed over {resume_from}..={finalized_through}"
             );
             if let Err(e) = rebuild_balances(&dir, &store, &registry, &balances) {
                 tracing::warn!("balance rebuild after seal-direct failed: {e:#}");
@@ -1035,6 +1081,17 @@ fn safe_backfill_concurrency(endpoint_count: usize, requested: usize) -> usize {
         1
     } else {
         requested
+    }
+}
+
+/// Where a seal-direct backfill starts: one past the last durably-sealed block if a prior run left a
+/// watermark (resume a partial backfill), else the computed `origin` (a fresh start). Resuming is what
+/// keeps a mid-backfill failure from re-fetching — and, on the adaptive factory path, re-sealing under
+/// fresh content hashes — ranges already sealed (deadlock-review finding C1).
+fn resume_from_watermark(sealed_through: Option<u64>, origin: u64) -> u64 {
+    match sealed_through {
+        Some(s) => s.saturating_add(1),
+        None => origin,
     }
 }
 
@@ -1702,6 +1759,7 @@ template="pool"
             20,
             100,
             false,
+            |_| Ok(()),
         )
         .await
         .unwrap();
@@ -1848,6 +1906,7 @@ template="pool"
                 20,
                 100,
                 force_topic0,
+                |_| Ok(()),
             )
             .await
             .unwrap();
@@ -2022,6 +2081,18 @@ template = "pool"
     }
 
     #[test]
+    fn backfill_resumes_from_the_sealed_watermark() {
+        // No watermark → fresh start from origin.
+        assert_eq!(resume_from_watermark(None, 100), 100);
+        // A watermark → resume one past the last durably-sealed block (no re-fetch of sealed ranges).
+        assert_eq!(resume_from_watermark(Some(150), 100), 151);
+        // A watermark below origin still resumes from the watermark (keeps the partial work).
+        assert_eq!(resume_from_watermark(Some(40), 100), 41);
+        // No overflow at the ceiling.
+        assert_eq!(resume_from_watermark(Some(u64::MAX), 100), u64::MAX);
+    }
+
+    #[test]
     fn single_endpoint_backfill_is_capped_to_sequential() {
         // One endpoint → forced sequential regardless of the requested concurrency (deadlock guard).
         assert_eq!(safe_backfill_concurrency(1, 8), 1);
@@ -2153,6 +2224,7 @@ template = "pool"
             39,
             5,
             8,
+            |_| Ok(()),
         )
         .await
         .unwrap();

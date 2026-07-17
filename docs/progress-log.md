@@ -2,6 +2,23 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-17 - Backfill review C1: resumable seal-direct backfill + fail-fast lifecycle.** A critical
+  review (prompted by "anything else like the deadlock?") turned up a family of silent-failure bugs;
+  this fixes the worst. (1) **Fail-fast lifecycle:** `run()` previously awaited only the HTTP server and
+  merely `abort()`ed the ingest task afterwards - so if indexing died (error or panic) the process kept
+  serving stale data looking healthy. Now `run()` `select!`s over serve and ingest; an indexing
+  error/panic propagates out as a non-zero exit. (2) **Resumable backfill:** the sealed watermark
+  (`SEALED_THROUGH`) is now persisted after *every* segment (via an `on_seal` callback threaded into
+  `backfill_direct_pipelined`/`_factory`), and phase-0 resumes from `watermark + 1` instead of
+  restarting from `origin`. Before, any mid-backfill blip (one transient `getLogs` error) threw away the
+  whole run, and re-running from origin on the *adaptive factory path* (non-deterministic window
+  boundaries) could re-seal overlapping ranges under fresh content hashes - permanently double-counted
+  segments. Resuming re-fetches nothing already sealed, so no duplication. **Gate met:**
+  `resume_from_watermark` + `backfill_resumes_from_the_sealed_watermark` unit tests; the existing
+  path-equivalence/determinism tests still green. 121 tests (+1), clippy clean. (Remaining review
+  findings - timestamp-retry, pipelined shrink-retry/livelock, blocking-work offload, atomic manifest,
+  reorg-below-finality halt, conditional IVM views - are the next slices.)
+
 - **2026-07-17 - Fixed the seal-direct backfill deadlock (single-endpoint concurrency guard), v0.2.2.**
   Root-caused the backfill hang from the previous entry. It was **not** the RPC being slow, not the DBSP
   runtimes, and not core count - it was **high concurrency to a *single* RPC host**. A
