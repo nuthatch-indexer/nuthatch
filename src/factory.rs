@@ -333,6 +333,67 @@ impl ChildRegistry {
 mod tests {
     use super::*;
     use crate::registry::Value;
+    use proptest::prelude::*;
+
+    /// Deterministic, unique child address for a pool discovered on `branch` at `(block, i)`. Distinct
+    /// branches never collide; the same (branch, block, i) always yields the same address — so a fold
+    /// over the same factory events reproduces the same registry.
+    fn child_addr(branch: u8, block: u64, i: u64) -> String {
+        let key: u128 = ((branch as u128) << 100) | ((block as u128) << 20) | i as u128;
+        format!("0x{key:040x}")
+    }
+
+    fn discover_pools(reg: &mut ChildRegistry, branch: u8, block: u64, n: u64) {
+        for i in 0..n {
+            reg.insert(ChildEntry {
+                template: "pool".into(),
+                address: child_addr(branch, block, i),
+                discovered_block: block,
+                discovered_log_index: i,
+                discovered_timestamp: 0,
+                parent_address: "0xfactory".into(),
+                depth: 1,
+            });
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(96))]
+        /// RFC-0009 step 4: the child registry converges under reorg. Discovering pools along a
+        /// prefix chain, reorging at a fork point, then applying an alternate branch yields exactly
+        /// the registry state (content hash) of building the winning chain directly — the same
+        /// convergence property the hot store has, now for the discovered set.
+        #[test]
+        fn child_registry_reorg_converges(
+            prefix in prop::collection::vec(0u64..3, 1..8),   // pools created per block, branch A
+            branch in prop::collection::vec(0u64..3, 0..6),   // alternate branch B after the fork
+            fork_back in 0usize..8,
+        ) {
+            // Reorged registry: apply the full prefix (A), roll back to the fork, apply branch (B).
+            let mut reorged = ChildRegistry::new();
+            for (b, &n) in prefix.iter().enumerate() {
+                discover_pools(&mut reorged, 0, b as u64, n);
+            }
+            let fork = (prefix.len().saturating_sub(fork_back)).saturating_sub(1) as u64;
+            reorged.rollback_to(fork);
+            for (j, &n) in branch.iter().enumerate() {
+                discover_pools(&mut reorged, 1, fork + 1 + j as u64, n);
+            }
+
+            // Canonical registry: prefix (A) up to the fork, then branch (B) — built directly.
+            let mut canonical = ChildRegistry::new();
+            for (b, &n) in prefix.iter().enumerate() {
+                if (b as u64) <= fork {
+                    discover_pools(&mut canonical, 0, b as u64, n);
+                }
+            }
+            for (j, &n) in branch.iter().enumerate() {
+                discover_pools(&mut canonical, 1, fork + 1 + j as u64, n);
+            }
+
+            prop_assert_eq!(reorged.hash(), canonical.hash());
+        }
+    }
 
     fn cfg(toml: &str) -> Config {
         toml::from_str(toml).unwrap()

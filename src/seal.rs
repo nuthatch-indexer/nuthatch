@@ -32,6 +32,11 @@ pub struct Segment {
     pub to_block: u64,
     pub rows: usize,
     pub file: String,
+    /// The discovered-child registry's content hash at seal time (RFC-0009): records exactly which
+    /// factory-discovered set produced this segment, so its child rows are reproducible. `None` for a
+    /// static (non-factory) nest. Absent in pre-RFC-0009 manifests (serde default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_snapshot: Option<String>,
 }
 
 /// The segment catalogue: per-table lists of sealed segments.
@@ -55,6 +60,19 @@ pub fn seal_range(
     entity_json: &[String],
     from: u64,
     to: u64,
+) -> Result<Option<SealSummary>> {
+    seal_range_with_snapshot(dir, entity_json, from, to, None)
+}
+
+/// Like [`seal_range`], but records `registry_snapshot` (the discovered-child registry's content hash)
+/// on each segment's manifest entry — the factory paths (RFC-0009) pass it so a segment records which
+/// discovered set produced it. A static nest passes `None` (via `seal_range`).
+pub fn seal_range_with_snapshot(
+    dir: &Path,
+    entity_json: &[String],
+    from: u64,
+    to: u64,
+    registry_snapshot: Option<&str>,
 ) -> Result<Option<SealSummary>> {
     let mut by_table: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for j in entity_json {
@@ -99,6 +117,7 @@ pub fn seal_range(
             to_block: to,
             rows: rows.len(),
             file,
+            registry_snapshot: registry_snapshot.map(str::to_string),
         });
     }
 
