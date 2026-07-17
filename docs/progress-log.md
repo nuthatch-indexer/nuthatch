@@ -2,6 +2,16 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-17 - RFC-0009 step 3a: factory backfill determinism (byte-identical) + honest pipelining
+  call.** The RFC plans a `filter_version` + supplemental-fetch machine to pipeline factory backfills,
+  but its own Risks section says ship the simple correct thing first - the child-event *bulk* is
+  inherently sequential until the step-5 topic0-flip makes filters version-independent, so pipelining
+  below the flip buys little. So factory backfill runs **sequentially regardless of `--concurrency`**
+  (logged when >1), and step 3a instead pins the guarantee that matters: a byte-identical determinism
+  test proving the same range over the same chain history seals **identical content-address hashes**
+  (two pools, interleaved swaps, run twice → identical segment signatures). The filter-version pipeline
+  is deferred to the step-5 flip. 104 tests green (+1), clippy clean.
+
 - **2026-07-17 - RFC-0009 step 3: factories over history (sequential two-pass backfill).** Factories
   now work in `--seal-direct` backfill, not just the tip. New `backfill_direct_factory`: per chunk,
   pass 1 fetches with the current address filter (base contracts + children discovered so far) and
