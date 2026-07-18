@@ -76,12 +76,37 @@ fn run(dir: &Path, sql: &str, guard: Option<QueryGuard>, hot: &HotRows) -> Resul
     if !(head.starts_with("select") || head.starts_with("with")) {
         bail!("only SELECT/WITH queries are allowed on the read-only SQL surface");
     }
+    // SEC-2: refuse DuckDB filesystem/network table functions (`read_text`, `glob`, …) — they read
+    // files from inside a plain SELECT, past the keyword gate, and would otherwise leak any file the
+    // process can read (e.g. `nuthatch.toml`'s secrets). This is the primary control; the
+    // `allowed_directories` lockdown below is defense-in-depth (its runtime enforcement is
+    // version-dependent in the bundled DuckDB).
+    reject_file_access(sql)?;
 
     let conn = Connection::open_in_memory().context("failed to open DuckDB")?;
     conn.execute_batch(&format!(
         "SET memory_limit='{MEM_LIMIT}'; SET threads={MAX_THREADS};"
     ))
     .context("failed to configure DuckDB")?;
+    // Defense-in-depth for SEC-2 (the query denylist above is the primary control): pin DuckDB's file
+    // access to the nest's own data dirs (segments + labels, never the nest root that holds the config)
+    // and `lock_configuration` so a query can't widen it. Runtime enforcement varies by bundled DuckDB
+    // version, so it is NOT relied on alone.
+    let allowed: Vec<String> = [crate::seal::SEGMENTS_DIR, "labels"]
+        .iter()
+        .map(|sub| dir.join(sub))
+        .filter(|p| p.exists())
+        .map(|p| format!("'{}'", p.display().to_string().replace('\'', "''")))
+        .collect();
+    // `enable_external_access` is a startup-only setting, so we scope at runtime with
+    // `allowed_directories` (an empty allowlist blocks all file access — the fresh-nest/tip-only case)
+    // and freeze it with `lock_configuration` so the untrusted query can't widen it back.
+    let lockdown = format!(
+        "SET allowed_directories=[{}]; SET lock_configuration=true;",
+        allowed.join(", ")
+    );
+    conn.execute_batch(&lockdown)
+        .context("failed to lock down DuckDB filesystem access")?;
     define_views(&conn, dir, hot)?;
     // A nest can ship derived-entity views (`views/*.sql`) that build on the per-event tables; the
     // analytical `/sql` surface sees them. Point-reads (`net_balances`, `get_row`) deliberately skip
@@ -195,6 +220,79 @@ fn strip_leading_sql_comments(sql: &str) -> &str {
             return s;
         }
     }
+}
+
+/// DuckDB table functions that read the filesystem or network — usable inside a plain SELECT, so the
+/// read-only keyword gate doesn't stop them (SEC-2). Legit `/sql` hits the per-table views, never these.
+const FORBIDDEN_FNS: &[&str] = &[
+    "read_text",
+    "read_blob",
+    "read_csv",
+    "read_csv_auto",
+    "read_json",
+    "read_json_auto",
+    "read_json_objects",
+    "read_ndjson",
+    "read_parquet",
+    "parquet_scan",
+    "csv_scan",
+    "glob",
+    "sniff_csv",
+];
+
+/// Strip all SQL comments (line `--…` and block `/* … */`) so a function call can't be split or hidden
+/// by a comment before the denylist scan. Deliberately naive about string literals — over-stripping a
+/// query with `--`/`/*` inside a string just makes it invalid (rejected), which is the safe direction.
+fn strip_all_sql_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let b = sql.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'-' && i + 1 < b.len() && b[i + 1] == b'-' {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if b[i] == b'/' && i + 1 < b.len() && b[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                i += 1;
+            }
+            i += 2;
+            out.push(' ');
+        } else {
+            out.push(b[i] as char);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Refuse a query that *calls* any [`FORBIDDEN_FNS`] function. Comments are stripped first, then each
+/// name is matched only when it's a real call: a word boundary before it and (after optional
+/// whitespace) a `(` after it — so a table or column merely *named* like one (e.g. `pool__glob`) is
+/// fine, while `read_text/**/('…')` and `READ_TEXT (…)` are both caught. (SEC-2, primary control.)
+fn reject_file_access(sql: &str) -> Result<()> {
+    let cleaned = strip_all_sql_comments(sql).to_ascii_lowercase();
+    let b = cleaned.as_bytes();
+    let is_ident = |c: u8| c == b'_' || c.is_ascii_alphanumeric();
+    for name in FORBIDDEN_FNS {
+        let mut from = 0;
+        while let Some(pos) = cleaned[from..].find(name) {
+            let start = from + pos;
+            let end = start + name.len();
+            let boundary_before = start == 0 || !is_ident(b[start - 1]);
+            let mut j = end;
+            while j < b.len() && b[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            let is_call = j < b.len() && b[j] == b'(';
+            if boundary_before && is_call {
+                bail!("query uses forbidden filesystem/network function `{name}` — refused");
+            }
+            from = end;
+        }
+    }
+    Ok(())
 }
 
 /// Net balance per address for one sealed transfer table, summed as i128 (DuckDB HUGEINT). This is
@@ -813,6 +911,58 @@ template="pool"
         assert_eq!(one["to"], Value::from("0xc"));
         let appr = get_row(dir.path(), 10, 2).unwrap().unwrap();
         assert_eq!(appr["spender"], Value::from("0xd"));
+    }
+
+    #[test]
+    fn sql_cannot_read_files_outside_the_data_dirs() {
+        // Hardening SEC-2: DuckDB table functions (read_text/read_csv/glob/…) are file-read primitives
+        // usable inside a SELECT. The lockdown must confine them to the nest's segments/labels dirs.
+        let dir = tempfile::tempdir().unwrap();
+        let cold = vec![r#"{"table":"t__e","block_number":10,"log_index":0,"x":"1"}"#.to_string()];
+        crate::seal::seal_range(dir.path(), &cold, 10, 10).unwrap();
+        // A secret in the nest root (where nuthatch.toml with webhook secrets + RPC keys actually lives).
+        std::fs::write(dir.path().join("secret.txt"), "TOP SECRET").unwrap();
+        let guard = QueryGuard {
+            timeout: Duration::from_secs(5),
+            max_rows: 1000,
+        };
+        // Absolute path outside the allowlist → refused.
+        assert!(
+            query_guarded(
+                dir.path(),
+                "SELECT content FROM read_text('/etc/hosts')",
+                guard
+            )
+            .is_err(),
+            "read_text('/etc/hosts') must be blocked"
+        );
+        // The nest ROOT (config lives here) is NOT in the allowlist (only segments/ + labels/ are).
+        let q = format!(
+            "SELECT content FROM read_text('{}')",
+            dir.path().join("secret.txt").display()
+        );
+        assert!(
+            query_guarded(dir.path(), &q, guard).is_err(),
+            "read_text of the nest root must be blocked (leaks nuthatch.toml)"
+        );
+        // Case-insensitive + comment-split can't sneak past the denylist.
+        assert!(query_guarded(dir.path(), "SELECT * FROM READ_TEXT('/etc/hosts')", guard).is_err());
+        assert!(query_guarded(dir.path(), "SELECT * FROM glob('/*')", guard).is_err());
+        assert!(query_guarded(
+            dir.path(),
+            "SELECT content FROM read_text/**/('/etc/hosts')",
+            guard
+        )
+        .is_err());
+        // A legitimate query over the sealed segment still works — even when a *column* is named like a
+        // function (no call → not blocked).
+        let ok = query_guarded(
+            dir.path(),
+            r#"SELECT count(*) AS read_text FROM "t__e""#,
+            guard,
+        )
+        .unwrap();
+        assert_eq!(ok.rows[0]["read_text"], Value::from(1u64));
     }
 
     #[test]
