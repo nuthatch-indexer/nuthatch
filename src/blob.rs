@@ -207,6 +207,26 @@ pub fn load_manifest(blob_dir: &Path) -> Result<Manifest> {
 /// manifest claims (integrity), and — after install — the decode registry *regenerated from the
 /// installed inputs* equals the manifest's `registry_hash` (the blob decodes as promised). With
 /// `--expect`, the blob's own content address is asserted too, so you mount *that* blob and no other.
+/// Join a **manifest-declared** relative path onto `base`, refusing anything that could escape it — a
+/// blob is a distributable, hash-resolved deploy unit (RFC-0012 §4/§5), so its file paths are untrusted
+/// input. Only `Normal` path components are allowed: an absolute path (which `Path::join` would let
+/// *replace* the base), a `..` parent, a root/prefix, or a bare `.` are all rejected. This is the
+/// zip-slip / absolute-path-escape guard for `mount`.
+fn checked_join(base: &Path, rel: &str) -> Result<PathBuf> {
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() {
+        bail!("blob file path {rel:?} is absolute — refusing (path-traversal guard)");
+    }
+    for comp in rel_path.components() {
+        if !matches!(comp, std::path::Component::Normal(_)) {
+            bail!(
+                "blob file path {rel:?} has an illegal component — refusing (path-traversal guard)"
+            );
+        }
+    }
+    Ok(base.join(rel_path))
+}
+
 pub fn mount(blob_dir: &Path, target: Option<&Path>, expect: Option<&str>) -> Result<()> {
     let manifest = load_manifest(blob_dir)?;
 
@@ -230,7 +250,7 @@ pub fn mount(blob_dir: &Path, target: Option<&Path>, expect: Option<&str>) -> Re
 
     // Integrity: every file's bytes hash to the manifest's claim.
     for f in &manifest.files {
-        let bytes = std::fs::read(blob_dir.join(&f.path))
+        let bytes = std::fs::read(checked_join(blob_dir, &f.path)?)
             .with_context(|| format!("blob is missing declared file {}", f.path))?;
         let got = hex::encode(Sha256::digest(&bytes));
         if got != f.sha256 {
@@ -250,11 +270,11 @@ pub fn mount(blob_dir: &Path, target: Option<&Path>, expect: Option<&str>) -> Re
         bail!("target {} exists and is not empty", target.display());
     }
     for f in &manifest.files {
-        let dst = target.join(&f.path);
+        let dst = checked_join(&target, &f.path)?;
         if let Some(p) = dst.parent() {
             std::fs::create_dir_all(p)?;
         }
-        std::fs::copy(blob_dir.join(&f.path), &dst)
+        std::fs::copy(checked_join(blob_dir, &f.path)?, &dst)
             .with_context(|| format!("installing {}", f.path))?;
     }
 
@@ -296,6 +316,44 @@ pub fn verify_registry_reproduces(dir: &Path, manifest: &Manifest) -> Result<()>
 mod tests {
     use super::*;
     use crate::config::CONFIG_FILE;
+
+    /// SEC-1: a blob is untrusted, distributable input — `mount` must refuse a manifest whose file
+    /// paths would escape the target (zip-slip `../` or an absolute path, which `Path::join` would let
+    /// *replace* the base). Otherwise mounting a hostile blob is an arbitrary file write → RCE.
+    #[test]
+    fn mount_refuses_path_traversal() {
+        for evil_path in [
+            "../escaped.txt",
+            "/tmp/nuthatch-escape.txt",
+            "a/../../escaped.txt",
+        ] {
+            let blob = tempfile::tempdir().unwrap();
+            let manifest = Manifest {
+                blob_format_version: BLOB_FORMAT_VERSION,
+                nest_name: "evil".into(),
+                schema_version: 1,
+                generator_version: "x".into(),
+                registry_hash: "00".into(),
+                files: vec![FileEntry {
+                    path: evil_path.into(),
+                    sha256: "0".repeat(64),
+                }],
+            };
+            std::fs::write(
+                blob.path().join("manifest.json"),
+                serde_json::to_string(&manifest).unwrap(),
+            )
+            .unwrap();
+            let target = tempfile::tempdir().unwrap();
+            let err = mount(blob.path(), Some(target.path()), None)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("path-traversal"),
+                "path {evil_path:?} should be refused, got: {err}"
+            );
+        }
+    }
 
     /// A minimal nest dir (config + one ABI) for exercising pack.
     fn write_nest(dir: &Path) {
