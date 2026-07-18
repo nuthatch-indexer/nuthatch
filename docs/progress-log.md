@@ -11,6 +11,19 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   (proxy/EIP-1967 introspection, child-`end` conditions, SSE push, the 0012 live-parity proof). Notes
   the one node-independent 0014 slice worth building without the node (calldata decoder + `[extract]`
   config + schemas + volume guard). Linked from the RFC index.
+- **2026-07-18 - 0.4.0 hardening: defensive fixes (audit low-severity, the ones that earn their churn).**
+  **COR-11:** a decoded `uint≤64` with dirty high bits above its declared width would panic `to::<u64>()`
+  and kill the ingestion task (single-log DoS on RPC-derived data); now saturates. **SEC-10:** roost nest
+  names are restricted to `[A-Za-z0-9_-]` (they're both a path segment and a route prefix — no `/`/`..`/
+  empty escaping the nests dir). **COR-9:** `save_manifest` now fsyncs the temp file's bytes before the
+  rename and the dir entry after, so the atomic manifest swap survives power loss, not just `kill -9`.
+  **SEC-11:** internal (500) error bodies returned raw anyhow chains with absolute paths (layout
+  disclosure); now log the detail, return a generic message. 148 tests (+1), clippy clean. **Judged
+  defer-worthy** (backlogged, with rationale): COR-5 factory-tip-cap recovery (fails *safe* — loud error,
+  needs tip-loop surgery), COR-6 reserved-column collision (rare, needs a schema decision), COR-7 roost
+  reorg fan-out blast radius (defensible under single-boundary), COR-8 i128-band balance drop (exotic),
+  COR-10 `_seq` truncation (unreachable under gas limits), SEC-7 `WITH`-DML gate (ephemeral in-memory
+  only), SEC-8 concurrent webhook delivery (nice-to-have), SEC-9 per-nest metrics (bigger refactor).
 - **2026-07-18 - `nuthatch sql "<query>"` — terminal-native querying (the core delight).** The core user
   wants their contract's data; until now that meant HTTP `/sql` + curl. New one-shot `nuthatch sql`
   runs read-only SQL over the live tip ∪ sealed history and prints an aligned table (`--json` for

@@ -604,9 +604,12 @@ fn not_found(id: &str) -> axum::response::Response {
 }
 
 fn error(msg: String) -> axum::response::Response {
+    // SEC-11: internal error chains include absolute segment/dir paths (a filesystem-layout disclosure).
+    // Log the detail server-side; hand the client a generic message.
+    tracing::warn!("internal error serving request: {msg}");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": msg })),
+        Json(json!({ "error": "internal error" })),
     )
         .into_response()
 }

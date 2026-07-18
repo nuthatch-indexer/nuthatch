@@ -195,8 +195,20 @@ fn save_manifest(dir: &Path, manifest: &Manifest) -> Result<()> {
     // never a torn one.
     let path = manifest_path(dir);
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, raw).context("failed to write manifest temp")?;
+    // COR-9: fsync the temp file's *bytes* before the rename, and the directory *entry* after — so the
+    // atomic rename survives power loss, not just process death. Without the fsyncs a `rename` can be
+    // reordered before the data hits disk, exposing a torn/empty manifest that orphans the segments.
+    {
+        let f = std::fs::File::create(&tmp).context("failed to create manifest temp")?;
+        use std::io::Write;
+        (&f).write_all(raw.as_bytes())
+            .context("failed to write manifest temp")?;
+        f.sync_all().context("failed to fsync manifest temp")?;
+    }
     std::fs::rename(&tmp, &path).context("failed to install manifest")?;
+    if let Ok(d) = std::fs::File::open(dir) {
+        let _ = d.sync_all(); // best-effort dir fsync (unsupported on some platforms)
+    }
     Ok(())
 }
 
