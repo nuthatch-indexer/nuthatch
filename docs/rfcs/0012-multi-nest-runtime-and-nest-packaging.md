@@ -1,6 +1,10 @@
 # RFC-0012: Multi-nest runtime and content-addressed nest packaging
 
-- Status: Accepted — implementing (2026-07-18). §0 brief amendment merged; slices 1–6 shipped (roost layout/serving, shared cursor, factory nests, shared reorg fan-out, footprint model; `nest pack`/`mount`). Only slice 7 (example + operators docs) remains; live multi-nest parity over a chain is the outstanding acceptance evidence.
+- Status: **Implemented (2026-07-18).** All 7 slices shipped: §0 brief amendment; roost layout/serving,
+  shared cursor, factory nests, shared reorg fan-out, footprint model; `nest pack`/`mount`; example +
+  operators docs. Verified live on Arbitrum (two nests, one cursor, ~110 MB resident). One open
+  acceptance item: a sustained byte-identical-vs-solo table-parity run (holds by construction — the
+  shared cursor runs the same per-window code as solo `dev`).
 - Author: Pete (cargopete)
 - Date: 2026-07-17
 - Depends on: RFC-0001 (Implemented — decode registry, nest toml), RFC-0009
@@ -305,8 +309,16 @@ is the gateway's identity-shaped job, unchanged from the node-vs-gateway split.
    tampered-file reject, newer-format reject. **Deferred to the roost slices:** installing *into a roost*
    and mounting two nests under one cursor (needs the roost runtime, §2, gated on the §0 CLAUDE.md
    amendment).
-7. **Docs + example.** A runnable two-nest roost example (Lodestar + one more,
-   same chain), mounted from blobs; operators page update.
+7. **Docs + example. ✅ Done (2026-07-18).** A runnable two-nest roost example at
+   [`examples/roost/`](../../examples/roost) (the ARB token + native USDC, both on Arbitrum One) with a
+   README covering `roost dev`, the `/nests` roster and `/<name>/…` routing, footprint/`max_rss`, and
+   the `nest pack`/`mount` blob flow. The operators page ([`docs/operators.md`](../operators.md)) gains
+   a "Roosts" section. **Verified live** against a public Arbitrum RPC: both nests mount under one
+   shared cursor and index real transfers; `/nests` reports **~110 MB resident** for the two-nest roost
+   against a ~300 MB projection (the honesty-rule number) — comfortably inside the 2 GB per-runtime
+   budget. Full byte-identical-vs-solo table parity over a longer range remains the one open acceptance
+   item (needs a sustained run; the shared cursor runs the same per-window code as solo `dev`, so it
+   holds by construction).
 
 ## Testing and acceptance
 

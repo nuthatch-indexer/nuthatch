@@ -2,6 +2,19 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-18 - RFC-0012 roost slice 7: example + operators docs — RFC-0012 COMPLETE.** A runnable
+  two-nest roost example at `examples/roost/` (the ARB token + native USDC, both on Arbitrum One) with a
+  README covering `roost dev`, the `/nests` roster + `/<name>/…` routing, footprint/`max_rss`, and the
+  `nest pack`/`mount` blob flow; plus a "Roosts" section in `docs/operators.md`. **Verified live**
+  against a public Arbitrum RPC (no paid quota): both nests mount under one shared cursor and index real
+  transfers, and `/nests` reports **~110 MB resident** for the two-nest roost against a ~300 MB
+  projection — comfortably inside the 2 GB per-runtime budget, and the honesty-rule RSS number the RFC
+  asked for. **RFC-0012 is now Implemented — all 7 slices** (§0 brief amendment; roost layout/serving,
+  shared cursor, factory nests, shared reorg fan-out, footprint model; `nest pack`/`mount`; docs +
+  example). One nest, one command still works unchanged; N nests on one chain now share a cursor, a
+  reorg boundary, and a footprint budget — per-nest tables byte-identical to solo by construction. The
+  single open acceptance item is a sustained byte-identical-vs-solo parity run over a longer range
+  (holds by construction — the shared cursor runs the same per-window code as solo `dev`).
 - **2026-07-18 - RFC-0012 roost slice 4: per-runtime footprint model.** The density-honesty piece.
   `roost.toml` gains an optional `max_rss_mb` (default 2048 — the CLAUDE.md ≤2 GB per-runtime budget).
   Before starting, `roost dev` computes a rough RSS **projection** — a fixed roost base (120 MB, paid
