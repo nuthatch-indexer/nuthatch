@@ -195,6 +195,17 @@ impl Store {
         Ok(out)
     }
 
+    /// The sealed watermark: the highest block whose rows have been sealed to Parquet and pruned from
+    /// hot. Rows `> sealed_through` live in the hot store; rows `<= sealed_through` live in cold
+    /// segments. `/sql` reads this to keep the hot∪cold union disjoint (COR-1). 0 if nothing sealed.
+    pub fn sealed_through(&self) -> u64 {
+        self.get_meta("sealed_through")
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    }
+
     /// Every hot (unsealed) row, parsed and grouped by its logical `table` (RFC-0013). One full scan of
     /// the hot store — bounded, since sealed rows are pruned from hot, so this holds only the tip past
     /// the sealed watermark. Feeds the analytical `/sql` surface so the live tip is queryable alongside
@@ -338,6 +349,41 @@ impl Store {
                 t.remove(k.as_str())?;
                 removed += 1;
             }
+        }
+        wtx.commit()?;
+        Ok(removed)
+    }
+
+    /// Prune entities in `[from, to]` **and** set a meta key, in ONE write transaction (hardening
+    /// COR-1). Sealing uses this to advance the `sealed_through` watermark and drop the just-sealed rows
+    /// from hot *atomically* — a `kill -9` can never leave a range committed to both the hot store and a
+    /// sealed segment, which would permanently double-count it in `/sql` and on every balance rebuild.
+    /// The seal itself is content-addressed (idempotent), so a crash *before* this txn simply re-seals
+    /// the same range on restart; the watermark only advances once the prune is durable.
+    pub fn prune_and_set_meta(
+        &self,
+        from: u64,
+        to: u64,
+        meta_key: &str,
+        meta_val: &str,
+    ) -> Result<u64> {
+        let lo = format!("{from:012}-000000");
+        let hi = format!("{to:012}-999999");
+        let wtx = self.db.begin_write()?;
+        let mut removed = 0u64;
+        {
+            let mut t = wtx.open_table(ENTITIES)?;
+            let doomed: Vec<String> = t
+                .range(lo.as_str()..=hi.as_str())?
+                .filter_map(|row| row.ok())
+                .map(|(k, _)| k.value().to_string())
+                .collect();
+            for k in doomed {
+                t.remove(k.as_str())?;
+                removed += 1;
+            }
+            let mut m = wtx.open_table(META)?;
+            m.insert(meta_key, meta_val)?;
         }
         wtx.commit()?;
         Ok(removed)
