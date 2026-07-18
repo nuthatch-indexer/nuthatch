@@ -49,6 +49,47 @@ gateway if you don't want them public.
 - Data lives under the nest directory (`nuthatch.redb`, `segments/`). Back up the directory; sealed
   segments are content-addressed and safe to copy while running.
 
+## Roosts (many nests, one runtime)
+
+One process can host **many nests on the same chain** — a *roost* — sharing a single cursor, one chain
+read, and one API, instead of a process per nest. Different chains still mean a process each (a second
+chain is a second cursor). See [`examples/roost/`](../examples/roost) for a runnable two-nest example.
+
+```
+roost/
+  roost.toml
+  nests/
+    lodestar/      # a nest dir, exactly as `nuthatch init` produces
+    uniswap-v3/
+```
+
+```toml
+[roost]
+name = "arb-roost"
+chain = "arbitrum-one"
+chain_id = 42161
+rpc_urls = ["https://arb1.example"]   # the roost owns the chain connection
+nests = ["lodestar", "uniswap-v3"]    # dir names under nests/
+# max_rss_mb = 2048                    # per-runtime RSS ceiling; a mount projected over it is refused
+```
+
+Run it with `nuthatch roost dev --dir roost/ --listen …`. Every nest's `[nest].chain`/`chain_id` must
+match the roost's — a mismatch is refused at startup (a different chain needs its own roost).
+
+- **Serving.** `GET /nests` is the roster (each nest's name, chain, registry hash, table count,
+  `estimated_rss_mb`; plus the roost's `projected_rss_mb`, `max_rss_mb`, and real `rss_bytes`). Every
+  nest's full API lives under its prefix — `/<name>/tables`, `/<name>/sql`, `/<name>/_admin/`, … `/sql`
+  stays **per-nest scoped**: a query sees one nest's data.
+- **Isolation.** Stores are per-nest (each keeps its own `nuthatch.redb` + `segments/` under
+  `nests/<name>/`); only the cursor is shared. A bad view or runaway factory in one nest can't touch
+  another's data. A reorg is detected once and rolled back across every nest.
+- **Footprint.** The budget is per-*runtime*, not per-nest. `roost dev` projects RSS before starting
+  and refuses a mount over `max_rss_mb` (default 2 GB). The projection is a rough estimate; `GET /nests`
+  reports the real `rss_bytes` beside it — provision against the measurement. (A two-nest ERC-20 roost
+  measures ~110 MB resident against a ~300 MB projection.)
+- **Mixed nests.** Static and factory nests co-exist in one roost; nests may mount at different heights
+  and each backfills its own history — the cursor only couples them at the tip.
+
 ## Stability contract (0.x)
 
 - **Config**: `nuthatch.toml` keys and the nest `schema_version` follow a deprecation policy — a key

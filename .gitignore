@@ -7,6 +7,8 @@
 *.redb
 abi.json
 nuthatch.toml
+# …but the committed example roost's nest configs are intentional (no secrets)
+!examples/**/nuthatch.toml
 
 # guest component build dirs (the staged component .wasm at components/*.wasm IS committed)
 components/*/target

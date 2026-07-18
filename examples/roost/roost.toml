@@ -1,0 +1,17 @@
+# A roost: two nests on one chain (Arbitrum One), one runtime, one cursor.
+# Run it:  nuthatch roost dev --dir examples/roost --rpc https://arb1.your-node --listen 127.0.0.1:8288
+# Then:    curl localhost:8288/nests        # the roster (+ footprint)
+#          curl localhost:8288/arb/tables   # a nest's API, under its /<name>/ prefix
+#          curl localhost:8288/usdc/sql?q=...
+
+[roost]
+name = "arb-roost"
+chain = "arbitrum-one"
+chain_id = 42161
+# The roost owns the chain connection; a nest's own rpc_urls are ignored here. Override with --rpc.
+rpc_urls = ["https://arb1.arbitrum.io/rpc"]
+# Dir names under nests/. Both must be on the roost's chain (validated at startup).
+nests = ["arb", "usdc"]
+# Per-runtime RSS ceiling (MB). A mount whose projection exceeds this is refused before it starts.
+# Omit to use the default 2 GB budget.
+# max_rss_mb = 2048
