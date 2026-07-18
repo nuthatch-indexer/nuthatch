@@ -65,8 +65,11 @@ pub struct AppState {
     pub sql_gate: Arc<Semaphore>,
 }
 
-pub async fn run(listen: &str, state: AppState) -> Result<()> {
-    let app = Router::new()
+/// Build a nest's router — every per-nest route plus the request-count layer, bound to `state`. Split
+/// out of [`run`] so a roost (RFC-0012) can mount many of these under `/<nest>/…` prefixes; a solo
+/// `dev` serves exactly one at the root. Identical routes either way — a nest can't tell it's co-hosted.
+pub fn router(state: AppState) -> Router {
+    Router::new()
         .route("/", get(summary))
         .route("/health", get(|| async { "ok" }))
         .route("/metrics", get(metrics_handler))
@@ -84,8 +87,43 @@ pub async fn run(listen: &str, state: AppState) -> Result<()> {
         .route("/_admin/", get(admin_index))
         // Count every served request for `/metrics` (the operator's billing signal).
         .layer(axum::middleware::from_fn(count_request))
-        .with_state(state);
+        .with_state(state)
+}
 
+pub async fn run(listen: &str, state: AppState) -> Result<()> {
+    bind_and_serve(listen, router(state)).await
+}
+
+/// Serve many nests behind one listener (RFC-0012 roost, slice 1): a `/nests` roster plus every nest's
+/// full API under its `/<name>/…` prefix. Chain identity and the cursor are still per-nest at this
+/// slice (the shared cursor is slice 2); this lands the routing + per-nest isolation of the serving
+/// surface first. Each nest's routes are byte-identical to a solo `dev`, just prefixed.
+pub async fn run_roost(
+    listen: &str,
+    roster: serde_json::Value,
+    nests: Vec<(String, AppState)>,
+) -> Result<()> {
+    let roster = Arc::new(roster);
+    let mut app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        // `GET /nests` — the roster (name, chain, registry hash, table count) across mounted nests.
+        .route(
+            "/nests",
+            get(move || {
+                let r = roster.clone();
+                async move { Json((*r).clone()) }
+            }),
+        );
+    for (name, state) in nests {
+        // `Router::nest` re-roots the whole per-nest router under `/<name>`, so `/lodestar/tables`,
+        // `/lodestar/sql`, `/lodestar/_admin/` … all resolve to that nest's isolated state.
+        app = app.nest(&format!("/{name}"), router(state));
+    }
+    bind_and_serve(listen, app).await
+}
+
+/// Bind `listen` and serve `app` until a shutdown signal — the shared tail of [`run`]/[`run_roost`].
+async fn bind_and_serve(listen: &str, app: Router) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .with_context(|| format!("cannot bind {listen}"))?;
@@ -99,8 +137,8 @@ pub async fn run(listen: &str, state: AppState) -> Result<()> {
              before exposing it publicly. See docs/operators.md."
         );
     }
-    // Graceful shutdown on SIGTERM/SIGINT: axum drains in-flight requests, then `run` returns so the
-    // caller can abort the ingest task (its progress is checkpointed, so a restart resumes cleanly).
+    // Graceful shutdown on SIGTERM/SIGINT: axum drains in-flight requests, then this returns so the
+    // caller can abort the ingest task(s) (progress is checkpointed, so a restart resumes cleanly).
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await

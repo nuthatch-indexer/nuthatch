@@ -220,10 +220,19 @@ is the gateway's identity-shaped job, unchanged from the node-vs-gateway split.
 
 ## Implementation plan (vertical slices; each ends runnable)
 
-1. **Roost layout + serving.** `roost.toml`, `nests/<name>/` layout, `/nests` and
-   `/<nest>/…` routing; single-nest `dev` still works as a roost-of-one. Two statically
-   configured nests served side by side — *still one cursor each* at this step (naive),
-   to land routing/isolation before touching ingestion.
+1. **Roost layout + serving.** ✅ **Done (2026-07-18).** `roost.toml` (`[roost]` chain/chain_id/
+   rpc_urls + a `nests` list) at `src/roost.rs`, `nests/<name>/` layout, `nuthatch roost dev`,
+   `/nests` roster + each nest's full API under its `/<name>/…` prefix (`serve::run_roost`,
+   `Router::nest`). Chain identity is hoisted to the roost and every mounted nest's `[nest].chain`/
+   `chain_id` is validated against it (mismatch = hard error; a different chain needs its own roost).
+   *Still one cursor each* at this step (naive) — the shared cursor is slice 2. Stores stay per-nest
+   and isolated (own redb/segments/views). `indexer::run` was refactored into `spawn_nest` (builds a
+   nest's state + background tasks) + a thin `run` (serve + fate-share), so `dev` is unchanged (the
+   roost-of-one) and the roost fate-shares the server with *all* nests' ingestion via `select_all` —
+   any nest's ingestion dying exits the whole process non-zero (single-failure-boundary, generalised).
+   Tests: valid load, wrong-chain reject, reserved/duplicate name reject, empty-list reject (132 tests,
+   +4; clippy clean). The live two-nest demo folds into slice 2's path-equivalence gate (it needs real
+   ingestion over a chain regardless).
 2. **Shared cursor.** Collapse to one cursor per chain: union filter, fan-out routing
    by `(nest, contract)`, tip-only coupling. Reuse RFC-0009 routing + the topic0-flip.
    Acceptance: two nests, one `getLogs` stream, byte-identical per-nest tables vs

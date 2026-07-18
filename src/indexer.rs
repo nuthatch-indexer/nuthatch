@@ -70,6 +70,20 @@ pub async fn dev(args: DevArgs) -> Result<()> {
     .await
 }
 
+/// A single nest's contribution to a running process: its serve state plus the background tasks that
+/// keep it fed (the ingestion loop, and an optional alert/webhook delivery worker). Built by
+/// [`spawn_nest`]; consumed either by [`run`] (one nest, served at the root) or by the roost
+/// (RFC-0012 — many nests, each served under a `/<name>/…` prefix behind one listener).
+pub struct NestRuntime {
+    pub state: serve::AppState,
+    /// The ingestion loop task. Its `Result` is `Ok` only on a clean shutdown; an error or panic here
+    /// must surface as a process failure, never be served-over silently (deadlock-review C1).
+    pub ingest: tokio::task::JoinHandle<Result<()>>,
+    /// The shared alert/webhook delivery worker, if any sink or webhook is configured. Only ever
+    /// aborted (it drains a durable outbox), so its output type doesn't matter.
+    pub alert_worker: Option<tokio::task::JoinHandle<()>>,
+}
+
 /// Run the indexing pipeline against any `Source` and serve the API — the source-agnostic entry both
 /// front-ends share. Decode → hot store → seal → IVM → serve is identical regardless of whether tips
 /// arrive by RPC polling or in-process from a reth ExEx.
@@ -85,6 +99,73 @@ pub async fn run(
     window_override: Option<u64>,
     no_admin: bool,
 ) -> Result<()> {
+    // Admin UI (RFC-0010 Part A): on by default on localhost. Off-localhost it needs an explicit token
+    // (auth is the operator's gateway's job, but the local UI should never appear unguarded on a public
+    // bind); `--no-admin` removes it entirely. Computed here since it depends on the process's `listen`.
+    let admin_enabled = admin_enabled(no_admin, &listen);
+    let NestRuntime {
+        state,
+        mut ingest,
+        alert_worker,
+    } = spawn_nest(
+        source,
+        dir,
+        config,
+        backfill,
+        seal_direct,
+        concurrency,
+        window_override,
+        admin_enabled,
+    )
+    .await?;
+
+    // The indexer and the API share a fate. If indexing dies (an error or a panic) the process must
+    // not keep serving stale data as if healthy — a silent failure (deadlock-review finding C1). Select
+    // over both: whichever ends first decides the exit, and an indexing error/panic propagates out.
+    let result = tokio::select! {
+        r = serve::run(&listen, state) => r,
+        joined = &mut ingest => match joined {
+            Ok(inner) => inner,
+            Err(e) if e.is_panic() => Err(anyhow::anyhow!("indexing loop panicked")),
+            Err(e) => Err(anyhow::anyhow!("indexing loop task failed: {e}")),
+        },
+    };
+    ingest.abort();
+    if let Some(w) = alert_worker {
+        w.abort();
+    }
+    result
+}
+
+/// Whether the built-in admin UI should be served, given `--no-admin` and the bind address. Extracted
+/// so the roost computes it once for the whole process (RFC-0010 Part A semantics unchanged).
+pub fn admin_enabled(no_admin: bool, listen: &str) -> bool {
+    let enabled =
+        !no_admin && (serve::is_localhost(listen) || std::env::var("NUTHATCH_ADMIN_TOKEN").is_ok());
+    if !no_admin && !enabled {
+        tracing::warn!(
+            "admin UI disabled: bound off-localhost without NUTHATCH_ADMIN_TOKEN set (RFC-0010 Part A)"
+        );
+    }
+    enabled
+}
+
+/// Build one nest's runtime: open its store, build its decode registry + IVM views, spawn its
+/// ingestion loop and delivery worker, and assemble its serve state — everything *except* binding a
+/// listener. The serving decision (root vs a `/<name>/…` prefix, one nest vs many) belongs to the
+/// caller. Per-nest isolation (own store, own segments, own views) is the CLAUDE.md non-negotiable a
+/// roost preserves by calling this once per nest.
+#[allow(clippy::too_many_arguments)]
+pub async fn spawn_nest(
+    source: Arc<dyn Source>,
+    dir: PathBuf,
+    config: Config,
+    backfill: Option<u64>,
+    seal_direct: bool,
+    concurrency: usize,
+    window_override: Option<u64>,
+    admin_enabled: bool,
+) -> Result<NestRuntime> {
     let store = Store::open(&dir.join(DB_FILE))?;
     // The decode registry drives all contracts; the indexer decodes every declared event of every
     // contract in the nest into per-table rows.
@@ -217,7 +298,7 @@ pub async fn run(
     };
 
     // Kick off the indexing loop in the background; serve the API on this task.
-    let mut ingest = tokio::spawn(index_loop(
+    let ingest = tokio::spawn(index_loop(
         source.clone(),
         store.clone(),
         registry.clone(),
@@ -242,16 +323,6 @@ pub async fn run(
         concurrency,
     ));
 
-    // Admin UI (RFC-0010 Part A): on by default on localhost. Off-localhost it needs an explicit
-    // token (auth is the operator's gateway's job, but the local UI should never appear unguarded on
-    // a public bind); `--no-admin` removes it entirely for hosted deployments.
-    let admin_enabled = !no_admin
-        && (serve::is_localhost(&listen) || std::env::var("NUTHATCH_ADMIN_TOKEN").is_ok());
-    if !no_admin && !admin_enabled {
-        tracing::warn!(
-            "admin UI disabled: bound off-localhost without NUTHATCH_ADMIN_TOKEN set (RFC-0010 Part A)"
-        );
-    }
     let nest_info = serde_json::json!({
         "name": config.nest.name,
         "chain": config.nest.chain,
@@ -282,23 +353,12 @@ pub async fn run(
         admin_enabled,
         nest_info: Arc::new(nest_info),
     };
-    // The indexer and the API share a fate. Previously `serve` was awaited and `ingest` only aborted
-    // afterwards, so if indexing died (an error or a panic) the process kept serving stale data as if
-    // healthy — a silent failure (deadlock-review finding C1). Select over both: whichever ends first
-    // decides the exit, and an indexing error/panic propagates out as a non-zero exit.
-    let result = tokio::select! {
-        r = serve::run(&listen, app_state) => r,
-        joined = &mut ingest => match joined {
-            Ok(inner) => inner, // index_loop's own Result (Ok only on a clean shutdown break)
-            Err(e) if e.is_panic() => Err(anyhow::anyhow!("indexing loop panicked")),
-            Err(e) => Err(anyhow::anyhow!("indexing loop task failed: {e}")),
-        },
-    };
-    ingest.abort();
-    if let Some(w) = alert_worker {
-        w.abort();
-    }
-    result
+
+    Ok(NestRuntime {
+        state: app_state,
+        ingest,
+        alert_worker,
+    })
 }
 
 /// Batch size (rows) at which `backfill_direct` flushes a sealed segment — bounds RSS during a
@@ -1164,7 +1224,7 @@ async fn detect_reorg(source: &dyn Source, store: &Store, last: u64) -> Result<O
 /// host; multiple hosts spread the load over separate connections and never hit it). So a single
 /// endpoint is capped to sequential; two or more keep the requested parallelism. The caller logs the
 /// cap so the operator knows to add endpoints for a faster backfill.
-fn safe_backfill_concurrency(endpoint_count: usize, requested: usize) -> usize {
+pub fn safe_backfill_concurrency(endpoint_count: usize, requested: usize) -> usize {
     if endpoint_count <= 1 {
         1
     } else {

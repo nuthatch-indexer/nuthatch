@@ -9,8 +9,8 @@
 //! onto this spine — see docs/ROADMAP as it lands. What matters here is that it's *alive*.
 
 use nuthatch::{
-    audit, bench, blob, check, cli, config, indexer, labels, lists, mcp, pack, project, screen,
-    store, transform,
+    audit, bench, blob, check, cli, config, indexer, labels, lists, mcp, pack, project, roost,
+    screen, store, transform,
 };
 
 use anyhow::Result;
@@ -50,6 +50,21 @@ async fn main() -> Result<()> {
                 a.dir.as_deref().map(std::path::Path::new),
                 a.expect.as_deref(),
             ),
+        },
+        cli::Command::Roost(args) => match args.what {
+            cli::RoostWhat::Dev(a) => {
+                roost::dev(
+                    std::path::PathBuf::from(&a.dir),
+                    a.listen,
+                    a.rpc,
+                    a.backfill,
+                    a.seal_direct,
+                    a.concurrency,
+                    a.window,
+                    a.no_admin,
+                )
+                .await
+            }
         },
     }
 }
