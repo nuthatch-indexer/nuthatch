@@ -421,6 +421,7 @@ async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoR
                               // Scan the hot tip (redb, blocking) inside the same blocking task, so `/sql` sees the unsealed
                               // rows alongside the sealed segments (RFC-0013). A scan failure degrades to cold-only.
         let hot = store.hot_rows_by_table().unwrap_or_default();
+        let sealed_through = store.sealed_through();
         analytics::query_hot_cold(
             &dir,
             &sql,
@@ -429,6 +430,7 @@ async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoR
                 max_rows: SQL_MAX_ROWS,
             },
             &hot,
+            sealed_through,
         )
     })
     .await;

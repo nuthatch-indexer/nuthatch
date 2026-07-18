@@ -1697,10 +1697,19 @@ fn maybe_seal(
     // whole range is safe to prune from the hot store — the watermark stays global.
     match seal::seal_range_with_snapshot(dir, &entities, from, ceiling, registry_snapshot)? {
         Some(summary) => {
-            store.set_meta(SEALED_THROUGH_KEY, &ceiling.to_string())?;
+            // COR-1: prune the sealed rows from hot AND advance the watermark in one atomic txn, AFTER
+            // the segment is durable. The watermark advancing is what makes the range "cold", so it must
+            // happen with the prune, never before it — else a crash between the two would leave the range
+            // permanently in both layers (double-counted forever). `seal_range` is idempotent, so a crash
+            // before this line just re-seals on restart.
+            let pruned = store.prune_and_set_meta(
+                from,
+                ceiling,
+                SEALED_THROUGH_KEY,
+                &ceiling.to_string(),
+            )?;
             METRICS.set_sealed_through(ceiling);
             METRICS.add_rows_sealed(summary.rows as u64);
-            let pruned = store.prune_range(from, ceiling)?;
             tracing::info!(
                 "sealed blocks {from}..={ceiling}: {} rows across {} table(s); pruned {pruned} from hot",
                 summary.rows,

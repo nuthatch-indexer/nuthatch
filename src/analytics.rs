@@ -2,8 +2,10 @@
 //! DuckDB. DuckDB is single-writer/OLAP: we only ever ATTACH the segments read-only here; the
 //! ingestion path never writes DuckDB. The sealed segments cover finalized history; the unsealed tip
 //! lives in redb. For `/sql` (RFC-0013) the hot rows are scanned into per-table temp tables and
-//! `UNION ALL`'d into each table's view — hot and cold are disjoint by block range (sealed rows are
-//! pruned from hot), so the union is exact with no dedup. Trusted point-reads pass no hot rows.
+//! `UNION ALL`'d into each table's view. Hot and cold are kept disjoint *structurally* by the
+//! `sealed_through` watermark (COR-1): cold includes only segments finalized at/below it, hot only rows
+//! past it — so the union is exact with no dedup, even across the brief seal→prune window. Trusted
+//! point-reads pass no hot rows (and `u64::MAX`, i.e. all segments).
 //!
 //! The binary stays single-file: DuckDB is statically bundled. Memory is capped so an analytical
 //! query can't blow the embedded-mode RAM budget.
@@ -47,13 +49,14 @@ pub type HotRows = std::collections::HashMap<String, Vec<Value>>;
 /// Run a read-only query to completion. Only SELECT/WITH statements are accepted — this is a query
 /// surface, not a mutation surface. Unguarded: for trusted, registry-built SQL that must finish.
 pub fn query(dir: &Path, sql: &str) -> Result<Vec<Value>> {
-    Ok(run(dir, sql, None, &HotRows::new())?.rows)
+    Ok(run(dir, sql, None, &HotRows::new(), u64::MAX)?.rows)
 }
 
 /// Run a read-only query under a resource guard, over the **sealed segments only** — the cold path used
 /// by trusted callers and the `/table` endpoint's cold fill (which merges hot itself). See [`QueryGuard`].
 pub fn query_guarded(dir: &Path, sql: &str, guard: QueryGuard) -> Result<QueryOutput> {
-    run(dir, sql, Some(guard), &HotRows::new())
+    // Cold-only: `u64::MAX` includes every sealed segment (no hot rows to keep disjoint from).
+    run(dir, sql, Some(guard), &HotRows::new(), u64::MAX)
 }
 
 /// Run a guarded read-only query over the sealed segments **and the hot tip** — the public `/sql`
@@ -65,11 +68,18 @@ pub fn query_hot_cold(
     sql: &str,
     guard: QueryGuard,
     hot: &HotRows,
+    sealed_through: u64,
 ) -> Result<QueryOutput> {
-    run(dir, sql, Some(guard), hot)
+    run(dir, sql, Some(guard), hot, sealed_through)
 }
 
-fn run(dir: &Path, sql: &str, guard: Option<QueryGuard>, hot: &HotRows) -> Result<QueryOutput> {
+fn run(
+    dir: &Path,
+    sql: &str,
+    guard: Option<QueryGuard>,
+    hot: &HotRows,
+    sealed_through: u64,
+) -> Result<QueryOutput> {
     // Check the first *statement keyword*, past any leading whitespace and SQL comments — a query
     // that opens with `-- note` or `/* … */` is still a SELECT. DuckDB gets the original text.
     let head = strip_leading_sql_comments(sql).to_ascii_lowercase();
@@ -107,7 +117,7 @@ fn run(dir: &Path, sql: &str, guard: Option<QueryGuard>, hot: &HotRows) -> Resul
     );
     conn.execute_batch(&lockdown)
         .context("failed to lock down DuckDB filesystem access")?;
-    define_views(&conn, dir, hot)?;
+    define_views(&conn, dir, hot, sealed_through)?;
     // A nest can ship derived-entity views (`views/*.sql`) that build on the per-event tables; the
     // analytical `/sql` surface sees them. Point-reads (`net_balances`, `get_row`) deliberately skip
     // this — they only touch the raw per-event tables.
@@ -506,7 +516,7 @@ pub fn get_row(dir: &Path, block: u64, log_index: u64) -> Result<Option<Value>> 
 /// SQL (RFC-0001 §2) each such column `c` gets two derived view columns: `c_dec` — the value as
 /// `DECIMAL(38,0)` when it fits, else NULL — and `c_overflow` — true when the exact value exceeds
 /// 38 digits (so `c_dec` is NULL but `c` isn't). Analytics can `SUM(c_dec)` without hand-casting.
-fn define_views(conn: &Connection, dir: &Path, hot: &HotRows) -> Result<()> {
+fn define_views(conn: &Connection, dir: &Path, hot: &HotRows, sealed_through: u64) -> Result<()> {
     let manifest = crate::seal::load_manifest(dir)?;
     let schema = schema_columns(dir);
     let cols_of = |table: &str| -> &[(String, String)] {
@@ -519,8 +529,10 @@ fn define_views(conn: &Connection, dir: &Path, hot: &HotRows) -> Result<()> {
     let seg_dir = dir.join(crate::seal::SEGMENTS_DIR);
 
     // The full set of tables to define: declared (schema) ∪ sealed (manifest) ∪ hot. Each view is the
-    // `UNION ALL` of whichever of {sealed Parquet, hot tip} exist — hot and cold are disjoint by block
-    // (sealed rows are pruned from hot), so no dedup is needed.
+    // `UNION ALL` of whichever of {sealed Parquet, hot tip} exist. COR-1: hot and cold are kept disjoint
+    // structurally by `sealed_through` — cold includes only segments finalized *up to* the watermark,
+    // hot only rows *past* it — so the union is exact even across the brief seal→prune window (a segment
+    // written before its watermark advances is excluded from cold; its rows are still served from hot).
     let mut tables: std::collections::BTreeSet<String> =
         schema.iter().map(|(t, _)| t.clone()).collect();
     tables.extend(manifest.tables.keys().cloned());
@@ -528,21 +540,35 @@ fn define_views(conn: &Connection, dir: &Path, hot: &HotRows) -> Result<()> {
 
     for table in &tables {
         let cols = cols_of(table);
+        // Only segments finalized at or below the served watermark (COR-1 disjointness).
         let sealed_files: Vec<String> = manifest
             .tables
             .get(table)
             .map(|segs| {
                 segs.iter()
+                    .filter(|s| s.to_block <= sealed_through)
                     .map(|s| format!("'{}'", seg_dir.join(&s.file).display()))
                     .collect()
             })
             .unwrap_or_default();
-        let hot_rows = hot.get(table).map(Vec::as_slice).unwrap_or(&[]);
+        // Only tip rows strictly past the watermark (COR-1 disjointness; belt-and-braces with the
+        // atomic seal→prune, which already keeps sealed rows out of hot).
+        let hot_rows: Vec<&Value> = hot
+            .get(table)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .filter(|r| r.get("block_number").and_then(Value::as_u64).unwrap_or(0) > sealed_through)
+            .collect();
 
         let mut parts: Vec<String> = Vec::new();
         if !sealed_files.is_empty() {
+            // COR-2: `union_by_name=true` NULL-fills columns that differ across segments — segment
+            // schemas legitimately drift over a nest's life as ABIs are versioned (CLAUDE.md), and
+            // without this a single drifted column makes `read_parquet` throw and the whole table's view
+            // silently vanish.
             parts.push(format!(
-                "SELECT *{} FROM read_parquet([{}])",
+                "SELECT *{} FROM read_parquet([{}], union_by_name=true)",
                 derived_bigint_cols(cols),
                 sealed_files.join(", ")
             ));
@@ -552,7 +578,7 @@ fn define_views(conn: &Connection, dir: &Path, hot: &HotRows) -> Result<()> {
         // works with or without a `schema.json`. The `*_dec` derived columns still come from the schema.
         if !hot_rows.is_empty() {
             let hot_tbl = format!("__hot_{table}");
-            match load_hot_temp(conn, &hot_tbl, hot_rows) {
+            match load_hot_temp(conn, &hot_tbl, &hot_rows) {
                 Ok(()) => parts.push(format!(
                     "SELECT *{} FROM \"{hot_tbl}\"",
                     derived_bigint_cols(cols)
@@ -601,7 +627,7 @@ fn hot_col_type(name: &str) -> &'static str {
 /// exactly how `seal::rows_to_batch` derives the Parquet schema — so no `schema.json` is required.
 /// Value marshalling mirrors seal exactly: counter columns are `u64` (0 if absent), every other column
 /// is the JSON string as-is, or the JSON value stringified, or NULL when absent/null.
-fn load_hot_temp(conn: &Connection, name: &str, rows: &[Value]) -> Result<()> {
+fn load_hot_temp(conn: &Connection, name: &str, rows: &[&Value]) -> Result<()> {
     let mut columns: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for r in rows {
         if let Some(obj) = r.as_object() {
@@ -914,6 +940,65 @@ template="pool"
     }
 
     #[test]
+    fn sql_disjoint_union_never_double_counts_an_overlapping_row() {
+        // COR-1: even if a block sits in BOTH a sealed segment and the hot store (the seal→prune crash
+        // window), the `sealed_through` filter counts it once — cold ≤ watermark, hot > watermark.
+        let dir = tempfile::tempdir().unwrap();
+        let cold = vec![r#"{"table":"t__e","block_number":10,"log_index":0,"x":"1"}"#.to_string()];
+        crate::seal::seal_range(dir.path(), &cold, 10, 10).unwrap();
+        // Hot deliberately still holds block 10 (the overlap) AND a genuinely-unsealed block 20.
+        let mut hot = HotRows::new();
+        hot.insert(
+            "t__e".into(),
+            vec![
+                serde_json::json!({"table":"t__e","block_number":10,"log_index":0,"x":"1"}),
+                serde_json::json!({"table":"t__e","block_number":20,"log_index":0,"x":"2"}),
+            ],
+        );
+        let guard = QueryGuard {
+            timeout: Duration::from_secs(5),
+            max_rows: 1000,
+        };
+        // Watermark = 10: cold keeps block 10, hot keeps only block 20 → 2 rows, not 3.
+        let out = query_hot_cold(
+            dir.path(),
+            r#"SELECT count(*) AS n FROM "t__e""#,
+            guard,
+            &hot,
+            10,
+        )
+        .unwrap();
+        assert_eq!(out.rows[0]["n"], Value::from(2u64));
+    }
+
+    #[test]
+    fn sql_survives_schema_drift_across_segments() {
+        // COR-2: two segments of one table with different column sets (an ABI gained a `fee` field
+        // between them) must UNION via `union_by_name`, not throw and drop the whole view.
+        let dir = tempfile::tempdir().unwrap();
+        crate::seal::seal_range(
+            dir.path(),
+            &[r#"{"table":"t__e","block_number":10,"log_index":0,"a":"1"}"#.to_string()],
+            10,
+            10,
+        )
+        .unwrap();
+        crate::seal::seal_range(
+            dir.path(),
+            &[r#"{"table":"t__e","block_number":20,"log_index":0,"a":"2","fee":"9"}"#.to_string()],
+            20,
+            20,
+        )
+        .unwrap();
+        // Without union_by_name this errors ("table not found" — the view was silently dropped).
+        let out = query(dir.path(), r#"SELECT count(*) AS n FROM "t__e""#).unwrap();
+        assert_eq!(out[0]["n"], Value::from(2u64));
+        // The drifted column is NULL-filled for the earlier segment.
+        let fees = query(dir.path(), r#"SELECT count(fee) AS with_fee FROM "t__e""#).unwrap();
+        assert_eq!(fees[0]["with_fee"], Value::from(1u64));
+    }
+
+    #[test]
     fn sql_cannot_read_files_outside_the_data_dirs() {
         // Hardening SEC-2: DuckDB table functions (read_text/read_csv/glob/…) are file-read primitives
         // usable inside a SELECT. The lockdown must confine them to the nest's segments/labels dirs.
@@ -987,6 +1072,7 @@ template="pool"
             r#"SELECT count(*) AS n, SUM(CAST(value AS DECIMAL(38,0))) AS total FROM "usdc__transfer""#,
             guard,
             &hot,
+            0, // nothing sealed → all hot rows (blocks 100/101 > 0) count
         )
         .unwrap();
         assert_eq!(out.rows[0]["n"], Value::from(2u64));
@@ -1028,6 +1114,7 @@ template="pool"
             r#"SELECT count(*) AS n FROM "usdc__transfer""#,
             guard,
             &hot,
+            10, // sealed through block 10 → cold ≤ 10, hot > 10
         )
         .unwrap();
         assert_eq!(both.rows[0]["n"], Value::from(3u64));
@@ -1037,6 +1124,7 @@ template="pool"
             r#"SELECT "to" FROM "usdc__transfer" WHERE block_number = 20"#,
             guard,
             &hot,
+            10,
         )
         .unwrap();
         assert_eq!(tip.rows.len(), 1);

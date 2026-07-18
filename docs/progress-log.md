@@ -11,6 +11,23 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   (proxy/EIP-1967 introspection, child-`end` conditions, SSE push, the 0012 live-parity proof). Notes
   the one node-independent 0014 slice worth building without the node (calldata decoder + `[extract]`
   config + schemas + volume guard). Linked from the RFC index.
+- **2026-07-18 - 0.4.0 hardening (audit-driven): security + data-corruption fixes.** A five-dimension
+  audit of the codebase (coverage, core correctness, serving/security, performance, e2e) surfaced two
+  critical security bugs and two data-corruption bugs, now fixed. **SEC-1:** `nest mount` trusted
+  manifest file paths verbatim → a hostile blob (`../` or absolute path) could write outside the target
+  (arbitrary file write); now only `Normal` path components are accepted. **SEC-2:** `/sql`'s read-only
+  gate only checked the leading keyword, so DuckDB table functions (`read_text`/`glob`/…) could read any
+  file the process can (leaking `nuthatch.toml` secrets); now a comment-proof function-call denylist
+  refuses them, plus a `allowed_directories` lockdown for defense-in-depth. **COR-1:** `maybe_seal`
+  advanced the sealed watermark then pruned hot in separate steps — a crash between them left a block
+  range permanently in *both* layers (double-counted in `/sql` and every balance rebuild); prune +
+  watermark are now one atomic redb txn (watermark last, idempotent re-seal), and `/sql` keeps hot∪cold
+  disjoint *structurally* by `sealed_through` (cold = segments ≤ watermark, hot = rows > watermark).
+  **COR-2:** `read_parquet` lacked `union_by_name`, so the first ABI-versioned column drift across
+  segments made the whole table's view silently vanish; fixed. Tests: blob-traversal reject, `/sql`
+  file-read reject (case + comment-split), overlap-not-double-counted, schema-drift-survives. 145 tests
+  (+7 across the two PRs), clippy `-D warnings` clean. First fixes of the full 0.4.0 hardening sweep
+  (medium/low correctness, perf, an e2e harness, and benchmarks still to come).
 - **2026-07-18 - RFC-0013 §3: the hot tip is now SQL-queryable.** `/sql` used to see only sealed
   segments (DuckDB over Parquet) — the unsealed tip in redb was invisible to SQL, so a fresh-but-
   unsealed table read "does not exist". Now each table's DuckDB view is `sealed Parquet UNION ALL
