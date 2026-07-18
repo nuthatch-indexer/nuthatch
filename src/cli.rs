@@ -40,6 +40,57 @@ pub enum Command {
     Audit(AuditArgs),
     /// Package a nest as a content-addressed blob — the deploy unit (RFC-0012).
     Nest(NestArgs),
+    /// Run a roost: many nests on one chain behind one API, each under `/<name>/…` (RFC-0012).
+    Roost(RoostArgs),
+}
+
+#[derive(Args)]
+pub struct RoostArgs {
+    #[command(subcommand)]
+    pub what: RoostWhat,
+}
+
+#[derive(Subcommand)]
+pub enum RoostWhat {
+    /// Bring up every nest a `roost.toml` mounts and serve them behind one listener: `/nests` roster
+    /// plus each nest's full API under its `/<name>/…` prefix. Chain identity is shared; the stores are
+    /// per-nest and isolated.
+    Dev(RoostDevArgs),
+}
+
+#[derive(Args)]
+pub struct RoostDevArgs {
+    /// Roost directory (must contain a roost.toml and a nests/ dir).
+    #[arg(long, default_value = ".")]
+    pub dir: String,
+
+    /// Address to bind the HTTP API to.
+    #[arg(long, default_value = "127.0.0.1:8288")]
+    pub listen: String,
+
+    /// Override the roost's `rpc_urls` at runtime without editing the config (repeatable).
+    #[arg(long)]
+    pub rpc: Vec<String>,
+
+    /// Index only this many blocks back from the tip, for every mounted nest (recent-history mode).
+    #[arg(long)]
+    pub backfill: Option<u64>,
+
+    /// Backfill finalized history straight to Parquet before tip-following, for every nest (RFC-0004).
+    #[arg(long)]
+    pub seal_direct: bool,
+
+    /// Concurrent window fetches during each nest's seal-direct backfill.
+    #[arg(long, default_value_t = 1)]
+    pub concurrency: usize,
+
+    /// Override the `eth_getLogs` block-window (the chain default otherwise) for every nest's backfill.
+    #[arg(long)]
+    pub window: Option<u64>,
+
+    /// Disable the built-in admin UI (`/<name>/_admin/`) entirely for every nest (RFC-0010 Part A).
+    #[arg(long)]
+    pub no_admin: bool,
 }
 
 #[derive(Args)]

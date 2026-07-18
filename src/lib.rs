@@ -28,6 +28,7 @@ pub mod metrics;
 pub mod pack;
 pub mod project;
 pub mod registry;
+pub mod roost;
 pub mod rpc;
 pub mod screen;
 pub mod seal;

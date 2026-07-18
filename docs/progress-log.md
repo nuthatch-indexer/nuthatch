@@ -2,6 +2,30 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-18 - RFC-0012 roost slice 1: layout + serving (`nuthatch roost dev`).** The first slice of
+  the multi-nest runtime — a **roost** hosting many nests on one chain. A `roost.toml` (`[roost]`
+  chain/chain_id/rpc_urls + a `nests` list) at the roost root names the shared chain and the mounted
+  nests, each a `nests/<name>/` directory exactly as a standalone nest. `roost dev` brings them all up
+  and serves them behind one listener: a `GET /nests` roster plus every nest's full API under its
+  `/<name>/…` prefix (`serve::run_roost` + `Router::nest`; the per-nest routes are byte-identical to a
+  solo `dev`, just prefixed). Chain identity is **hoisted to the roost** (it's what the shared cursor
+  will key on) and every mounted nest's `[nest].chain`/`chain_id` is validated against it — a mismatch
+  is a hard error, because a different chain needs its own roost (its own cursor). Deliberately naive on
+  ingestion this slice: **one cursor per nest**, to land routing + per-nest isolation before the
+  shared-cursor collapse (slice 2, where path-equivalence is the gate). Stores stay per-nest and
+  isolated (own redb/segments/views) — one nest's bad view or runaway factory can't touch another's
+  data (the CLAUDE.md non-negotiable). Refactored `indexer::run` into `spawn_nest` (build a nest's
+  serve state + background tasks, minus binding a listener) + a thin `run` (serve + fate-share), so solo
+  `dev` is unchanged (it's the roost-of-one) and the roost fate-shares the server with *all* nests'
+  ingestion via `select_all`: any nest's loop dying exits the whole process non-zero (the
+  single-failure-boundary rule, generalised). **Gate met:** valid-load, wrong-chain-reject,
+  reserved/duplicate-name-reject, empty-list-reject tests; solo `dev` regression-clean (existing suite +
+  live Helsinki deploy path unchanged); binary smoke (subcommand help, missing-`roost.toml` → exit 1
+  with a clear error). 132 tests (+4), clippy clean. Chosen HOW: new `roost` command group + `src/
+  roost.rs` (kept `dev` pristine rather than reworking it into a roost internally — lower risk to the
+  live path); nest names validated against reserved routes (`/nests`, `/health`) since roster and nest
+  prefixes share one path namespace. Next: slice 2 — collapse to one shared cursor per chain (union
+  filter, `(nest, contract)` fan-out routing), with byte-identical-vs-solo as the acceptance gate.
 - **2026-07-18 - RFC-0012 slice 6: `nuthatch nest mount` (verify + install a nest blob).** The other half
   of the pack/mount round-trip. `nest mount <blob> [--dir <target>] [--expect <hash>]` resolves a blob
   from the **local** filesystem (no network — the no-phone-home line holds by construction; a BYO
