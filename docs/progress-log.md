@@ -2,6 +2,15 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-18 - docs: consolidated backlog (infra track + RFC leftovers).** New `docs/backlog.md`
+  gathers everything deferred/parked/not-done across RFCs 0001–0014 into one place (was scattered across
+  fourteen "Non-goals"/"Open questions" sections). Four tracks: (1) **infra** — the shared blocker is a
+  colocated reth node, which unblocks 0003 (ExEx) → 0014 (firehose traces/state); (2) **deferred
+  engineering** gated on infra/benchmarks (0003, 0014, 0013 DataFusion); (3) **process** (grants 0006,
+  launch 0007, the parked 0011 full graph-network migration); (4) **small increments** buildable now
+  (proxy/EIP-1967 introspection, child-`end` conditions, SSE push, the 0012 live-parity proof). Notes
+  the one node-independent 0014 slice worth building without the node (calldata decoder + `[extract]`
+  config + schemas + volume guard). Linked from the RFC index.
 - **2026-07-18 - RFC-0013 §3: the hot tip is now SQL-queryable.** `/sql` used to see only sealed
   segments (DuckDB over Parquet) — the unsealed tip in redb was invisible to SQL, so a fresh-but-
   unsealed table read "does not exist". Now each table's DuckDB view is `sealed Parquet UNION ALL
