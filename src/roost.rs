@@ -103,6 +103,17 @@ impl Roost {
         // (`/nests`, `/health`) — the roster and per-nest prefixes share one path namespace.
         let mut seen = std::collections::HashSet::new();
         for n in &roost.roost.nests {
+            // SEC-10: a nest name is both a filesystem path segment (`nests/<name>/`) and a route
+            // prefix (`/<name>/…`), so restrict it to a safe charset — no `/`, `..`, or empties that
+            // could escape the nests dir or produce surprising routes (matters once names come from a
+            // resolved blob roster, not just an operator-authored toml).
+            if n.is_empty()
+                || !n
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+            {
+                bail!("nest name '{n}' is invalid (allowed: letters, digits, '_', '-')");
+            }
             if n == "nests" || n == "health" {
                 bail!("nest name '{n}' is reserved (collides with a roost route)");
             }
@@ -315,6 +326,24 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("needs its own roost"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_unsafe_nest_names() {
+        // SEC-10: a nest name that could escape the nests dir or make a surprising route is refused.
+        for bad in ["../etc", "a/b", "", "has space"] {
+            let d = tempfile::tempdir().unwrap();
+            std::fs::write(
+                d.path().join(ROOST_FILE),
+                format!("[roost]\nname = \"t\"\nchain = \"c\"\nchain_id = 1\nrpc_urls = [\"u\"]\nnests = [\"{bad}\"]\n"),
+            )
+            .unwrap();
+            let err = Roost::load(d.path()).unwrap_err().to_string();
+            assert!(
+                err.contains("invalid") || err.contains("reserved"),
+                "name {bad:?} should be rejected, got: {err}"
+            );
+        }
     }
 
     #[test]
