@@ -2,6 +2,21 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-18 - RFC-0012 roost slice 4: per-runtime footprint model.** The density-honesty piece.
+  `roost.toml` gains an optional `max_rss_mb` (default 2048 — the CLAUDE.md ≤2 GB per-runtime budget).
+  Before starting, `roost dev` computes a rough RSS **projection** — a fixed roost base (120 MB, paid
+  once for serving + runtime) plus, per nest, a base (90 MB: hot store + decode registry + the always-on
+  balance view) and a 40 MB chunk per active IVM view (exposure if the nest has labels, velocity if
+  flagged, the discovered-child registry if it's a factory) — logs it, and **refuses the mount** with an
+  actionable message if it would exceed `max_rss`. The `/nests` roster now carries per-nest
+  `estimated_rss_mb` plus the roost's `projected_rss_mb`, `max_rss_mb`, and the **real** `rss_bytes`
+  (reusing `metrics::rss_bytes()`), so the estimate can be calibrated against measurement — the honesty
+  rule: the model is labelled an estimate, the refusal is a real gate. **Gate met:** `estimate_nest_rss_mb`
+  scales-with-views unit test; boot smoke — two static nests project 300 MB, and `max_rss_mb = 150`
+  refuses with "projects ~300 MB but max_rss is 150 MB — raise max_rss, drop a nest, or split". 139
+  tests (+1), clippy `-D warnings` clean. **RFC-0012 slices 1–6 are now complete**; only slice 7 (a
+  runnable two-nest example + operators docs) remains. Live multi-nest RSS + table-parity numbers come
+  from the same live acceptance run as 2a.
 - **2026-07-18 - RFC-0012 roost slice 3: shared reorg detection + fan-out.** The last piece of the roost
   core. `handle_reorg` was split into detection (`detect_reorg`, unchanged) and a sync
   `rollback_reorg(ancestor)` (retract the three IVM views, drop reorged children, roll back the hot

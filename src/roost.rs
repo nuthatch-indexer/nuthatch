@@ -1,11 +1,12 @@
-//! The roost (RFC-0012 §1–3): one runtime hosting many nests on the same chain. Slice 1 landed the
+//! The roost (RFC-0012 §1–4): one runtime hosting many nests on the same chain. Slice 1 landed the
 //! **layout + serving surface** — a `roost.toml` naming the chain and the mounted nests, a `/nests`
 //! roster, and every nest's full API under a `/<name>/…` prefix. Slice 2a landed the **shared cursor**:
 //! `dev` now drives all nests from ONE `indexer::spawn_roost` task — one `getLogs` per window fanned
 //! out to the owning nests (see `indexer::roost_index_loop`), so N nests cost one nest's worth of RPC
 //! chatter. Per-nest tables stay byte-identical to running each nest solo (the same per-window code
 //! runs either way). Static and factory nests can be co-mounted (slice 2b — a factory forces the union
-//! fetch topic0-only, demuxing by topic0 instead of address); shared reorg fan-out is slice 3.
+//! fetch topic0-only, demuxing by topic0 instead of address); shared reorg fan-out is slice 3; and a
+//! per-runtime footprint projection + `max_rss` refusal is slice 4.
 //!
 //! Isolation is by construction: each nest keeps its own directory (`nests/<name>/` — its own
 //! `nuthatch.redb`, `segments/`, views), so one nest's bad view or runaway factory can't touch
@@ -50,6 +51,38 @@ pub struct RoostMeta {
     /// The mounted nests, by directory name under `nests/`. (A future slice resolves blob hashes here
     /// via `nest mount`; slice 1 takes plain directory names already present on disk.)
     pub nests: Vec<String>,
+    /// Resident-set ceiling for the whole roost, in MB (RFC-0012 §3 — the footprint budget is
+    /// per-runtime). A mount whose *projected* RSS exceeds this is refused before it starts. Absent →
+    /// the CLAUDE.md 2 GB budget ([`DEFAULT_MAX_RSS_MB`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rss_mb: Option<u64>,
+}
+
+/// The default roost RSS ceiling: the CLAUDE.md ≤2 GB per-runtime budget.
+pub const DEFAULT_MAX_RSS_MB: u64 = 2048;
+
+// A deliberately rough, *honest* per-runtime footprint model (RFC-0012 §3). These are order-of-
+// magnitude estimates for the pre-mount projection, not measurements — the roster reports the real
+// `rss_bytes()` alongside so an operator can calibrate. The shared serving/runtime cost is paid once;
+// each nest adds its hot-store working set + decode registry, plus a chunk per active IVM view.
+const ROOST_BASE_RSS_MB: u64 = 120; // serving + async runtime + on-demand DuckDB, paid once
+const NEST_BASE_RSS_MB: u64 = 90; // redb hot store + decode registry + the always-on balance view
+const NEST_VIEW_RSS_MB: u64 = 40; // each extra load: exposure view, velocity view, or child registry
+
+/// Rough projected RSS (MB) for one nest: base + a chunk per active IVM view / factory child registry.
+/// `has_labels` gates the exposure view (only spun up when the nest has labeled addresses).
+pub fn estimate_nest_rss_mb(config: &Config, has_labels: bool) -> u64 {
+    let mut mb = NEST_BASE_RSS_MB;
+    if has_labels {
+        mb += NEST_VIEW_RSS_MB; // exposure view (RFC-0008 C1)
+    }
+    if config.flags.velocity().is_some() {
+        mb += NEST_VIEW_RSS_MB; // velocity view (RFC-0008 C3)
+    }
+    if !config.factories.is_empty() {
+        mb += NEST_VIEW_RSS_MB; // discovered-child registry (RFC-0009)
+    }
+    mb
 }
 
 impl Roost {
@@ -108,10 +141,11 @@ fn load_mounted_nest(roost_dir: &Path, roost: &RoostMeta, name: &str) -> Result<
 
 /// `nuthatch roost dev <dir>`: bring up every mounted nest and serve them behind one listener.
 ///
-/// Slice 1 is deliberately naive on ingestion — one `Source` (cursor) per nest — to land the serving
-/// surface and per-nest isolation before the shared-cursor collapse (slice 2). The process shares a
-/// fate with all of its nests: if any nest's ingestion dies, the whole roost exits non-zero rather than
-/// serve one nest's stale data as if healthy (the single-failure-boundary rule, generalised).
+/// One shared source drives all nests through a single `indexer::spawn_roost` task (the shared cursor —
+/// one `getLogs` per window fanned out to the owning nests). Before starting it projects the roost's
+/// RSS and refuses a mount that would exceed `max_rss` (§3). The process shares a fate with its nests:
+/// if the ingestion task dies, the whole roost exits non-zero rather than serve stale data as if healthy
+/// (the single-failure-boundary rule, generalised).
 #[allow(clippy::too_many_arguments)]
 pub async fn dev(
     dir: PathBuf,
@@ -145,13 +179,34 @@ pub async fn dev(
     let concurrency = indexer::safe_backfill_concurrency(rpc_urls.len(), concurrency);
     let admin_enabled = indexer::admin_enabled(no_admin, &listen);
 
-    // Load + chain-validate every mounted nest up front. A failure to mount any nest fails the whole
-    // roost — better a loud refusal at startup than a roost silently serving a subset. Static and
-    // factory nests may be co-mounted (slice 2b); the shared cursor handles the demux.
+    // Load + chain-validate every mounted nest up front, and estimate each one's footprint. A failure
+    // to mount any nest fails the whole roost — better a loud refusal at startup than a roost silently
+    // serving a subset. Static and factory nests may be co-mounted (slice 2b); the cursor handles demux.
     let mut mounted = Vec::with_capacity(meta.nests.len());
+    let mut estimates: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
     for name in &meta.nests {
         let (nest_path, config) = load_mounted_nest(&dir, meta, name)?;
+        // Exposure view only spins up when the nest actually has labeled addresses (§3 estimate).
+        let has_labels = !crate::labels::load(&nest_path).is_empty();
+        estimates.insert(name.clone(), estimate_nest_rss_mb(&config, has_labels));
         mounted.push((name.clone(), nest_path, config));
+    }
+
+    // Per-runtime footprint budget (RFC-0012 §3): refuse a mount whose *projected* RSS exceeds
+    // `max_rss` before it starts — density is RAM-bounded, not free. The projection is a rough estimate
+    // (the `/nests` roster reports the real RSS alongside); the refusal is a real gate.
+    let max_rss = meta.max_rss_mb.unwrap_or(DEFAULT_MAX_RSS_MB);
+    let projected: u64 = ROOST_BASE_RSS_MB + estimates.values().sum::<u64>();
+    tracing::info!(
+        "roost footprint: ~{projected} MB projected (base {ROOST_BASE_RSS_MB} MB + {} nest(s)); budget {max_rss} MB",
+        estimates.len()
+    );
+    if projected > max_rss {
+        bail!(
+            "roost '{}' projects ~{projected} MB but max_rss is {max_rss} MB — raise max_rss in \
+             {ROOST_FILE}, drop a nest, or split into two roosts",
+            meta.name
+        );
     }
 
     // One shared source, one shared-cursor ingestion task driving all nests through the same per-window
@@ -169,7 +224,8 @@ pub async fn dev(
     .await
     .with_context(|| format!("bringing up roost '{}'", meta.name))?;
 
-    // Roster (`GET /nests`) built from the mounted states.
+    // Roster (`GET /nests`) built from the mounted states, with per-nest footprint attribution (§3)
+    // and the roost's real resident set alongside the projection so operators can calibrate.
     let roster_entries: Vec<_> = states
         .iter()
         .map(|(name, state)| {
@@ -179,11 +235,18 @@ pub async fn dev(
                 "registry_hash": state.nest_info.get("registry_hash").cloned().unwrap_or_default(),
                 "table_count": state.tables.len(),
                 "base_path": format!("/{name}"),
+                "estimated_rss_mb": estimates.get(name).copied().unwrap_or(0),
             })
         })
         .collect();
-    let roster =
-        serde_json::json!({ "roost": meta.name, "chain": meta.chain, "nests": roster_entries });
+    let roster = serde_json::json!({
+        "roost": meta.name,
+        "chain": meta.chain,
+        "projected_rss_mb": projected,
+        "max_rss_mb": max_rss,
+        "rss_bytes": crate::metrics::rss_bytes(),
+        "nests": roster_entries,
+    });
 
     // Fate-share the server with the single shared ingestion task: whichever ends first decides the
     // exit, and an ingestion error/panic propagates out (never serve stale data as if healthy).
@@ -288,5 +351,45 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("no nests"));
+    }
+
+    #[test]
+    fn footprint_estimate_scales_with_views() {
+        fn cfg(extra: &str) -> Config {
+            let toml = format!(
+                "[nest]\nname = \"n\"\nchain = \"c\"\nchain_id = 1\nrpc_urls = []\n\n\
+                 [[contracts]]\nalias = \"t\"\naddress = \"0x1\"\nabi = \"a.json\"\n{extra}"
+            );
+            toml::from_str(&toml).unwrap()
+        }
+        // Plain static nest, no labels: just the per-nest base.
+        assert_eq!(estimate_nest_rss_mb(&cfg(""), false), NEST_BASE_RSS_MB);
+        // Labels present → the exposure view adds a chunk.
+        assert_eq!(
+            estimate_nest_rss_mb(&cfg(""), true),
+            NEST_BASE_RSS_MB + NEST_VIEW_RSS_MB
+        );
+        // A velocity flag → the velocity view.
+        let vel = cfg("\n[flags]\nvelocity_amount = \"1000\"\n");
+        assert_eq!(
+            estimate_nest_rss_mb(&vel, false),
+            NEST_BASE_RSS_MB + NEST_VIEW_RSS_MB
+        );
+        // A factory → the discovered-child registry.
+        let fac = cfg("\n[[templates]]\nname = \"p\"\nabi = \"p.json\"\n\n\
+             [[factories]]\nwatch = \"t\"\nevent = \"E\"\nchild_param = \"c\"\ntemplate = \"p\"\n");
+        assert_eq!(
+            estimate_nest_rss_mb(&fac, false),
+            NEST_BASE_RSS_MB + NEST_VIEW_RSS_MB
+        );
+        // All three loads stack on top of the base.
+        let all = cfg(
+            "\n[flags]\nvelocity_amount = \"1000\"\n\n[[templates]]\nname = \"p\"\nabi = \"p.json\"\n\n\
+             [[factories]]\nwatch = \"t\"\nevent = \"E\"\nchild_param = \"c\"\ntemplate = \"p\"\n",
+        );
+        assert_eq!(
+            estimate_nest_rss_mb(&all, true),
+            NEST_BASE_RSS_MB + 3 * NEST_VIEW_RSS_MB
+        );
     }
 }

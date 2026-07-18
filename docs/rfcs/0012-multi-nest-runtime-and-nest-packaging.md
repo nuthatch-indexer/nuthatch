@@ -1,6 +1,6 @@
 # RFC-0012: Multi-nest runtime and content-addressed nest packaging
 
-- Status: Accepted — implementing (2026-07-18). §0 brief amendment merged; slices 5–6 (`nest pack`/`mount`) shipped; the roost (§1–4) is next.
+- Status: Accepted — implementing (2026-07-18). §0 brief amendment merged; slices 1–6 shipped (roost layout/serving, shared cursor, factory nests, shared reorg fan-out, footprint model; `nest pack`/`mount`). Only slice 7 (example + operators docs) remains; live multi-nest parity over a chain is the outstanding acceptance evidence.
 - Author: Pete (cargopete)
 - Date: 2026-07-17
 - Depends on: RFC-0001 (Implemented — decode registry, nest toml), RFC-0009
@@ -275,8 +275,17 @@ is the gateway's identity-shaped job, unchanged from the node-vs-gateway split.
    rolls back to the fork; a still-backfilling behind nest is spared, cursor uncorrupted). 138 tests
    (+1), clippy `-D warnings` clean. Live multi-nest reorg convergence over a chain folds into the same
    live acceptance as 2a.
-4. **Footprint model.** Pre-mount RSS estimate, `max_rss` refusal, per-nest `/metrics`
-   attribution. Publish a 3-nest roost RSS number (the honesty rule).
+4. **Footprint model. ✅ Done (2026-07-18).** `roost.toml` gains an optional `max_rss_mb` (default
+   `DEFAULT_MAX_RSS_MB` = 2048, the CLAUDE.md ≤2 GB per-runtime budget). Before starting, `roost dev`
+   computes a rough per-runtime **projection** — `ROOST_BASE (120 MB) + Σ_nests(NEST_BASE 90 MB + a
+   40 MB chunk per active IVM view: exposure if labeled, velocity if flagged, child registry if a
+   factory)` — logs it, and **refuses the mount** with an actionable message if it exceeds `max_rss`.
+   The `/nests` roster carries per-nest `estimated_rss_mb` plus the roost's `projected_rss_mb`,
+   `max_rss_mb`, and the **real** `rss_bytes` (via `metrics::rss_bytes()`) so the estimate can be
+   calibrated against measurement — the honesty rule (the model is labelled an estimate, the refusal is
+   a real gate). Tests: `estimate_nest_rss_mb` scales with views; boot smoke — two nests project 300 MB,
+   `max_rss_mb = 150` refuses with a clear message (139 tests, +1). The published multi-nest RSS number
+   comes from the live acceptance run alongside 2a's parity.
 5. **`pack` + blob manifest.** ✅ **Done (2026-07-18).** Shipped as `nuthatch nest pack <dir>` (the
    `nest` command group — the RFC-0008 compliance `pack` already owns the bare verb). Canonical
    manifest (`{blob_format_version, nest_name, schema_version, generator_version, registry_hash,
