@@ -2,6 +2,22 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-19 - RFC-0016 S1: the eval harness (Tier A) — the measurement spine for agent-grade MCP.**
+  The AI-native workstream is gated on measurement, not anecdote (the RFC-0004 rule applied to the MCP
+  surface), so this is the first thing to land. New `eval/questions.toml` — 15 pinned questions across
+  the classes agents trip on (aggregation, the `value`/`value_dec` big-int footgun, reserved-word
+  columns `"from"`/`"to"`, coverage, filters, group-by) — each carrying a natural-language ask, the
+  known-correct SQL (the oracle), and the expected result. New `tests/eval_harness.rs` (Tier A,
+  CI-gated, no LLM) builds the fixture nest on the tape infra (10 blocks, 1–7 sealed / 8–10 hot),
+  generates its `schema.json` so the typed view matches a real nest, and runs every question through
+  the *same* hot∪cold surface an agent's `sql` tool hits — asserting each returns its `expect`
+  (order-normalised, numeric-tolerant). This **proves the oracle** before any agent is scored against
+  it: green = valid scoreboard, and a surface regression goes red before an agent eval ever runs.
+  `eval/eval-report.schema.json` pins the Tier B report shape (model, temp, commit, question-set hash,
+  first-try + overall pass rate). **Honesty note:** the Tier B *agent* baseline number is deliberately
+  NOT published — a real score means running a keyed agent and committing the report, not typing a
+  plausible figure (the house rule). The deterministic spine is in place; the baseline lands with the
+  first keyed run. All 15 oracles pass; clippy `-D warnings` clean.
 - **2026-07-19 - RFC-0015 slice 4: `nuthatch add 0xAnother` — grow a nest, no re-init.** The natural
   "one or many contracts" flow (RFC-0001): `add` loads the existing nest, resolves each new contract's
   ABI (Sourcify → Etherscan), vendors it, appends it to `nuthatch.toml`, and regenerates the derived

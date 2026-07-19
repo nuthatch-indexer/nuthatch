@@ -1,0 +1,134 @@
+# eval/questions.toml — the pinned question set for the agent-grade MCP eval (RFC-0016 §1).
+#
+# Each question carries a natural-language ask (what a Tier-B agent is given), the *known-correct*
+# SQL (the oracle), and the expected result. The SQL + expected pair is asserted deterministically
+# against the fixture nest by `tests/eval_harness.rs` (Tier A, CI-gated, no LLM) — so the oracle is
+# proven correct before any agent is ever scored against it. Tier B (an agent with only the MCP
+# tools) is scored by comparing *its* query's result to `expect`; we compare data, never prose.
+#
+# The fixture is built deterministically by the harness (see eval/README.md): the `usdc__transfer`
+# table over 10 blocks —
+#   blocks 1..5 : a1 -> a2, value 100*b   (100,200,300,400,500)
+#   blocks 6..10: a2 -> a3, value 100*b   (600,700,800,900,1000)
+# where a1=0x..01, a2=0x..02, a3=0x..03. Blocks 1..7 are sealed; 8..10 are the hot tip. The `sql`
+# surface is hot∪cold, so every answer below is computed over all ten transfers.
+#
+# `expect` is a compact JSON array of row objects; comparison is order-normalised and numeric-
+# tolerant (a DECIMAL `"5500"` equals the number 5500). `class` groups questions by the skill they
+# probe, so a report can break the score down by class.
+
+schema_version = 1
+
+a1 = "0x0000000000000000000000000000000000000001"
+a2 = "0x0000000000000000000000000000000000000002"
+a3 = "0x0000000000000000000000000000000000000003"
+
+[[question]]
+id = "count-all"
+class = "aggregation"
+question = "How many USDC transfers are there in total?"
+sql = "SELECT count(*) AS n FROM usdc__transfer"
+expect = '[{"n": 10}]'
+
+[[question]]
+id = "sum-value-bigint"
+class = "big-int"
+question = "What is the total value moved across all USDC transfers?"
+# The footgun: `value` is uint256 stored as exact text; arithmetic must use the derived `value_dec`.
+sql = "SELECT sum(value_dec) AS total FROM usdc__transfer"
+expect = '[{"total": 5500}]'
+
+[[question]]
+id = "max-value"
+class = "big-int"
+question = "What is the largest single transfer value?"
+sql = "SELECT max(value_dec) AS biggest FROM usdc__transfer"
+expect = '[{"biggest": 1000}]'
+
+[[question]]
+id = "min-value"
+class = "big-int"
+question = "What is the smallest single transfer value?"
+sql = "SELECT min(value_dec) AS smallest FROM usdc__transfer"
+expect = '[{"smallest": 100}]'
+
+[[question]]
+id = "avg-value"
+class = "aggregation"
+question = "What is the average transfer value?"
+sql = "SELECT avg(value_dec) AS mean FROM usdc__transfer"
+expect = '[{"mean": 550}]'
+
+[[question]]
+id = "reserved-word-from"
+class = "reserved-word"
+question = "How many transfers were sent by the address ending in 0001?"
+# The footgun: `from` is a SQL reserved word AND a column — it must be double-quoted.
+sql = "SELECT count(*) AS n FROM usdc__transfer WHERE \"from\" = '0x0000000000000000000000000000000000000001'"
+expect = '[{"n": 5}]'
+
+[[question]]
+id = "reserved-word-to"
+class = "reserved-word"
+question = "How many transfers were received by the address ending in 0002?"
+sql = "SELECT count(*) AS n FROM usdc__transfer WHERE \"to\" = '0x0000000000000000000000000000000000000002'"
+expect = '[{"n": 5}]'
+
+[[question]]
+id = "sum-by-sender"
+class = "big-int"
+question = "What is the total value sent by the address ending in 0002?"
+sql = "SELECT sum(value_dec) AS total FROM usdc__transfer WHERE \"from\" = '0x0000000000000000000000000000000000000002'"
+expect = '[{"total": 4000}]'
+
+[[question]]
+id = "distinct-senders"
+class = "aggregation"
+question = "How many distinct sending addresses are there?"
+sql = "SELECT count(DISTINCT \"from\") AS n FROM usdc__transfer"
+expect = '[{"n": 2}]'
+
+[[question]]
+id = "distinct-receivers"
+class = "aggregation"
+question = "How many distinct receiving addresses are there?"
+sql = "SELECT count(DISTINCT \"to\") AS n FROM usdc__transfer"
+expect = '[{"n": 2}]'
+
+[[question]]
+id = "block-range"
+class = "coverage"
+question = "What is the first and last block that has a transfer?"
+sql = "SELECT min(block_number) AS first, max(block_number) AS last FROM usdc__transfer"
+expect = '[{"first": 1, "last": 10}]'
+
+[[question]]
+id = "filter-by-block"
+class = "filter"
+question = "How many transfers happened after block 5?"
+sql = "SELECT count(*) AS n FROM usdc__transfer WHERE block_number > 5"
+expect = '[{"n": 5}]'
+
+[[question]]
+id = "top-receiver"
+class = "aggregation"
+question = "Which address received the most total value, and how much?"
+sql = "SELECT \"to\" AS receiver, sum(value_dec) AS received FROM usdc__transfer GROUP BY \"to\" ORDER BY received DESC LIMIT 1"
+expect = '[{"receiver": "0x0000000000000000000000000000000000000003", "received": 4000}]'
+
+[[question]]
+id = "value-per-sender"
+class = "group-by"
+question = "Break down total value sent by each sender."
+sql = "SELECT \"from\" AS sender, sum(value_dec) AS sent FROM usdc__transfer GROUP BY \"from\" ORDER BY sender"
+expect = '''[
+  {"sender": "0x0000000000000000000000000000000000000001", "sent": 1500},
+  {"sender": "0x0000000000000000000000000000000000000002", "sent": 4000}
+]'''
+
+[[question]]
+id = "count-in-block"
+class = "filter"
+question = "How many transfers are in block 3?"
+sql = "SELECT count(*) AS n FROM usdc__transfer WHERE block_number = 3"
+expect = '[{"n": 1}]'
