@@ -33,7 +33,7 @@ confidence-threshold = 0.9
 # LGPL-2.1-or-later`) resolve to their permissive arm here. We deliberately do NOT list GPL-2.0-only or
 # LGPL, so a future GPL/LGPL-*only* dependency fails the build — which is the point.
 allow = [
-  "AGPL-3.0",            # nuthatch itself (the root crate's own licence). No AGPL *dependencies*.
+  "AGPL-3.0-only",       # nuthatch itself (the root crate's own licence, exact SPDX). No AGPL *deps*.
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "MIT",
