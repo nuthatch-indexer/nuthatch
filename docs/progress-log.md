@@ -2,6 +2,19 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-19 - docs: RFC-0016 (governed semantic layer + agent-grade MCP) and RFC-0017 (builder
+  skill).** Two new RFCs record the AI-native workstream that turns "an agent *can* query nuthatch"
+  into "an agent queries it *correctly, first try, and can prove it*." **RFC-0016** reframes the MCP
+  server as a context-engineering problem (SQL is the IR, the agent is the compiler, nuthatch is the
+  best compilation target) across five measure-first slices: an eval harness with a fixture nest and
+  a pinned NL-question set scored by comparing *query results* (S1, gates everything); `semantic.toml`
+  as authored-and-content-addressed nest input feeding an enriched `schema` tool (S2); errors-as-
+  prompts + `explain` so agents self-correct in one round-trip (S3); results shaped for context
+  windows with a provenance stamp (S4); resources + prompts (S5). Hard fence: nothing touches the
+  data path, no LLM in core. **RFC-0017** is the complementary *builder* skill — a repo-installable
+  `.claude/skills/` package teaching an agent to *drive* nuthatch (init/config/factories/roost/ops)
+  before it has a nest, with CLI/config references generated from clap+serde and CI-checked for drift.
+  RFC index + backlog cross-refs updated; RFC-0015 marked slice-1-shipped (the sql REPL, #83).
 - **2026-07-18 - docs: consolidated backlog (infra track + RFC leftovers).** New `docs/backlog.md`
   gathers everything deferred/parked/not-done across RFCs 0001–0014 into one place (was scattered across
   fourteen "Non-goals"/"Open questions" sections). Four tracks: (1) **infra** — the shared blocker is a
