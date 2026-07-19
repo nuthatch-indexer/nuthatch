@@ -15,6 +15,10 @@ pub struct Metrics {
     tip_height: AtomicU64,
     last_block: AtomicU64,
     sealed_through: AtomicU64,
+    /// Unix seconds of the last *successful* source poll (tip fetch). `0` = never polled yet. The
+    /// readiness signal: if now − this exceeds the stall threshold, every RPC endpoint is unreachable
+    /// and indexing has stalled (as opposed to "caught up and idle", which keeps this fresh).
+    last_poll_ok: AtomicU64,
     rows_decoded: AtomicU64,
     rows_sealed: AtomicU64,
     reorgs: AtomicU64,
@@ -32,6 +36,7 @@ impl Metrics {
             tip_height: AtomicU64::new(0),
             last_block: AtomicU64::new(0),
             sealed_through: AtomicU64::new(0),
+            last_poll_ok: AtomicU64::new(0),
             rows_decoded: AtomicU64::new(0),
             rows_sealed: AtomicU64::new(0),
             reorgs: AtomicU64::new(0),
@@ -51,6 +56,25 @@ impl Metrics {
     }
     pub fn set_sealed_through(&self, v: u64) {
         self.sealed_through.store(v, Relaxed);
+    }
+    /// Record a successful source poll — call it on every tip fetch that returns (the tip loop does),
+    /// so readiness reflects "we can still reach the chain", independent of whether we're behind.
+    pub fn mark_poll_ok(&self) {
+        self.last_poll_ok.store(now_unix(), Relaxed);
+    }
+    /// Unix seconds of the last successful poll (`0` = never). Read by the readiness endpoint.
+    pub fn last_poll_ok(&self) -> u64 {
+        self.last_poll_ok.load(Relaxed)
+    }
+    // Getters for the readiness endpoint (the setters already exist for the ingest loop).
+    pub fn tip_height(&self) -> u64 {
+        self.tip_height.load(Relaxed)
+    }
+    pub fn last_block(&self) -> u64 {
+        self.last_block.load(Relaxed)
+    }
+    pub fn sealed_through_val(&self) -> u64 {
+        self.sealed_through.load(Relaxed)
     }
     pub fn add_rows_decoded(&self, n: u64) {
         self.rows_decoded.fetch_add(n, Relaxed);
@@ -119,6 +143,11 @@ impl Metrics {
             rss,
         ));
         s.push_str(&gauge(
+            "nuthatch_last_poll_unixtime",
+            "Unix time of the last successful source poll (0 = never). Staleness ⇒ RPC stalled.",
+            self.last_poll_ok.load(Relaxed),
+        ));
+        s.push_str(&gauge(
             "nuthatch_alert_outbox_depth",
             "Pending alert-webhook deliveries in the durable outbox.",
             self.alert_outbox_depth.load(Relaxed),
@@ -160,6 +189,15 @@ impl Metrics {
         ));
         s
     }
+}
+
+/// Wall-clock unix seconds — used only for the poll-freshness/readiness signal, never in the
+/// deterministic data path.
+pub fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// This process's resident set size in bytes. Linux via `/proc/self/status`; else `ps` (macOS/BSD);
@@ -206,6 +244,17 @@ mod tests {
         assert!(out.contains("nuthatch_rows_decoded_total 5"));
         assert!(out.contains("nuthatch_sql_queries_total 1"));
         assert!(out.contains("nuthatch_sql_rejections_total 1"));
+    }
+
+    #[test]
+    fn poll_ok_is_recorded_and_rendered() {
+        let m = Metrics::new();
+        assert_eq!(m.last_poll_ok(), 0, "never polled yet");
+        m.mark_poll_ok();
+        assert!(m.last_poll_ok() >= now_unix() - 2, "records ~now");
+        assert!(m
+            .render()
+            .contains("# TYPE nuthatch_last_poll_unixtime gauge"));
     }
 
     #[test]

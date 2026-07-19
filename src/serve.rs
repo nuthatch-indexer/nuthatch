@@ -76,6 +76,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(summary))
         .route("/health", get(|| async { "ok" }))
+        .route("/ready", get(ready))
         .route("/metrics", get(metrics_handler))
         .route("/tables", get(tables))
         .route("/schema", get(schema_doc))
@@ -235,6 +236,46 @@ async fn metrics_handler() -> impl IntoResponse {
         )],
         crate::metrics::METRICS.render(),
     )
+}
+
+/// No successful source poll within this many seconds ⇒ stalled. The tip loop polls every ~2–3 s even
+/// when caught up, so a minute-plus of silence means every RPC endpoint is unreachable, not idleness.
+const READINESS_STALL_SECS: u64 = 90;
+
+/// Stalled = polled successfully at least once (`last_poll != 0`) but not within `threshold` seconds.
+/// A never-polled node (`last_poll == 0`) is *starting up*, not stalled — it gets grace.
+fn poll_stalled(last_poll: u64, now: u64, threshold: u64) -> bool {
+    last_poll != 0 && now.saturating_sub(last_poll) > threshold
+}
+
+/// Readiness for a supervisor (k8s-style). `/health` is liveness — the process is up and serving, and
+/// stays a plain `200 "ok"`. `/ready` answers "is it *healthy*" — still reaching the chain: **200** with
+/// a status body when fresh, **503** when stalled (no successful poll within [`READINESS_STALL_SECS`],
+/// i.e. every RPC endpoint is down). A just-started node that has never polled is *not* stalled (grace).
+async fn ready() -> impl IntoResponse {
+    use crate::metrics::{now_unix, METRICS};
+    let last_poll = METRICS.last_poll_ok();
+    let now = now_unix();
+    let age = (last_poll != 0).then(|| now.saturating_sub(last_poll));
+    let stalled = poll_stalled(last_poll, now, READINESS_STALL_SECS);
+    let tip = METRICS.tip_height();
+    let last = METRICS.last_block();
+    let body = json!({
+        "ready": !stalled,
+        "stalled": stalled,
+        "tip": tip,
+        "last_block": last,
+        "lag_blocks": tip.saturating_sub(last),
+        "sealed_through": METRICS.sealed_through_val(),
+        "last_poll_unixtime": last_poll,
+        "seconds_since_poll": age,
+    });
+    let code = if stalled {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::OK
+    };
+    (code, Json(body)).into_response()
 }
 
 async fn summary(State(s): State<AppState>) -> impl IntoResponse {
@@ -773,6 +814,19 @@ fn sanitize_sql_error(raw: &str, dir: &std::path::Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readiness_stall_logic() {
+        let now = 1_000_000u64;
+        // Never polled → starting up, not stalled (grace).
+        assert!(!poll_stalled(0, now, 90));
+        // Polled recently → healthy.
+        assert!(!poll_stalled(now - 10, now, 90));
+        // Polled long ago → stalled.
+        assert!(poll_stalled(now - 100, now, 90));
+        // Exactly at the threshold is not yet stalled (strictly greater).
+        assert!(!poll_stalled(now - 90, now, 90));
+    }
 
     #[test]
     fn ct_eq_matches_only_identical_strings() {

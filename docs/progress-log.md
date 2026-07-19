@@ -3,6 +3,22 @@
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
 
+- **2026-07-19 - 0.5.x hardening 4/N: a `/ready` endpoint + a loud RPC-stall signal.** Unattended
+  operation needs a supervisor to tell "up and healthy" from "up but stuck." `/health` stays plain
+  liveness (`200 "ok"`); new **`/ready`** is readiness — JSON (`tip`, `last_block`, `lag_blocks`,
+  `sealed_through`, `last_poll_unixtime`, `seconds_since_poll`, `stalled`) returning **200 when fresh**
+  and **503 when stalled** (no successful source poll within 90 s ⇒ every RPC endpoint is down). A
+  just-started node that has never polled gets grace (never-polled ≠ stalled). Backing it: the tip loop
+  (solo + roost) now records `METRICS.mark_poll_ok()` on every successful poll — exposed as
+  `nuthatch_last_poll_unixtime` in `/metrics` — and logs a failed poll with **escalating** severity
+  (`escalate_stall`: a warn on the first miss, then an error every ~60 s of "all RPC endpoints
+  unreachable → indexing STALLED"). Retries never drop blocks (the same window re-fetches), so a stall
+  is loud but self-healing. This closes the honest-stall-reporting half of the RPC-resilience item.
+  Verified live: `/ready` → `{"ready":true,"stalled":false,…}` 200. (Per-nest labelled metrics — the
+  SEC-9 refactor + GraphOps billing primitive — is its own slice; the poll/stall signal is legitimately
+  process-global, one cursor per process.) 178 lib tests, clippy `-D warnings` clean.
+
+
 - **2026-07-19 - 0.5.x hardening 3/N: corrupt/missing-segment recovery.** A sealed segment whose file was
   missing or corrupt broke *every* `/sql` query for its table — `read_parquet([…])` over the manifest's
   file list throws if any one file is unreadable, and the whole view fails. Two fixes make a corrupt

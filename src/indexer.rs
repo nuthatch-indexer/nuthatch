@@ -292,11 +292,16 @@ async fn roost_index_loop(
     }
 
     let mut chunker = AdaptiveWindow::for_window(window);
+    let mut poll_failures = 0u32;
     loop {
         let tip = match source.tip().await {
-            Ok(t) => t,
+            Ok(t) => {
+                poll_failures = 0;
+                METRICS.mark_poll_ok();
+                t
+            }
             Err(e) => {
-                tracing::warn!("tip lookup failed: {e:#}; retrying");
+                poll_failures = escalate_stall(poll_failures, &e);
                 sleep_secs(3).await;
                 continue;
             }
@@ -1600,11 +1605,17 @@ async fn index_loop(
     // stays quiet — the "caught up" line fires exactly once, not on every new block.
     let mut progress: Option<crate::progress::Backfill> = None;
     let mut caught_up = false;
+    // Consecutive failed polls — drives the escalating stall log (a transient blip vs a real outage).
+    let mut poll_failures = 0u32;
     loop {
         let tip = match source.tip().await {
-            Ok(t) => t,
+            Ok(t) => {
+                poll_failures = 0;
+                METRICS.mark_poll_ok();
+                t
+            }
             Err(e) => {
-                tracing::warn!("tip lookup failed: {e:#}; retrying");
+                poll_failures = escalate_stall(poll_failures, &e);
                 sleep_secs(3).await;
                 continue;
             }
@@ -2265,6 +2276,25 @@ fn rebuild_children(
 
 async fn sleep_secs(s: u64) {
     tokio::time::sleep(std::time::Duration::from_secs(s)).await;
+}
+
+/// Log a failed tip poll with escalating severity and return the incremented consecutive-failure count
+/// (the loop resets it to 0 on the next success). A warn on the first failure (a transient blip), then
+/// a loud error every ~60 s of sustained failure — every RPC endpoint is unreachable and indexing has
+/// stalled. Paired with `METRICS.mark_poll_ok()` on success, this is the honest stall signal a
+/// supervisor (and the `/ready` endpoint) reads. Retries never drop blocks — the same window re-fetches.
+fn escalate_stall(failures: u32, e: &anyhow::Error) -> u32 {
+    let n = failures + 1;
+    match n {
+        1 => tracing::warn!("tip lookup failed: {e:#}; retrying"),
+        n if n % 20 == 0 => tracing::error!(
+            "all RPC endpoints unreachable for ~{}s ({n} polls) — indexing STALLED; it resumes \
+             automatically when an endpoint recovers",
+            n * 3
+        ),
+        _ => {}
+    }
+    n
 }
 
 /// Reduce a webhook URL to `scheme://host[:port]` for display on the unauthenticated `/nest` surface —
