@@ -2,7 +2,9 @@
 
 Everything deferred, parked, or not-yet-done across the RFC series, in one place — so the leftover
 work isn't scattered across fourteen "Non-goals" and "Open questions" sections. Companion to the
-[RFC index](rfcs/README.md); that table says *what each RFC is*, this says *what's left*.
+[RFC index](rfcs/README.md); that table says *what each RFC is*, this says *what's left*. For the
+release gate — what must be true before a build is pointed at a real workload unattended — see the
+[production-readiness checklist](prod-readiness.md).
 
 Reconciled against the RFCs + [progress log](progress-log.md) on 2026-07-18.
 

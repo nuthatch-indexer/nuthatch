@@ -3,7 +3,8 @@
 Design documents for the post-skeleton phase. Numbered in build order; each states its
 dependencies. Status lifecycle: **Draft → Accepted → Implemented → (Superseded / Parked)**.
 For everything *deferred or not-yet-done* across the whole series (the infra track + leftovers),
-see **[backlog.md](../backlog.md)**.
+see **[backlog.md](../backlog.md)**. For the bar a release must clear before it's pointed at a real
+workload unattended, see the **[production-readiness checklist](../prod-readiness.md)**.
 Statuses last reconciled against the [progress log](../progress-log.md) on 2026-07-18.
 
 | RFC | Title | Depends on | Status |
