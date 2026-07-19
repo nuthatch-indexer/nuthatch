@@ -81,11 +81,12 @@ If any of these is ❌ the release does not go out, full stop. These are the CLA
   sibling `quarantine/` dir with a loud error, and `define_views` skips any missing file, so one bad
   segment reduces a table's cold data instead of failing every `/sql`. Fixtures: `seal.rs`
   quarantine test + `analytics.rs` query-survives-missing-segment test.*
-- [ ] 🟡 RPC-provider failure handling: dead-provider failover, honest stall reporting under sustained
-  provider flakiness. — *Failover is now **health-aware** (0.5.x): a failed endpoint enters a 30 s
-  cooldown and is skipped, so a dead provider no longer costs a request-timeout on every round-robin
-  hit. The tip loop already retries the same window (no silent gaps). Remaining: a **loud stall signal**
-  (metric + escalating log) when all endpoints are down — lands with the health endpoint (§7).*
+- [ ] ✅ RPC-provider failure handling: dead-provider failover + honest stall reporting under sustained
+  provider flakiness. — *Failover is **health-aware** (a failed endpoint gets a 30 s cooldown, so a dead
+  provider no longer costs a request-timeout on every round-robin hit), the tip loop retries the same
+  window (no silent gaps), and a stall is now **loud**: `nuthatch_last_poll_unixtime` in `/metrics`, an
+  escalating tip-loop log (warn on the first miss → error every ~60 s of "all endpoints unreachable →
+  STALLED"), and `/ready` returns 503 once no poll has succeeded within 90 s (§7).*
 
 ## 3. Performance & footprint budgets
 
@@ -151,8 +152,10 @@ case.
 ## 7. Operability & observability
 
 - [ ] ✅ Metrics surface exists (`metrics.rs`).
-- [ ] 🟡 Health/readiness endpoint suitable for a supervisor (is dev live? is tip fresh? is it
-  stalled?).
+- [ ] ✅ Health/readiness endpoint suitable for a supervisor. — *0.5.x: `/health` = liveness (plain
+  `200 "ok"`); `/ready` = readiness — JSON with tip / last_block / lag / sealed_through / last-poll age,
+  `200` when fresh and **`503` when stalled** (no successful source poll within 90 s ⇒ every RPC endpoint
+  down). A just-started node gets grace (never-polled ≠ stalled).*
 - [ ] 🟡 Structured logs at a sane default level; a clear "we are behind / we are at tip" signal.
 - [ ] 🟡 Documented restart/recovery runbook and a backup/restore story for the redb hot store +
   sealed segments. — *[operators.md](operators.md) is the home for this; confirm it's complete.*
