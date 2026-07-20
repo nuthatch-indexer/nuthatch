@@ -2,6 +2,15 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-20 - Security: bump wasmtime 44 → 46, clearing RUSTSEC-2026-0188 (no longer suppressed).**
+  The transform/screen runtime ran on wasmtime 44, whose `wasmtime-wasi` carried RUSTSEC-2026-0188 (a
+  FilePerms bypass on WASI hard links/renames) — reachable only if an operator granted filesystem-write
+  to an untrusted component, but a known-issue we were carrying as an `ignore` in `deny.toml`. Bumped both
+  `wasmtime` and `wasmtime-wasi` to **46.0.1** (the latest major); the component-model API was stable
+  across the bump, so **zero code changes** were needed in `transform.rs` / `screen.rs` / `effectful.rs`.
+  Removed the `RUSTSEC-2026-0188` ignore entirely — it's *fixed*, not suppressed. WASM runtime tests
+  (transform + screen) green, full suite green. One fewer known-issue on the books.
+
 - **2026-07-20 - Hardening: seal-direct backfill retries a transient RPC failure instead of aborting.**
   The §5 dogfood surfaced it live: a single `--seal-direct` window that hit a 403 from one endpoint (while
   the others throttled under concurrency) aborted the *entire* backfill. A per-attempt fetch already fails
