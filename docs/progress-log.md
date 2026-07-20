@@ -2,6 +2,17 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-20 - Observability: per-nest labelled `/metrics` series (SEC-9).** In a roost, the ingestion
+  gauges and counters (`last_block`, `sealed_through`, `rows_decoded/sealed`, `reorgs`) were the process
+  global — every mounted nest blended into one number, so an operator couldn't tell which nest was lagging
+  or churning. Added a `NestMetrics` handle per nest (keyed by name, stored in a `const`-friendly
+  `Mutex<BTreeMap>` on the existing hand-rolled registry — no metrics-framework dependency), threaded
+  through `NestIngest`. A per-nest update *also* bumps the matching process-global aggregate, so the
+  existing unlabelled series stay correct and backward-compatible; `/metrics` now additionally renders
+  `nuthatch_nest_*{nest="…"}` lines, one per mounted nest, in stable (BTreeMap) order. A solo `dev`
+  renders a single labelled entry; a registry with no nests omits the block entirely. 2 new tests; full
+  suite green, clippy clean. `set_tip`/RPC stay global (a roost shares one cursor and one fetch).
+
 - **2026-07-20 - Security: bump wasmtime 44 → 46, clearing RUSTSEC-2026-0188 (no longer suppressed).**
   The transform/screen runtime ran on wasmtime 44, whose `wasmtime-wasi` carried RUSTSEC-2026-0188 (a
   FilePerms bypass on WASI hard links/renames) — reachable only if an operator granted filesystem-write
