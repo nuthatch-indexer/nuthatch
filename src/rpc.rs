@@ -10,6 +10,12 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 /// than silently yielding an all-zeros timestamp map into the sealed path.
 const TIMESTAMP_ATTEMPTS: usize = 4;
 
+/// Max block numbers per `eth_getBlockByNumber` JSON-RPC batch. Many providers cap batch size and
+/// **silently drop** an oversized batch (returning nothing), which the strict no-partial-map guard
+/// then correctly rejects — so a dense window that needs 1000+ distinct timestamps would fail on such
+/// a node. Splitting into bounded sub-batches keeps each request within common limits.
+const MAX_TIMESTAMP_BATCH: usize = 200;
+
 /// Merge `preferred` RPC endpoints ahead of a `fallback` list, preserving order and dropping
 /// duplicates. Used by `init --rpc` and `dev --rpc` to prefer a user's own node while keeping the
 /// built-in / configured endpoints as fallback. An empty `preferred` leaves `fallback` untouched.
@@ -221,6 +227,32 @@ impl RpcClient {
         if blocks.is_empty() {
             return Ok(HashMap::new());
         }
+        // Fetch in bounded sub-batches (see `MAX_TIMESTAMP_BATCH`) and merge, so a dense window whose
+        // distinct-block count exceeds a provider's batch cap doesn't fail wholesale.
+        let mut out = HashMap::new();
+        for chunk in blocks.chunks(MAX_TIMESTAMP_BATCH) {
+            out.extend(self.fetch_timestamp_batch(chunk).await?);
+        }
+        // COR-3: a *partial* response (endpoint answered but a load-balanced/archive-vs-full split
+        // returned `null` for some block) must be an error, not a partial map — else the caller defaults
+        // the missing block's `block_timestamp` to 0 and *seals it permanently*, breaking determinism
+        // (a re-run against a healthy endpoint yields a different timestamp → different content hash).
+        // Erroring makes the seal path retry the whole window, exactly like a total failure.
+        if out.len() != blocks.len() {
+            let missing = blocks.iter().filter(|b| !out.contains_key(b)).count();
+            bail!(
+                "block_timestamps: {missing}/{} block(s) missing from the RPC response — refusing a \
+                 partial map (would seal block_timestamp=0)",
+                blocks.len()
+            );
+        }
+        Ok(out)
+    }
+
+    /// One bounded `eth_getBlockByNumber` batch → `{block: timestamp}` (may be partial if the endpoint
+    /// omitted blocks; the caller's total-count check turns that into an error). A whole-batch request
+    /// failure is retried a few times before erroring.
+    async fn fetch_timestamp_batch(&self, blocks: &[u64]) -> Result<HashMap<u64, u64>> {
         let batch: Vec<Value> = blocks
             .iter()
             .enumerate()
@@ -271,19 +303,6 @@ impl RpcClient {
             {
                 out.insert(block, ts);
             }
-        }
-        // COR-3: a *partial* response (endpoint answered but a load-balanced/archive-vs-full split
-        // returned `null` for some block) must be an error, not a partial map — else the caller defaults
-        // the missing block's `block_timestamp` to 0 and *seals it permanently*, breaking determinism
-        // (a re-run against a healthy endpoint yields a different timestamp → different content hash).
-        // Erroring makes the seal path retry the whole window, exactly like a total failure.
-        if out.len() != blocks.len() {
-            let missing = blocks.iter().filter(|b| !out.contains_key(b)).count();
-            bail!(
-                "block_timestamps: {missing}/{} block(s) missing from the RPC response — refusing a \
-                 partial map (would seal block_timestamp=0)",
-                blocks.len()
-            );
         }
         Ok(out)
     }
