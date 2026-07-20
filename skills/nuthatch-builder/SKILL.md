@@ -37,6 +37,8 @@ nuthatch sql "SELECT count(*), sum(value_dec) FROM usdc__transfer"
   key.
 - **[workflows.md](workflows.md)** — the recipes: init→dev→sql, add a contract, factories, publish a
   nest (pack/mount), run a roost, wire an AI client.
+- **[views.md](views.md)** — a nest's logic layer: authoring `views/*.sql` derivations, describing them
+  in `semantic.toml`, and the reserved-word / big-int / hot∪cold footguns.
 - **[compliance.md](compliance.md)** — labels, sanctions lists, screening, flags, exposure, the signed
   audit pack (only relevant if the user asks for compliance features).
 - **[troubleshooting.md](troubleshooting.md)** — symptom → `/metrics` series → remedy for tip lag, RPC
