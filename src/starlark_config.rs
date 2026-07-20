@@ -22,17 +22,21 @@
 
 use anyhow::{anyhow, bail, Context, Result};
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use starlark::any::ProvidesStaticType;
-use starlark::environment::{GlobalsBuilder, Module};
-use starlark::eval::Evaluator;
+use starlark::environment::{FrozenModule, Globals, GlobalsBuilder, Module};
+use starlark::eval::{Evaluator, FileLoader};
 use starlark::starlark_module;
 use starlark::syntax::{AstModule, Dialect};
 use starlark::values::dict::AllocDict;
 use starlark::values::list_or_tuple::UnpackListOrTuple;
 use starlark::values::none::NoneType;
 use starlark::values::{Heap, Value};
+
+/// Env var overriding where `//pkg:file` catalogue loads resolve. Absent → the nest dir's parent, so
+/// sibling nests in a checkout resolve without configuration.
+const CATALOGUE_ENV: &str = "NUTHATCH_CATALOGUE";
 
 use crate::config::Config;
 
@@ -45,16 +49,18 @@ struct Collector {
 }
 
 /// Evaluate a `nest.star` to a [`Config`] (RFC-0018 §2).
-pub fn load_star(path: &Path, _dir: &Path) -> Result<Config> {
+pub fn load_star(path: &Path, dir: &Path) -> Result<Config> {
     let src = std::fs::read_to_string(path)
         .map_err(|e| anyhow!("cannot read {}: {e}", path.display()))?;
     let ast = AstModule::parse(&path.display().to_string(), src, &Dialect::Standard)
         .map_err(|e| anyhow!("nest.star parse error: {e}"))?;
 
     let globals = GlobalsBuilder::standard().with(nest_builtins).build();
+    let loader = NestFileLoader::new(&globals, dir)?;
     let collector = Collector::default();
     let eval_result: Result<()> = Module::with_temp_heap(|module| {
         let mut eval = Evaluator::new(&module);
+        eval.set_loader(&loader);
         eval.extra = Some(&collector);
         eval.eval_module(ast, &globals)
             .map_err(|e| anyhow!("nest.star error: {e}"))?;
@@ -80,6 +86,100 @@ pub fn load_star(path: &Path, _dir: &Path) -> Result<Config> {
     Ok(cfg)
 }
 
+/// The restricted module loader behind `load()` (RFC-0018 §2 composition — "a nest is a function,
+/// not a fork"). Two forms, both **confined** so a `.star` can never reach an arbitrary file:
+///
+/// - `load("lib.star", "sym")` — a path relative to *this nest's* directory (a nest with its own
+///   library file), confined under the nest dir.
+/// - `load("//pkg:file.star", "sym")` — a catalogue load: `pkg/file.star` under the catalogue root
+///   (`$NUTHATCH_CATALOGUE`, else the nest dir's parent so sibling nests resolve). This is how
+///   `graph-network` reuses `horizon` instead of forking it.
+///
+/// A loaded module is evaluated **without** the `Collector` (`extra`), so it can *define* factory
+/// functions but a stray top-level `nest()` in a library errors clearly — enforcing the lib-defines /
+/// entry-instantiates contract by construction. The factory it defines calls `nest()` only when the
+/// *entry* invokes it, at which point evaluation is back in the entry's collector-bearing evaluator.
+struct NestFileLoader<'a> {
+    globals: &'a Globals,
+    nest_dir: PathBuf,
+    catalogue_root: PathBuf,
+}
+
+impl<'a> NestFileLoader<'a> {
+    fn new(globals: &'a Globals, dir: &Path) -> Result<Self> {
+        let nest_dir = dir.to_path_buf();
+        let catalogue_root = match std::env::var_os(CATALOGUE_ENV) {
+            Some(v) => PathBuf::from(v),
+            None => nest_dir
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| nest_dir.clone()),
+        };
+        Ok(Self {
+            globals,
+            nest_dir,
+            catalogue_root,
+        })
+    }
+
+    /// Resolve a `load()` spec to a real, confined `.star` path — or refuse it.
+    fn resolve(&self, spec: &str) -> Result<PathBuf> {
+        if spec.contains("..") {
+            bail!("load path {spec:?} may not contain `..` — loads are confined to the nest/catalogue");
+        }
+        let (root, rel) = if let Some(rest) = spec.strip_prefix("//") {
+            let (pkg, file) = rest
+                .split_once(':')
+                .ok_or_else(|| anyhow!("catalogue load must be //pkg:file.star, got {spec:?}"))?;
+            (&self.catalogue_root, format!("{pkg}/{file}"))
+        } else if spec.contains(':') {
+            bail!("unsupported load path {spec:?} (use //pkg:file.star or a nest-relative path)");
+        } else {
+            (&self.nest_dir, spec.trim_start_matches("./").to_string())
+        };
+        if !rel.ends_with(".star") {
+            bail!("load target must be a .star file: {spec:?}");
+        }
+        let canon_root = root
+            .canonicalize()
+            .map_err(|e| anyhow!("cannot resolve load root {}: {e}", root.display()))?;
+        let canon = root
+            .join(&rel)
+            .canonicalize()
+            .map_err(|_| anyhow!("no such nest file for load({spec:?})"))?;
+        if !canon.starts_with(&canon_root) {
+            bail!("load({spec:?}) escapes the catalogue root — refused");
+        }
+        Ok(canon)
+    }
+
+    fn load_impl(&self, spec: &str) -> Result<FrozenModule> {
+        let path = self.resolve(spec)?;
+        let src = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow!("cannot read load({spec:?}): {e}"))?;
+        let ast = AstModule::parse(&path.display().to_string(), src, &Dialect::Standard)
+            .map_err(|e| anyhow!("parse error in load({spec:?}): {e}"))?;
+        Module::with_temp_heap(|module| {
+            {
+                let mut eval = Evaluator::new(&module);
+                eval.set_loader(self); // transitive load()s stay confined
+                                       // NB: no `extra` — a loaded library may not call nest().
+                eval.eval_module(ast, self.globals)
+                    .map_err(|e| anyhow!("error in load({spec:?}): {e}"))?;
+            }
+            module
+                .freeze()
+                .map_err(|e| anyhow!("cannot freeze load({spec:?}): {e:?}"))
+        })
+    }
+}
+
+impl FileLoader for NestFileLoader<'_> {
+    fn load(&self, spec: &str) -> starlark::Result<FrozenModule> {
+        self.load_impl(spec).map_err(starlark::Error::new_other)
+    }
+}
+
 /// Convert a Starlark value to `serde_json::Value` — used to fold builtin outputs into the config JSON.
 fn to_json(v: Value) -> Result<serde_json::Value> {
     v.to_json_value()
@@ -90,12 +190,14 @@ fn to_json(v: Value) -> Result<serde_json::Value> {
 /// program that can reach for arbitrary host power, it is a *description* with exactly four verbs.
 #[starlark_module]
 fn nest_builtins(builder: &mut GlobalsBuilder) {
-    /// A contract to index: `contract(alias, address, abi, start_block=None, events=[])`.
+    /// A contract to index: `contract(alias, address, start_block=None, abi=..., events=[])`. The
+    /// leading `alias`/`address`/`start_block` may be positional (so a `def erc20(alias, address,
+    /// start_block)` wrapper reads naturally); `abi` and `events` are keyword-only.
     fn contract<'v>(
-        #[starlark(require = named)] alias: String,
-        #[starlark(require = named)] address: String,
+        alias: String,
+        address: String,
+        #[starlark(default = NoneType)] start_block: Value<'v>,
         #[starlark(require = named)] abi: String,
-        #[starlark(require = named, default = NoneType)] start_block: Value<'v>,
         #[starlark(require = named)] events: Option<UnpackListOrTuple<String>>,
         heap: Heap<'v>,
     ) -> anyhow::Result<Value<'v>> {
@@ -364,5 +466,111 @@ nest(name = "b", chain = "mainnet", rpc_urls = ["u"])
             .unwrap_err()
             .to_string();
         assert!(!err.is_empty());
+    }
+
+    /// The RFC's own example shape: a `def` wrapper passing `contract(alias, address, start_block)`
+    /// positionally. Proves the leading args are positional-or-named.
+    #[test]
+    fn contract_positional_args_work() {
+        let star = r#"
+def erc20(alias, address, start_block):
+    return contract(alias, address, start_block, abi = "abis/erc20.json")
+
+nest(
+    name = "n",
+    chain = "mainnet",
+    rpc_urls = ["u"],
+    contracts = [erc20("usdc", "0x0000000000000000000000000000000000000001", 6082465)],
+)
+"#;
+        let cfg = eval(star).expect("positional contract() should evaluate");
+        assert_eq!(cfg.contracts[0].alias, "usdc");
+        assert_eq!(cfg.contracts[0].start_block, Some(6082465));
+    }
+
+    // --- §2b: composition via load() — a nest is a function, not a fork -------------------------
+
+    /// Lay out a two-package catalogue (`<root>/horizon/lib.star`, `<root>/<entry_pkg>/nest.star`) and
+    /// return the entry's nest dir, so the default catalogue root (the nest dir's parent) resolves
+    /// `//horizon:lib.star`.
+    fn catalogue(horizon_lib: &str, entry_pkg: &str, entry: &str) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("horizon")).unwrap();
+        std::fs::write(root.path().join("horizon/lib.star"), horizon_lib).unwrap();
+        std::fs::create_dir(root.path().join(entry_pkg)).unwrap();
+        std::fs::write(root.path().join(entry_pkg).join("nest.star"), entry).unwrap();
+        root
+    }
+
+    const HORIZON_LIB: &str = r#"
+# horizon/lib.star — the reusable unit. Defines a factory; never self-instantiates.
+def horizon_staking(name, chain, extra = []):
+    return nest(
+        name = name,
+        chain = chain,
+        rpc_urls = ["https://rpc.example"],
+        contracts = [
+            contract("staking", "0x00000000000000000000000000000000000000ab", abi = "abis/staking.json"),
+        ] + extra,
+    )
+"#;
+
+    /// The headline: `graph-network` is `horizon` instantiated, not forked. It loads the shared
+    /// factory and extends it with one contract — no copy of horizon's contracts in sight.
+    #[test]
+    fn graph_network_is_horizon_instantiated_not_forked() {
+        let entry = r#"
+load("//horizon:lib.star", "horizon_staking")
+horizon_staking(
+    name = "graph-network",
+    chain = "arbitrum-one",
+    extra = [contract("grt", "0x0000000000000000000000000000000000000001", abi = "abis/erc20.json")],
+)
+"#;
+        let dir = catalogue(HORIZON_LIB, "graph-network", entry);
+        let nest = dir.path().join("graph-network");
+        let cfg = load_star(&nest.join("nest.star"), &nest).expect("composition should evaluate");
+
+        assert_eq!(cfg.nest.name, "graph-network");
+        assert_eq!(cfg.nest.chain_id, 42161); // arbitrum-one, derived
+                                              // horizon's staking contract (inherited) + graph-network's grt (added).
+        assert_eq!(cfg.contracts.len(), 2);
+        assert_eq!(cfg.contracts[0].alias, "staking");
+        assert_eq!(cfg.contracts[1].alias, "grt");
+    }
+
+    /// A library that wrongly instantiates itself at top level fails when loaded — the collector is
+    /// only present in the entry, so the lib-defines / entry-instantiates contract is enforced.
+    #[test]
+    fn a_library_that_self_instantiates_is_rejected_on_load() {
+        let bad_lib = r#"
+def f(): pass
+nest(name = "oops", chain = "mainnet", rpc_urls = ["u"])
+"#;
+        let entry = r#"
+load("//horizon:lib.star", "f")
+nest(name = "entry", chain = "mainnet", rpc_urls = ["u"])
+"#;
+        let dir = catalogue(bad_lib, "consumer", entry);
+        let nest = dir.path().join("consumer");
+        let err = load_star(&nest.join("nest.star"), &nest)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("outside the nest.star host"), "got: {err}");
+    }
+
+    /// `..` traversal and absolute escapes are refused before any file is read.
+    #[test]
+    fn load_paths_are_confined() {
+        let entry = r#"load("//horizon:../secret.star", "x")"#;
+        let dir = catalogue("x = 1\n", "consumer", entry);
+        let nest = dir.path().join("consumer");
+        let err = load_star(&nest.join("nest.star"), &nest)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains(".."),
+            "expected a confinement error, got: {err}"
+        );
     }
 }

@@ -36,7 +36,8 @@ nuthatch sql "SELECT count(*), sum(value_dec) FROM usdc__transfer"
 - **[config-reference.md](config-reference.md)** — every `nuthatch.toml` / `semantic.toml` / `roost.toml`
   key.
 - **[config-as-code.md](config-as-code.md)** — the optional `nest.star` (Starlark) front-end: compute a
-  repetitive config in code instead of hand-writing TOML. Read only if a nest's config wants a loop.
+  repetitive config in code, or `load()` one nest to extend another instead of forking it. Read only if
+  a nest's config wants a loop or composition.
 - **[workflows.md](workflows.md)** — the recipes: init→dev→sql, add a contract, factories, publish a
   nest (pack/mount), run a roost, wire an AI client.
 - **[views.md](views.md)** — a nest's logic layer: authoring `views/*.sql` derivations, describing them

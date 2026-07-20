@@ -60,11 +60,56 @@ nest(
 That is the whole file. Adding a fourth stablecoin is one line, and every contract is guaranteed to
 share the same ABI and settings — the drift a hand-written three-contract TOML invites is gone.
 
+The leading `alias`, `address`, `start_block` of `contract(...)` may be **positional**, so a small
+`def` wrapper reads cleanly: `def erc20(alias, addr, sb): return contract(alias, addr, sb,
+abi="abis/erc20.json")`. `abi` and `events` are always keyword.
+
+## Composition: extend a nest, don't fork it (`load()`)
+
+A nest can *reuse* another instead of copy-pasting it. This is what turns two byte-identical forks
+(`horizon-nest` and its "seeded from" twin) into one reusable unit and one thin instance.
+
+The contract is **library-defines, entry-instantiates**:
+
+- A **reusable** nest is a `.star` that *defines a factory function* and **never calls `nest()`
+  itself**. It is a library, not an entry.
+- An **entry** `nest.star` `load()`s that function and calls it exactly once.
+
+```python
+# horizon/lib.star — the reusable unit. Defines; never self-instantiates.
+def horizon_staking(name, chain, extra = []):
+    return nest(
+        name = name,
+        chain = chain,
+        rpc_urls = ["https://arb.example/rpc"],
+        contracts = [contract("staking", "0x…", abi = "abis/staking.json")] + extra,
+    )
+```
+
+```python
+# graph-network/nest.star — an instance of horizon, not a fork of it.
+load("//horizon:lib.star", "horizon_staking")
+horizon_staking(name = "graph-network", chain = "arbitrum-one")
+```
+
+Fix a bug in `horizon/lib.star` once and every instance inherits it — the whole point.
+
+**`load()` paths are confined** (a `.star` can never read an arbitrary file):
+
+- `load("lib.star", "sym")` — relative to *this nest's own directory* (a nest with its own library
+  file), confined under the nest dir.
+- `load("//pkg:file.star", "sym")` — a **catalogue** load: `pkg/file.star` under the catalogue root,
+  which is `$NUTHATCH_CATALOGUE` if set, else the nest directory's parent (so sibling nests in a
+  checkout resolve with no configuration). `..` and paths escaping the root are refused.
+
+If you put a top-level `nest()` in a file you then `load()`, you get a clear error — that's the
+library/entry split being enforced, not a bug. Keep instantiation in the entry.
+
 ## Rules that keep it honest
 
-1. **One `nest()` call.** Zero calls or two calls is an error, caught at load with a clear message.
-2. **Keyword arguments only**, and only the fields listed above — an unknown field is a load error,
-   not a silent no-op.
+1. **One `nest()` call in the entry.** Zero or two is an error, caught at load with a clear message.
+   A `load()`ed library must *not* call `nest()` — it defines, the entry instantiates.
+2. **Only the fields listed above** — an unknown field is a load error, not a silent no-op.
 3. **It resolves to a `Config`, then stops.** The interpreter runs once at `nuthatch dev` / mount time
    and is dropped; it never touches the data path, so determinism in the core is untouched.
 4. **Everything downstream is identical.** `pack`, mount, semantic layer, views — all operate on the
