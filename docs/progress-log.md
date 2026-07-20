@@ -2,6 +2,20 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-20 - Correctness: signed int256 (and large uint256) now decode to decimals, not hex — volume
+  works.** Building the Uniswap-v3 nest hit the wall on its headline metric: a swap's `amount0`/`amount1`
+  are `int256`, and nuthatch stored a *negative* value as raw two's-complement hex (`0xffff…f0995e`) and a
+  large-uint256 above `u128` as hex too — so `SUM(amount_dec)` (the volume the subgraph publishes) returned
+  NULL and couldn't be computed in SQL (int256 exceeds DuckDB's 128-bit range, so the view couldn't decode
+  it either). Root cause: `Value::Word32` fell back to hex above `u128`, and `int` decoded into the
+  *unsigned* `Word16`/`Word32` variants, losing signedness. Added signed `IWord16`/`IWord32` value kinds
+  (int65–128 / int129–256) that render as **signed** decimals via alloy's `I256`, and made unsigned
+  `Word32` render its **full** `U256` decimal instead of a hex fallback. Both now feed the derived
+  `_dec DECIMAL(38,0)` columns cleanly, so `sum(abs(amount0_dec))` — pool volume — just works. This is a
+  *decode* change (per CLAUDE.md, decodings are versioned; a fresh backfill re-decodes, old sealed segments
+  are untouched). New unit test; 200 lib tests green, clippy clean. The fix that lets a nuthatch nest
+  compute what the Uniswap subgraph computes.
+
 - **2026-07-20 - Hardening: the seal-direct *factory* backfill retries transient RPC failures too.**
   Building the Uniswap-v3 catalogue nest (factory discovery over mainnet) immediately surfaced it: the
   factory backfill (`backfill_direct_factory`) never got the transient-retry that #105 added to the

@@ -29,6 +29,10 @@ pub enum Command {
     Mcp(McpArgs),
     /// Run a nest's invariant/parity checks (`checks/*.sql`) against recorded expected results.
     Check(CheckArgs),
+    /// Regenerate the derived artifacts (`schema.json`, `llms.txt`, `semantic.toml` footguns) from
+    /// `nuthatch.toml` — run after hand-editing the config (e.g. adding a factory `[[template]]`), so
+    /// the schema and the derived `*_dec` columns match the tables the config now produces.
+    Schema(SchemaArgs),
     /// Benchmark the indexing pipeline (measure first, optimise second — RFC-0004).
     Bench(BenchArgs),
     /// Manage labeled address sets — the compliance annotation substrate (RFC-0008 C1).
@@ -417,6 +421,13 @@ pub struct CheckArgs {
     /// comparing — the authoring mode, run once against known-good sealed data.
     #[arg(long)]
     pub update: bool,
+}
+
+#[derive(Args)]
+pub struct SchemaArgs {
+    /// Nest directory (must contain a `nuthatch.toml`).
+    #[arg(long, default_value = ".")]
+    pub dir: String,
 }
 
 #[derive(Args)]

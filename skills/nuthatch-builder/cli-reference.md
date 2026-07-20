@@ -204,6 +204,12 @@ Bring up every nest a `roost.toml` mounts and serve them behind one listener: `/
 - `--window <WINDOW>` — Override the `eth_getLogs` block-window (the chain default otherwise) for every nest's backfill
 - `--no-admin` — Disable the built-in admin UI (`/<name>/_admin/`) entirely for every nest (RFC-0010 Part A)
 
+## `nuthatch schema`
+
+Regenerate the derived artifacts (`schema.json`, `llms.txt`, `semantic.toml` footguns) from `nuthatch.toml` — run after hand-editing the config (e.g. adding a factory `[[template]]`), so the schema and the derived `*_dec` columns match the tables the config now produces
+
+- `--dir <DIR>` — Nest directory (must contain a `nuthatch.toml`)
+
 ## `nuthatch screen`
 
 Screen sealed transfers against a list snapshot, recording `sanction_hit` annotations (RFC-0008 C2). Replayable: same list hash + range + component → identical hits

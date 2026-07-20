@@ -7,7 +7,7 @@
 
 use alloy_dyn_abi::{DynSolValue, EventExt};
 use alloy_json_abi::{Event, JsonAbi};
-use alloy_primitives::{Address, B256};
+use alloy_primitives::{Address, B256, I256, U256};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
 use serde_json::{json, Value as Json};
@@ -122,6 +122,10 @@ pub enum Value {
     I64(i64),
     Word16([u8; 16]),
     Word32([u8; 32]),
+    /// Signed big integers (int65..=128 and int129..=256), kept distinct from the unsigned `Word*` so
+    /// they render as *signed* decimals — negatives are two's-complement bytes, not a huge positive.
+    IWord16([u8; 16]),
+    IWord32([u8; 32]),
     Bool(bool),
     Bytes(Vec<u8>),
     Str(String),
@@ -136,16 +140,13 @@ impl Value {
             Value::Address(a) => json!(format!("0x{}", hex::encode(a))),
             Value::U64(n) => json!(n),
             Value::I64(n) => json!(n),
-            // Big integers: decimal string when it fits u128 (the common case, and queryable), else
-            // hex. i256/negatives beyond u128 fall back to hex (a signed-decimal refinement is later).
+            // Big integers as their full decimal string — always queryable, and `SUM(c_dec)` works
+            // (the derived `_dec` view column TRY_CASTs to DECIMAL(38,0), NULL past 38 digits). Signed
+            // types render as *signed* decimals (int256 amounts, e.g. a Uniswap swap's negative leg).
             Value::Word16(b) => json!(u128::from_be_bytes(*b).to_string()),
-            Value::Word32(b) => {
-                if b[..16].iter().all(|&x| x == 0) {
-                    json!(u128::from_be_bytes(b[16..].try_into().unwrap()).to_string())
-                } else {
-                    json!(format!("0x{}", hex::encode(b)))
-                }
-            }
+            Value::Word32(b) => json!(U256::from_be_bytes::<32>(*b).to_string()),
+            Value::IWord16(b) => json!(i128::from_be_bytes(*b).to_string()),
+            Value::IWord32(b) => json!(I256::from_be_bytes::<32>(*b).to_string()),
             Value::Bool(b) => json!(b),
             Value::Bytes(b) => json!(format!("0x{}", hex::encode(b))),
             Value::Str(s) => json!(s),
@@ -664,9 +665,9 @@ fn value_from_dynsol(dv: &DynSolValue, col: &Column) -> Value {
             if *bits <= 64 {
                 Value::I64(i.as_i64())
             } else if *bits <= 128 {
-                Value::Word16(i.to_be_bytes::<32>()[16..].try_into().unwrap())
+                Value::IWord16(i.to_be_bytes::<32>()[16..].try_into().unwrap())
             } else {
-                Value::Word32(i.to_be_bytes::<32>())
+                Value::IWord32(i.to_be_bytes::<32>())
             }
         }
         DynSolValue::FixedBytes(w, n) => Value::Bytes(w.0[..(*n).min(32)].to_vec()),
@@ -800,6 +801,32 @@ fn parse_bytes(s: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_and_large_bigints_render_as_decimals() {
+        // int256 = -100000 → a *signed* decimal, not two's-complement hex (a Uniswap swap's out-leg).
+        let neg = I256::try_from(-100_000i64).unwrap();
+        assert_eq!(
+            Value::IWord32(neg.to_be_bytes::<32>()).to_json(),
+            json!("-100000")
+        );
+        // int128 negative → signed too.
+        assert_eq!(
+            Value::IWord16((-42i128).to_be_bytes()).to_json(),
+            json!("-42")
+        );
+        // uint256 above u128 → full decimal (previously fell back to hex, breaking `SUM(_dec)`).
+        let big = U256::from(u128::MAX) + U256::from(1u8);
+        assert_eq!(
+            Value::Word32(big.to_be_bytes::<32>()).to_json(),
+            json!(big.to_string())
+        );
+        // Small positive still decimal.
+        assert_eq!(
+            Value::Word32(U256::from(1_000_000u64).to_be_bytes::<32>()).to_json(),
+            json!("1000000")
+        );
+    }
 
     fn abi(json: &str) -> JsonAbi {
         // Accept a bare events array by wrapping it as a contract ABI.
