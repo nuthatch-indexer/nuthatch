@@ -113,44 +113,44 @@ pub struct NestArgs {
 
 #[derive(Subcommand)]
 pub enum NestWhat {
-    /// Lay an *egg*: pack a nest into one portable, content-addressed `.egg` file — its authored inputs
-    /// (config, ABIs, views, labels, skills) plus a `manifest.json` pinning the expected decode-registry
-    /// hash. Share the `.egg` anywhere (a URL, a file); anyone can `hatch` it to run your exact nest,
-    /// verified by hash. Prints the egg's content address.
-    Egg(NestEggArgs),
-    /// Hatch an egg: verify a `.egg` (or a URL to one, or an unpacked blob dir) and install it as a
-    /// runnable nest. Checks the manifest format, every file's hash, and that the decode registry
-    /// regenerated from the inputs matches the manifest — so a hatched nest decodes exactly as authored.
-    Hatch(NestHatchArgs),
+    /// Bundle a nest into one portable, content-addressed `.bundle` file — its authored inputs (config,
+    /// ABIs, views, labels, skills) plus a `manifest.json` pinning the expected decode-registry hash.
+    /// Share the `.bundle` anywhere (a URL, a file); anyone can `load` it to run your exact nest,
+    /// verified by hash. Prints the bundle's content address.
+    Bundle(NestBundleArgs),
+    /// Load a bundle: verify a `.bundle` (or a URL to one, or an unpacked bundle dir) and install it as
+    /// a runnable nest. Checks the manifest format, every file's hash, and that the decode registry
+    /// regenerated from the inputs matches the manifest — so a loaded nest decodes exactly as authored.
+    Load(NestLoadArgs),
 }
 
 #[derive(Args)]
-pub struct NestEggArgs {
-    /// Nest directory to lay an egg from.
+pub struct NestBundleArgs {
+    /// Nest directory to bundle.
     #[arg(default_value = ".")]
     pub dir: String,
 
-    /// Output path for the `.egg` (default: `<nest-name>-<hash>.egg` beside the nest). With
-    /// `--as-dir`, an unpacked blob *directory* is written here instead of a single file.
+    /// Output path for the `.bundle` (default: `<nest-name>-<hash>.bundle` beside the nest). With
+    /// `--as-dir`, an unpacked bundle *directory* is written here instead of a single file.
     #[arg(long)]
     pub out: Option<String>,
 
-    /// Write an unpacked blob directory instead of a single `.egg` file (the old layout; handy for
-    /// inspecting a blob's contents).
+    /// Write an unpacked bundle directory instead of a single `.bundle` file (handy for inspecting a
+    /// bundle's contents).
     #[arg(long)]
     pub as_dir: bool,
 }
 
 #[derive(Args)]
-pub struct NestHatchArgs {
-    /// The egg to hatch: a `.egg` file, an `http(s)://` URL to one, or an unpacked blob directory.
-    pub egg: String,
+pub struct NestLoadArgs {
+    /// The bundle to load: a `.bundle` file, an `http(s)://` URL to one, or an unpacked bundle directory.
+    pub bundle: String,
 
     /// Target directory to install the nest into (default: the nest's name).
     #[arg(long)]
     pub dir: Option<String>,
 
-    /// Assert the egg's content-address hash equals this value before installing.
+    /// Assert the bundle's content-address hash equals this value before installing.
     #[arg(long)]
     pub expect: Option<String>,
 }

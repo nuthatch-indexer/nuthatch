@@ -54,14 +54,14 @@ async fn main() -> Result<()> {
         cli::Command::Pack(args) => pack::run(args, &now_stamp()),
         cli::Command::Audit(args) => audit::run(args),
         cli::Command::Nest(args) => match args.what {
-            cli::NestWhat::Egg(a) => blob::egg(
+            cli::NestWhat::Bundle(a) => blob::bundle(
                 std::path::Path::new(&a.dir),
                 a.out.as_deref().map(std::path::Path::new),
                 a.as_dir,
             ),
-            cli::NestWhat::Hatch(a) => {
-                blob::hatch(
-                    &a.egg,
+            cli::NestWhat::Load(a) => {
+                blob::load(
+                    &a.bundle,
                     a.dir.as_deref().map(std::path::Path::new),
                     a.expect.as_deref(),
                 )

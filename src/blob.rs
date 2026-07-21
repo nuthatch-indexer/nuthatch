@@ -1,7 +1,7 @@
-//! Content-addressed nest packaging (RFC-0012 §4): turn a nest directory into an **egg** — its
+//! Content-addressed nest packaging (RFC-0012 §4): turn a nest directory into a **bundle** — its
 //! *authored inputs* canonicalised and pinned by a Merkle-root hash, so a nest becomes a portable
-//! deploy unit. `nest egg` lays a single `.egg` file (`egg` here); `nest hatch` verifies + installs
-//! one (`hatch`), resolving a `.egg` file, an `http(s)` URL, or an unpacked blob dir.
+//! deploy unit. `nest bundle` writes a single `.bundle` file (`bundle` here); `nest load` verifies +
+//! installs one (`load`), resolving a `.bundle` file, an `http(s)` URL, or an unpacked bundle dir.
 //!
 //! The blob pins **inputs** (`nuthatch.toml`, ABIs, views, labels, skills, `schema.json`, `llms.txt`),
 //! never build artifacts (the generated decode registry) or sealed data (`segments/`, `nuthatch.redb`).
@@ -143,11 +143,11 @@ pub fn build_manifest(dir: &Path, skip_out: Option<&Path>) -> Result<Manifest> {
     })
 }
 
-/// `nuthatch nest egg <dir> [--out <path>] [--as-dir]`: lay an *egg* — a single portable,
-/// content-addressed `.egg` file holding the nest's authored inputs plus `manifest.json`. With
-/// `--as-dir`, write the old unpacked blob *directory* instead (handy for inspecting contents). Prints
-/// the egg's content address. Default output is `<nest-name>-<hash12>.egg` beside the nest.
-pub fn egg(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
+/// `nuthatch nest bundle <dir> [--out <path>] [--as-dir]`: bundle a nest into a single portable,
+/// content-addressed `.bundle` file holding its authored inputs plus `manifest.json`. With `--as-dir`,
+/// write an unpacked bundle *directory* instead (handy for inspecting contents). Prints the bundle's
+/// content address. Default output is `<nest-name>-<hash12>.bundle` beside the nest.
+pub fn bundle(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
     let manifest = build_manifest(dir, None)?;
     let hash = manifest.blob_hash();
     let default_out = |ext: &str| {
@@ -159,8 +159,8 @@ pub fn egg(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
         let out_dir = out
             .map(Path::to_path_buf)
             .unwrap_or_else(|| default_out("nest"));
-        // If the chosen output dir is *inside* the nest, rebuild the manifest excluding it (so the blob
-        // doesn't try to pack itself). Rare, but a foot-gun worth closing.
+        // If the chosen output dir is *inside* the nest, rebuild the manifest excluding it (so the
+        // bundle doesn't try to pack itself). Rare, but a foot-gun worth closing.
         let (manifest, hash) = if out_dir.starts_with(dir) {
             let m = build_manifest(dir, Some(&out_dir))?;
             let h = m.blob_hash();
@@ -168,8 +168,8 @@ pub fn egg(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
         } else {
             (manifest, hash)
         };
-        write_blob_dir(dir, &out_dir, &manifest)?;
-        println!("laid egg (unpacked) for nest '{}'", manifest.nest_name);
+        write_bundle_dir(dir, &out_dir, &manifest)?;
+        println!("bundled nest '{}' (unpacked)", manifest.nest_name);
         println!("  dir:      {}", out_dir.display());
         println!("  hash:     {hash}");
         println!("  registry: {}", manifest.registry_hash);
@@ -179,17 +179,17 @@ pub fn egg(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
 
     let out_file = out
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| default_out("egg"));
-    write_egg(dir, &manifest, &out_file)?;
-    println!("laid egg for nest '{}'", manifest.nest_name);
-    println!("  egg:      {}", out_file.display());
+        .unwrap_or_else(|| default_out("bundle"));
+    write_bundle(dir, &manifest, &out_file)?;
+    println!("bundled nest '{}'", manifest.nest_name);
+    println!("  bundle:   {}", out_file.display());
     println!("  hash:     {hash}");
     println!("  registry: {}", manifest.registry_hash);
     println!("  files:    {}", manifest.files.len());
     println!();
-    println!("tip: share this .egg (a URL, or the file). Anyone can run your exact nest with");
+    println!("tip: share this .bundle (a URL, or the file). Anyone can run your exact nest with");
     println!(
-        "     `nuthatch nest hatch <file-or-url>` — every file is verified against the manifest,"
+        "     `nuthatch nest load <file-or-url>` — every file is verified against the manifest,"
     );
     println!(
         "     and the decode registry is reproduced from the inputs. Pin it with `--expect {}`.",
@@ -198,9 +198,9 @@ pub fn egg(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
     Ok(())
 }
 
-/// Materialise a blob's files (from the nest `src`) plus `manifest.json` into `out_dir` — the unpacked
-/// on-disk layout shared by the `--as-dir` form and, tarred, the `.egg`.
-fn write_blob_dir(src: &Path, out_dir: &Path, manifest: &Manifest) -> Result<()> {
+/// Materialise a bundle's files (from the nest `src`) plus `manifest.json` into `out_dir` — the
+/// unpacked on-disk layout shared by the `--as-dir` form and, tarred, the `.bundle`.
+fn write_bundle_dir(src: &Path, out_dir: &Path, manifest: &Manifest) -> Result<()> {
     std::fs::create_dir_all(out_dir)
         .with_context(|| format!("creating blob dir {}", out_dir.display()))?;
     for f in &manifest.files {
@@ -220,12 +220,12 @@ fn write_blob_dir(src: &Path, out_dir: &Path, manifest: &Manifest) -> Result<()>
     Ok(())
 }
 
-/// Write a single-file `.egg`: a tar of `manifest.json` + every manifest file, read from the nest
-/// `src`. The egg's *identity* is `manifest.blob_hash()` (over the canonical manifest), so the tar's
-/// own byte layout is immaterial — a hatch re-verifies each file against the manifest regardless.
-fn write_egg(src: &Path, manifest: &Manifest, out_file: &Path) -> Result<()> {
+/// Write a single-file `.bundle`: a tar of `manifest.json` + every manifest file, read from the nest
+/// `src`. The bundle's *identity* is `manifest.blob_hash()` (over the canonical manifest), so the tar's
+/// own byte layout is immaterial — a load re-verifies each file against the manifest regardless.
+fn write_bundle(src: &Path, manifest: &Manifest, out_file: &Path) -> Result<()> {
     let file = std::fs::File::create(out_file)
-        .with_context(|| format!("creating egg {}", out_file.display()))?;
+        .with_context(|| format!("creating bundle {}", out_file.display()))?;
     let mut ar = tar::Builder::new(file);
 
     let manifest_bytes = serde_json::to_vec_pretty(manifest)?;
@@ -235,13 +235,13 @@ fn write_egg(src: &Path, manifest: &Manifest, out_file: &Path) -> Result<()> {
     header.set_mtime(0);
     header.set_cksum();
     ar.append_data(&mut header, "manifest.json", &manifest_bytes[..])
-        .context("adding manifest.json to egg")?;
+        .context("adding manifest.json to bundle")?;
 
     for f in &manifest.files {
         ar.append_path_with_name(src.join(&f.path), Path::new(&f.path))
-            .with_context(|| format!("adding {} to egg", f.path))?;
+            .with_context(|| format!("adding {} to bundle", f.path))?;
     }
-    ar.finish().context("finalising egg")?;
+    ar.finish().context("finalising bundle")?;
     Ok(())
 }
 
@@ -253,10 +253,10 @@ pub fn load_manifest(blob_dir: &Path) -> Result<Manifest> {
 }
 
 /// Join a **manifest-declared** relative path onto `base`, refusing anything that could escape it — an
-/// egg is a distributable, hash-resolved deploy unit (RFC-0012 §4/§5), so its file paths are untrusted
-/// input. Only `Normal` path components are allowed: an absolute path (which `Path::join` would let
-/// *replace* the base), a `..` parent, a root/prefix, or a bare `.` are all rejected. This is the
-/// zip-slip / absolute-path-escape guard for `hatch`.
+/// bundle is a distributable, hash-resolved deploy unit (RFC-0012 §4/§5), so its file paths are
+/// untrusted input. Only `Normal` path components are allowed: an absolute path (which `Path::join`
+/// would let *replace* the base), a `..` parent, a root/prefix, or a bare `.` are all rejected. This is
+/// the zip-slip / absolute-path-escape guard for `load`.
 fn checked_join(base: &Path, rel: &str) -> Result<PathBuf> {
     let rel_path = Path::new(rel);
     if rel_path.is_absolute() {
@@ -272,52 +272,54 @@ fn checked_join(base: &Path, rel: &str) -> Result<PathBuf> {
     Ok(base.join(rel_path))
 }
 
-/// `nuthatch nest hatch <egg> [--dir <target>] [--expect <hash>]`: hatch an egg into a runnable nest.
-/// `egg` may be a `.egg` file, an `http(s)://` URL to one, or an already-unpacked blob directory. A URL
-/// or file is resolved to a local blob dir (fetch + untar), then verified and installed by
-/// [`install_verified`]. The fetch is the *only* network touch and only when you pass a URL — a local
-/// `.egg` or dir hatches fully offline.
-pub async fn hatch(egg: &str, target: Option<&Path>, expect: Option<&str>) -> Result<()> {
-    if egg.starts_with("http://") || egg.starts_with("https://") {
-        let bytes = reqwest::get(egg)
+/// `nuthatch nest load <bundle> [--dir <target>] [--expect <hash>]`: load a bundle into a runnable
+/// nest. `bundle` may be a `.bundle` file, an `http(s)://` URL to one, or an already-unpacked bundle
+/// directory. A URL or file is resolved to a local bundle dir (fetch + untar), then verified and
+/// installed by [`install_verified`]. The fetch is the *only* network touch and only when you pass a
+/// URL — a local `.bundle` or dir loads fully offline.
+pub async fn load(bundle: &str, target: Option<&Path>, expect: Option<&str>) -> Result<()> {
+    if bundle.starts_with("http://") || bundle.starts_with("https://") {
+        let bytes = reqwest::get(bundle)
             .await
-            .with_context(|| format!("fetching egg from {egg}"))?
+            .with_context(|| format!("fetching bundle from {bundle}"))?
             .error_for_status()
-            .with_context(|| format!("fetching egg from {egg}"))?
+            .with_context(|| format!("fetching bundle from {bundle}"))?
             .bytes()
             .await
-            .context("reading fetched egg bytes")?;
-        let tmp = tempfile::tempdir().context("temp dir for fetched egg")?;
-        let egg_file = tmp.path().join("fetched.egg");
-        std::fs::write(&egg_file, &bytes).context("writing fetched egg")?;
+            .context("reading fetched bundle bytes")?;
+        let tmp = tempfile::tempdir().context("temp dir for fetched bundle")?;
+        let bundle_file = tmp.path().join("fetched.bundle");
+        std::fs::write(&bundle_file, &bytes).context("writing fetched bundle")?;
         let blob_dir = tmp.path().join("unpacked");
-        extract_egg(&egg_file, &blob_dir)?;
+        extract_bundle(&bundle_file, &blob_dir)?;
         return install_verified(&blob_dir, target, expect);
     }
-    let path = Path::new(egg);
+    let path = Path::new(bundle);
     if path.is_dir() {
-        // Already an unpacked blob directory (e.g. `egg --as-dir` output) — install straight from it.
+        // Already an unpacked bundle directory (e.g. `bundle --as-dir` output) — install straight from it.
         return install_verified(path, target, expect);
     }
     if path.is_file() {
-        let tmp = tempfile::tempdir().context("temp dir for egg")?;
+        let tmp = tempfile::tempdir().context("temp dir for bundle")?;
         let blob_dir = tmp.path().join("unpacked");
-        extract_egg(path, &blob_dir)?;
+        extract_bundle(path, &blob_dir)?;
         return install_verified(&blob_dir, target, expect);
     }
-    bail!("nothing to hatch at '{egg}' — expected a .egg file, an http(s):// URL, or a blob directory");
+    bail!(
+        "nothing to load at '{bundle}' — expected a .bundle file, an http(s):// URL, or a bundle directory"
+    );
 }
 
-/// Untar a `.egg` into `dest`. `tar`'s `unpack` refuses entries that would escape `dest` (its own
+/// Untar a `.bundle` into `dest`. `tar`'s `unpack` refuses entries that would escape `dest` (its own
 /// zip-slip guard); [`install_verified`] then re-checks every *manifest-declared* file with
 /// [`checked_join`], so extraction and install are both bounded — defence in depth on untrusted input.
-fn extract_egg(egg_file: &Path, dest: &Path) -> Result<()> {
-    let file = std::fs::File::open(egg_file)
-        .with_context(|| format!("opening egg {}", egg_file.display()))?;
+fn extract_bundle(bundle_file: &Path, dest: &Path) -> Result<()> {
+    let file = std::fs::File::open(bundle_file)
+        .with_context(|| format!("opening bundle {}", bundle_file.display()))?;
     std::fs::create_dir_all(dest).with_context(|| format!("creating {}", dest.display()))?;
     tar::Archive::new(file)
         .unpack(dest)
-        .with_context(|| format!("unpacking egg {}", egg_file.display()))?;
+        .with_context(|| format!("unpacking bundle {}", bundle_file.display()))?;
     Ok(())
 }
 
@@ -325,7 +327,7 @@ fn extract_egg(egg_file: &Path, dest: &Path) -> Result<()> {
 /// local (RFC-0012 §5): the manifest's format version is understood, every file's bytes hash to what
 /// the manifest claims (integrity), and — after install — the decode registry *regenerated from the
 /// installed inputs* equals the manifest's `registry_hash` (the nest decodes exactly as authored). With
-/// `expect`, the blob's own content address is asserted too, so you hatch *that* egg and no other.
+/// `expect`, the blob's own content address is asserted too, so you load *that* bundle and no other.
 pub fn install_verified(
     blob_dir: &Path,
     target: Option<&Path>,
@@ -386,7 +388,7 @@ pub fn install_verified(
     verify_registry_reproduces(&target, &manifest)?;
 
     println!(
-        "hatched nest '{}' → {}",
+        "loaded nest '{}' → {}",
         manifest.nest_name,
         target.display()
     );
@@ -400,12 +402,12 @@ pub fn install_verified(
         "tip: it's yours to run — `nuthatch dev --dir {}`. It decodes byte-for-byte as the author",
         target.display()
     );
-    println!("     laid it (every file hashed, registry reproduced from inputs).");
+    println!("     bundled it (every file hashed, registry reproduced from inputs).");
     Ok(())
 }
 
-/// Verify that a nest dir's inputs reproduce the `registry_hash` a manifest claims — the check `hatch`
-/// runs. Kept here so `egg` and hatch share one definition of "does this blob decode as promised".
+/// Verify that a nest dir's inputs reproduce the `registry_hash` a manifest claims — the check `load`
+/// runs. Kept here so `bundle` and load share one definition of "does this blob decode as promised".
 pub fn verify_registry_reproduces(dir: &Path, manifest: &Manifest) -> Result<()> {
     let config = Config::load(dir)?;
     let regen = hex::encode(DecodeRegistry::from_nest(dir, &config)?.hash());
@@ -463,7 +465,7 @@ mod tests {
         }
     }
 
-    /// A minimal nest dir (config + one ABI) for exercising pack.
+    /// A minimal nest dir (config + one ABI) for exercising bundle/load.
     fn write_nest(dir: &Path) {
         std::fs::write(
             dir.join(CONFIG_FILE),
@@ -528,7 +530,7 @@ abi = "abis/c.json"
         let src = tempfile::tempdir().unwrap();
         write_nest(src.path());
         let blob = tempfile::tempdir().unwrap();
-        egg(src.path(), Some(blob.path()), true).unwrap();
+        bundle(src.path(), Some(blob.path()), true).unwrap();
 
         let manifest = load_manifest(blob.path()).unwrap();
         let target = tempfile::tempdir().unwrap();
@@ -545,21 +547,21 @@ abi = "abis/c.json"
     }
 
     #[tokio::test]
-    async fn egg_file_hatches_and_verifies() {
-        // The headline path: lay a single-file `.egg`, then hatch it from that file → a runnable nest,
-        // hash-verified, registry reproduced. Exercises write_egg → extract_egg → install_verified.
+    async fn bundle_file_loads_and_verifies() {
+        // The headline path: write a single-file `.bundle`, then load it from that file → a runnable
+        // nest, hash-verified, registry reproduced. Exercises write_bundle → extract_bundle → install.
         let src = tempfile::tempdir().unwrap();
         write_nest(src.path());
         let out = tempfile::tempdir().unwrap();
-        let egg_file = out.path().join("t.egg");
+        let bundle_file = out.path().join("t.bundle");
         let manifest = build_manifest(src.path(), None).unwrap();
-        write_egg(src.path(), &manifest, &egg_file).unwrap();
-        assert!(egg_file.is_file(), "egg is a single file");
+        write_bundle(src.path(), &manifest, &bundle_file).unwrap();
+        assert!(bundle_file.is_file(), "bundle is a single file");
 
         let target = tempfile::tempdir().unwrap();
         let installed = target.path().join("nest");
-        hatch(
-            egg_file.to_str().unwrap(),
+        load(
+            bundle_file.to_str().unwrap(),
             Some(&installed),
             Some(&manifest.blob_hash()),
         )
@@ -569,10 +571,10 @@ abi = "abis/c.json"
         assert!(installed.join("abis/c.json").exists());
         verify_registry_reproduces(&installed, &manifest).unwrap();
 
-        // A wrong --expect is refused even via the file→hatch path.
+        // A wrong --expect is refused even via the file→load path.
         let t2 = tempfile::tempdir().unwrap();
-        assert!(hatch(
-            egg_file.to_str().unwrap(),
+        assert!(load(
+            bundle_file.to_str().unwrap(),
             Some(t2.path()),
             Some("deadbeef")
         )
@@ -585,7 +587,7 @@ abi = "abis/c.json"
         let src = tempfile::tempdir().unwrap();
         write_nest(src.path());
         let blob = tempfile::tempdir().unwrap();
-        egg(src.path(), Some(blob.path()), true).unwrap();
+        bundle(src.path(), Some(blob.path()), true).unwrap();
 
         // Wrong expected hash → refuse before touching disk.
         let t0 = tempfile::tempdir().unwrap();
@@ -605,7 +607,7 @@ abi = "abis/c.json"
         let src = tempfile::tempdir().unwrap();
         write_nest(src.path());
         let blob = tempfile::tempdir().unwrap();
-        egg(src.path(), Some(blob.path()), true).unwrap();
+        bundle(src.path(), Some(blob.path()), true).unwrap();
         // Rewrite the manifest claiming a future format version.
         let mut m = load_manifest(blob.path()).unwrap();
         m.blob_format_version = BLOB_FORMAT_VERSION + 1;
