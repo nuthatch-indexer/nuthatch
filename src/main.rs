@@ -11,8 +11,8 @@
 //! just the CLI front door; the engine lives in the library crate.
 
 use nuthatch::{
-    analytics, audit, bench, blob, check, cli, config, indexer, labels, lists, mcp, pack, project,
-    roost, screen, store, transform,
+    analytics, audit, bench, blob, check, cli, config, distribution, indexer, labels, lists, mcp,
+    pack, project, roost, screen, store, transform,
 };
 
 use anyhow::{Context, Result};
@@ -59,11 +59,29 @@ async fn main() -> Result<()> {
                 a.out.as_deref().map(std::path::Path::new),
                 a.as_dir,
             ),
-            cli::NestWhat::Load(a) => {
-                blob::load(
-                    &a.bundle,
-                    a.dir.as_deref().map(std::path::Path::new),
-                    a.expect.as_deref(),
+            cli::NestWhat::Load(a) => match a.registry.as_deref() {
+                Some(registry) => {
+                    distribution::load_from_registry(
+                        registry,
+                        &a.bundle,
+                        a.dir.as_deref().map(std::path::Path::new),
+                    )
+                    .await
+                }
+                None => {
+                    blob::load(
+                        &a.bundle,
+                        a.dir.as_deref().map(std::path::Path::new),
+                        a.expect.as_deref(),
+                    )
+                    .await
+                }
+            },
+            cli::NestWhat::Publish(a) => {
+                distribution::publish_cli(
+                    &a.registry,
+                    std::path::Path::new(&a.bundle),
+                    a.as_ref.as_deref(),
                 )
                 .await
             }

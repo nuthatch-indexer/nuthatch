@@ -121,7 +121,12 @@ pub enum NestWhat {
     /// Load a bundle: verify a `.bundle` (or a URL to one, or an unpacked bundle dir) and install it as
     /// a runnable nest. Checks the manifest format, every file's hash, and that the decode registry
     /// regenerated from the inputs matches the manifest — so a loaded nest decodes exactly as authored.
+    /// With `--registry`, the positional is a `name[@version]` reference resolved against that store.
     Load(NestLoadArgs),
+    /// Publish a `.bundle` to a registry (RFC-0019) under `name@version`, advancing `latest`. The
+    /// registry is a decoupled, optional store — a filesystem path now; object storage lands next. A
+    /// self-built bundle and `nest load <file|dir>` never need one. Prints the content address.
+    Publish(NestPublishArgs),
 }
 
 #[derive(Args)]
@@ -143,7 +148,8 @@ pub struct NestBundleArgs {
 
 #[derive(Args)]
 pub struct NestLoadArgs {
-    /// The bundle to load: a `.bundle` file, an `http(s)://` URL to one, or an unpacked bundle directory.
+    /// The bundle to load: a `.bundle` file, an `http(s)://` URL to one, or an unpacked bundle
+    /// directory — or, with `--registry`, a `name[@version]` reference (no `@version` → `latest`).
     pub bundle: String,
 
     /// Target directory to install the nest into (default: the nest's name).
@@ -153,6 +159,26 @@ pub struct NestLoadArgs {
     /// Assert the bundle's content-address hash equals this value before installing.
     #[arg(long)]
     pub expect: Option<String>,
+
+    /// Resolve the positional as a `name[@version]` reference against this registry (RFC-0019). A
+    /// filesystem path now; object storage next. The pulled blob is hash-verified on install.
+    #[arg(long)]
+    pub registry: Option<String>,
+}
+
+#[derive(Args)]
+pub struct NestPublishArgs {
+    /// The `.bundle` file to publish (from `nuthatch nest bundle`).
+    pub bundle: String,
+
+    /// The registry to publish to (RFC-0019). A filesystem path now; object storage next.
+    #[arg(long)]
+    pub registry: String,
+
+    /// Publish as `name` or `name@version`. Defaults: name = the bundle's nest name; version =
+    /// `h<hash12>` (a content-addressed label — semantic versions are RFC-0020's concern).
+    #[arg(long = "as")]
+    pub as_ref: Option<String>,
 }
 
 #[derive(Args)]

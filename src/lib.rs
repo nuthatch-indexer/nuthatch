@@ -16,6 +16,7 @@ pub mod check;
 pub mod chunker;
 pub mod cli;
 pub mod config;
+pub mod distribution;
 pub mod effectful;
 pub mod exposure;
 pub mod factory;
