@@ -334,7 +334,11 @@ async fn admin_events(State(s): State<AppState>, Query(q): Query<AdminQuery>) ->
     }
     if let Some(required) = &s.admin_token {
         if !q.token.as_deref().is_some_and(|t| ct_eq(t, required)) {
-            return (StatusCode::UNAUTHORIZED, "admin events require a valid ?token=").into_response();
+            return (
+                StatusCode::UNAUTHORIZED,
+                "admin events require a valid ?token=",
+            )
+                .into_response();
         }
     }
     // `unfold` carries the state and a `first` flag: emit immediately, then once per interval. Cloning
@@ -1049,8 +1053,14 @@ mod tests {
         );
         // The status view is server-pushed (SSE) with a polling fallback — not poll-only.
         assert!(ADMIN_HTML.contains("EventSource"), "admin UI uses SSE");
-        assert!(ADMIN_HTML.contains("_admin/events"), "admin UI subscribes to the events stream");
-        assert!(ADMIN_HTML.contains("startPolling"), "admin UI keeps a polling fallback");
+        assert!(
+            ADMIN_HTML.contains("_admin/events"),
+            "admin UI subscribes to the events stream"
+        );
+        assert!(
+            ADMIN_HTML.contains("startPolling"),
+            "admin UI keeps a polling fallback"
+        );
     }
 
     #[tokio::test]
@@ -1061,7 +1071,10 @@ mod tests {
         // A pushed frame is byte-identical to `GET /`: both go through `summary_value`.
         let v = summary_value(&state);
         assert_eq!(v["name"], "nuthatch");
-        assert!(v.get("last_block").is_some(), "frame carries the tip watermark");
+        assert!(
+            v.get("last_block").is_some(),
+            "frame carries the tip watermark"
+        );
         assert!(v["views"].is_array(), "frame lists the IVM views");
 
         let tok = |t: Option<&str>| {
