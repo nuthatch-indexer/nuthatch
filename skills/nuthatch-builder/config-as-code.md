@@ -1,15 +1,16 @@
-# Config as code: `nest.star` (Starlark front-end)
+# Config as code: `nest.star` (Starlark front-end) — RETIRED
 
-Most nests are a `nuthatch.toml` — that's what `init` writes and what you should reach for by
-default. But when a nest's config is *repetitive* — fifty pools that share one ABI, a basket of
-tokens configured identically — hand-maintaining TOML is a chore and a drift risk. RFC-0018 §2 adds
-an **optional** second front-end: a `nest.star` file that
-*computes* the config in [Starlark](https://github.com/facebook/starlark-rust) (a small, hermetic
-Python dialect) and evaluates to the **exact same `Config`** the TOML would.
+> **Retired (2026-07-21). Do not author new nests in Starlark — use `nuthatch.toml`.**
+> Starlark is no longer a recommended or maintained authoring path. Every first-party nest is a plain
+> `nuthatch.toml` (that's what `init` writes), and there is no first-party nest that uses `.star`. The
+> front-end remains compiled into the binary for **backward compatibility** — an existing `nest.star`
+> still evaluates to the same `Config` — but it receives no new features and should not be reached for.
+> This page is kept only as a reference for legacy `.star` files. For everything new, write TOML.
 
-**This is sugar, not a new capability.** A `nest.star` can express nothing a `nuthatch.toml` can't —
-it deserializes through the identical serde model, so a `.star` and its equivalent `.toml` produce a
-byte-identical config. Prefer TOML unless a loop or a composition genuinely earns the Starlark.
+Historically, RFC-0018 §2 added an **optional** second front-end: a `nest.star` file that *computes*
+the config in [Starlark](https://github.com/facebook/starlark-rust) (a small, hermetic Python dialect)
+and evaluates to the **exact same `Config`** the TOML would — sugar, never a new capability. A `.star`
+and its equivalent `.toml` produce a byte-identical config.
 
 ## When it takes precedence
 

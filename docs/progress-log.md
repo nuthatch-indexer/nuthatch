@@ -2,6 +2,24 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-21 - Agent-surface legibility: three sharp edges an agent hit, filed down.** All three keep
+  the init→dev→query surface honest for a coding agent (RFC-0016 territory), none architectural.
+  **(1) The `sqrtPriceX96` overflow footgun.** A `word32` (int/uint >128-bit) column's derived `_dec` is
+  DECIMAL(38,0), which is **NULL** for values over 38 digits (a Uniswap-v3 `sqrtPriceX96` is uint160) —
+  so an agent authoring a price view got silent NULLs. Footguns now carry a separate `overflows_dec`
+  list (distinct from `big_ints`) rendered in `/schema`/MCP as "use `CAST(col AS DOUBLE)`"; `word16`
+  (≤128-bit) stays plain `_dec`. **(2) Missing-`schema.json` legibility.** Querying a derived `{col}_dec`
+  whose base column the schema doesn't even know (e.g. after hand-adding a `[[templates]]` without
+  re-running `nuthatch schema`) used to give a bare fuzzy-miss; `sql_errors::enrich` now names the fix:
+  "run `nuthatch schema` to regenerate the derived columns." **(3) Keyless-200 RPC failover.** A keyless
+  endpoint answering HTTP 200 with a JSON-RPC `error` body ("authenticate with an API key") on a *batch*
+  request (`block_timestamps`) slipped past `post_one` (single calls already caught it) — so failover
+  didn't fire and the bad endpoint poisoned the pool. `post_one` now treats a top-level `error` as an
+  endpoint failure, so it cools down and the next endpoint is tried. Also: the builder skill's
+  `config-as-code.md` (Starlark) is marked **RETIRED** — nests are plain `nuthatch.toml`; the `.star`
+  front-end stays in the binary for backward-compat only, so the skill no longer teaches a discouraged
+  path. 205 lib tests green (3 new), clippy + fmt clean.
+
 - **2026-07-21 - RFC-0012: nest packaging becomes first-class — `bundle` a nest, `load` it anywhere.**
   The packaging verbs are renamed and the artifact is now a single portable file: `nest pack` → **`nest
   bundle`** (produces one content-addressed `.bundle` — a tar of the manifest + authored inputs;

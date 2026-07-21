@@ -47,6 +47,19 @@ pub fn enrich(raw: &str, query: &str, schema: &[TableSchema]) -> Option<String> 
                 col.trim_end_matches("_dec")
             ));
         }
+        // A `{col}_dec` whose *base* column the schema doesn't know either: the schema is very likely
+        // stale — e.g. the author hand-added a `[[templates]]`/`[[factories]]` to `nuthatch.toml` (whose
+        // `{template}__{event}` tables `init`/`add` never generated a schema for), so the derived `_dec`
+        // columns were never created. Point at the regen command, not a fuzzy typo match.
+        if let Some(base) = col.strip_suffix("_dec") {
+            if !all_cols.iter().any(|c| c == base) {
+                return Some(format!(
+                    "`{col}` doesn't exist because its base column `{base}` isn't in the schema. If you \
+                     hand-edited `nuthatch.toml` (e.g. added a factory template), run `nuthatch schema` \
+                     to regenerate `schema.json` and the derived `_dec` columns, then retry."
+                ));
+            }
+        }
         let refs: Vec<&str> = all_cols.iter().map(String::as_str).collect();
         return Some(match closest(&col, &refs) {
             Some(c) => format!(
@@ -290,6 +303,20 @@ mod tests {
             &schema(),
         );
         assert!(hint.is_none(), "quoted from is not the culprit");
+    }
+
+    #[test]
+    fn a_dec_column_with_no_known_base_points_at_schema_regen() {
+        // Hand-added factory template: `amount0_dec` is queried but the schema never learned about the
+        // `amount0` base column (no `nuthatch schema` after editing the toml). Hint at the regen, not a
+        // fuzzy typo match.
+        let raw = r#"Binder Error: Referenced column "amount0_dec" not found in FROM clause!"#;
+        let hint = enrich(raw, "SELECT sum(amount0_dec) FROM pool__swap", &schema()).unwrap();
+        assert!(
+            hint.contains("nuthatch schema"),
+            "points at the regen command: {hint}"
+        );
+        assert!(hint.contains("amount0"), "names the missing base column");
     }
 
     #[test]
