@@ -2,6 +2,17 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-20 - Hardening: chunk the `block_timestamps` batch (RPC batch-size limits).** Third find from
+  building the Uniswap-v3 nest: a dense window needing 1447 distinct block timestamps was sent as a single
+  1447-item `eth_getBlockByNumber` JSON-RPC batch, which the provider (a real dedicated Arbitrum node)
+  **silently dropped** — returning nothing, which the strict no-partial-map guard (COR-3) then correctly
+  rejected, aborting the backfill. Single requests worked; only the oversized batch failed. `block_timestamps`
+  now fetches in bounded sub-batches (`MAX_TIMESTAMP_BATCH = 200`) and merges, keeping each request within
+  common provider caps; the whole-batch retry and the determinism-preserving "refuse a partial map" check
+  are unchanged (now applied to the merged total). Builds clean; validated by the Uniswap backfill then
+  sealing dense historical windows it previously couldn't. Also confirmed: the generated default mainnet
+  RPCs are useless for backfills (403/521/keyless-200) — a separate `init`-quality follow-up.
+
 - **2026-07-20 - Correctness: signed int256 (and large uint256) now decode to decimals, not hex — volume
   works.** Building the Uniswap-v3 nest hit the wall on its headline metric: a swap's `amount0`/`amount1`
   are `int256`, and nuthatch stored a *negative* value as raw two's-complement hex (`0xffff…f0995e`) and a
