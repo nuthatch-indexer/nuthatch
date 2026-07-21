@@ -35,9 +35,9 @@ nuthatch sql "SELECT count(*), sum(value_dec) FROM usdc__transfer"
   subcommand and flag. If a flag isn't here, it doesn't exist — never invent one.
 - **[config-reference.md](config-reference.md)** — every `nuthatch.toml` / `semantic.toml` / `roost.toml`
   key.
-- **[config-as-code.md](config-as-code.md)** — the optional `nest.star` (Starlark) front-end: compute a
-  repetitive config in code, or `load()` one nest to extend another instead of forking it. Read only if
-  a nest's config wants a loop or composition.
+- **[config-as-code.md](config-as-code.md)** — the `nest.star` (Starlark) front-end, **RETIRED**. Author
+  nests in plain `nuthatch.toml`; the `.star` path stays in the binary for backward compatibility only.
+  Read this only to understand a legacy `nest.star` you've inherited — don't write new ones.
 - **[workflows.md](workflows.md)** — the recipes: init→dev→sql, add a contract, factories, publish a
   nest (bundle/load), run a roost, wire an AI client.
 - **[views.md](views.md)** — a nest's logic layer: authoring `views/*.sql` derivations, describing them

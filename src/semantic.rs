@@ -83,11 +83,17 @@ pub struct Footguns {
     /// derived `{col}_dec` companion, never the raw text column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub big_ints: Vec<String>,
+    /// The subset of `big_ints` whose storage exceeds `DECIMAL(38,0)`'s range (int/uint wider than 128
+    /// bits — e.g. a Uniswap-v3 `sqrtPriceX96` uint160): their `{col}_dec` companion is **NULL**
+    /// whenever the value has more than 38 digits, so exact-decimal math silently drops those rows.
+    /// Use `CAST({col} AS DOUBLE)` for arithmetic on such price/sqrt-scale values.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overflows_dec: Vec<String>,
 }
 
 impl Footguns {
     pub fn is_empty(&self) -> bool {
-        self.reserved_words.is_empty() && self.big_ints.is_empty()
+        self.reserved_words.is_empty() && self.big_ints.is_empty() && self.overflows_dec.is_empty()
     }
 }
 
@@ -141,17 +147,26 @@ fn is_bigint_storage(storage: &str) -> bool {
 pub fn derive_footguns(table: &TableSchema) -> Footguns {
     let mut reserved_words = Vec::new();
     let mut big_ints = Vec::new();
+    let mut overflows_dec = Vec::new();
     for col in &table.columns {
         if SQL_RESERVED.contains(&col.name.to_ascii_lowercase().as_str()) {
             reserved_words.push(col.name.clone());
         }
         if is_bigint_storage(&col.storage) {
             big_ints.push(col.name.clone());
+            // `word32` = int/uint 129–256 bit: its max (up to ~1e77) exceeds `DECIMAL(38,0)`, so the
+            // derived `_dec` is NULL for values with >38 digits (sqrtPriceX96, price accumulators).
+            // `word16` (≤128 bit) fits comfortably for realistic values, so it keeps the plain `_dec`
+            // guidance and is *not* flagged here.
+            if col.storage == "word32" {
+                overflows_dec.push(col.name.clone());
+            }
         }
     }
     Footguns {
         reserved_words,
         big_ints,
+        overflows_dec,
     }
 }
 
@@ -378,6 +393,12 @@ pub fn compose(
                     .join(", ")
             ));
         }
+        if !fg.overflows_dec.is_empty() {
+            out.push_str(&format!(
+                "    ⚠ wide columns (>128-bit) whose `_dec` OVERFLOWS to NULL above 38 digits — use `CAST(col AS DOUBLE)` for math (e.g. sqrtPriceX96): {}\n",
+                fg.overflows_dec.join(", ")
+            ));
+        }
     }
 
     // Authored views (RFC-0018 §1): the derivations the nest exists to answer, queryable by name over
@@ -472,6 +493,29 @@ mod tests {
         let fg = derive_footguns(&transfer_table());
         assert_eq!(fg.reserved_words, vec!["from", "to"]);
         assert_eq!(fg.big_ints, vec!["value"]);
+        // `value` is a word32 (uint256), so it also overflows DECIMAL(38,0) — flag it for CAST-to-DOUBLE.
+        assert_eq!(fg.overflows_dec, vec!["value"]);
+    }
+
+    #[test]
+    fn word16_is_a_big_int_but_does_not_overflow_dec() {
+        // A ≤128-bit big-int gets `_dec` guidance but is NOT flagged as overflowing (realistic values
+        // fit in DECIMAL(38,0)); only >128-bit (word32) columns overflow.
+        let table = TableSchema {
+            table: "t__e".into(),
+            alias: "t".into(),
+            event: "E".into(),
+            topic0: "0x".into(),
+            columns: vec![ColumnSchema {
+                name: "liquidity".into(),
+                sol_type: "uint128".into(),
+                storage: "word16".into(),
+                indexed: false,
+            }],
+        };
+        let fg = derive_footguns(&table);
+        assert_eq!(fg.big_ints, vec!["liquidity"]);
+        assert!(fg.overflows_dec.is_empty());
     }
 
     #[test]
@@ -499,6 +543,7 @@ mod tests {
         let fg = Footguns {
             reserved_words: vec!["from".into(), "to".into()],
             big_ints: vec!["value".into()],
+            overflows_dec: vec!["value".into()],
         };
         let ts = TableSemantic {
             footguns: fg.clone(),

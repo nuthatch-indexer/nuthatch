@@ -164,7 +164,7 @@ impl RpcClient {
     }
 
     async fn post_one(&self, url: &str, body: &Value) -> Result<Value> {
-        Ok(self
+        let resp: Value = self
             .http
             .post(url)
             .json(body)
@@ -172,7 +172,18 @@ impl RpcClient {
             .await?
             .error_for_status()?
             .json()
-            .await?)
+            .await?;
+        // A whole-batch rejection — e.g. a keyless endpoint answering HTTP 200 with
+        // `{"error":{"message":"authenticate with an API key"}}` instead of the expected array — comes
+        // back as a single object with a top-level `error`. Treat it as an endpoint failure so
+        // `post_with_failover` cools it down and tries the next, exactly as `call_one` does for single
+        // calls; otherwise the bad endpoint silently poisons the pool and the batch aborts with a
+        // confusing non-error. (Per-item errors inside a normal array response stay the caller's to
+        // handle.)
+        if let Some(err) = resp.get("error") {
+            bail!("rpc error (endpoint rejected the batch): {err}");
+        }
+        Ok(resp)
     }
 
     async fn call_one(&self, url: &str, method: &str, params: &Value) -> Result<Value> {
