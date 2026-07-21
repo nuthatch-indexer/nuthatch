@@ -77,11 +77,14 @@ async fn main() -> Result<()> {
                     .await
                 }
             },
-            cli::NestWhat::Publish(a) => distribution::publish_cli(
-                &a.registry,
-                std::path::Path::new(&a.bundle),
-                a.as_ref.as_deref(),
-            ),
+            cli::NestWhat::Publish(a) => {
+                distribution::publish_cli(
+                    &a.registry,
+                    std::path::Path::new(&a.bundle),
+                    a.as_ref.as_deref(),
+                )
+                .await
+            }
         },
         cli::Command::SkillRefs => {
             nuthatch::skill::write_refs(std::path::Path::new("."))?;

@@ -2,6 +2,16 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-21 - RFC-0019 slice 2: the S3 object-store registry backend.** The same `BundleStore`
+  contract, now over an S3-compatible bucket (`--registry s3://bucket/prefix`) — MinIO/S3/R2 via `AWS_*`
+  env (incl. `AWS_ENDPOINT`). `open()` dispatches by scheme: `s3://`/`memory://` → the object store,
+  a plain path → `FsStore`, `http(s)://` → refused loudly (a remote-index registry isn't a thing yet; a
+  raw `.bundle` URL is still `nest load <url>`). The `BundleStore` trait went **async** (S3 is), the FS
+  impl following along; `object_store` (Apache-2.0, arrow-rs family) is **feature-gated** off by default
+  so the embedded binary never pulls the S3 dep tree — footprint discipline, the FsStore covers the
+  self-hosted case. Verified: an in-memory round trip (publish → pull → idempotent re-publish → latest,
+  no infra); live MinIO/S3 is a VPS integration concern. 212 lib tests green (default) + the gated
+  object-store test; clippy clean both configs.
 - **2026-07-21 - RFC-0019 slice 1: the nest registry (filesystem-backed).** A nest bundle (RFC-0012)
   now has somewhere to live: `nuthatch nest publish <bundle> --registry <path> [--as name@version]`
   writes it to a content-addressed store, and `nuthatch nest load name@version --registry <path>`

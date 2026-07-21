@@ -1,7 +1,8 @@
 # RFC-0019: The nest registry and distribution — publish, pull, private nests
 
-- Status: **Accepted** (2026-07-21) — **slice 1 (FsStore + publish/load + refs) shipped 2026-07-21**;
-  slice 2 (ObjectStore/S3) and slice 3 (private nests + auth) pending.
+- Status: **Accepted** (2026-07-21) — **slices 1–2 shipped 2026-07-21**: slice 1 (FsStore + publish/
+  load + refs), slice 2 (S3 `ObjectStore` behind `--features object-store`). Slice 3 (private nests +
+  auth) pending.
 - Author: Pete (cargopete)
 - Date: 2026-07-21
 - Depends on: RFC-0012 (content-addressed `.bundle` — the artifact this distributes; identity,

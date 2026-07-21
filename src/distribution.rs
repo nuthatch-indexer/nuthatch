@@ -18,6 +18,7 @@
 //! §4, credential kind *b*) are injected at mount, never bundled.
 
 use anyhow::{bail, Context, Result};
+use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 
 /// The movable per-name pointer to the most recently published version — the one mutable thing in an
@@ -75,17 +76,19 @@ fn validate_token(t: &str) -> Result<()> {
 }
 
 /// A content-addressed bundle store: immutable blobs keyed by hash, plus a thin name→hash index. Both
-/// a local directory ([`FsStore`]) and (slice 2) an S3 bucket implement this; callers never see which.
-pub trait BundleStore {
+/// a local directory ([`FsStore`]) and an S3 bucket ([`ObjectStore`]) implement this; callers never see
+/// which. Async because object storage is — the FS impl just does its (fast) sync work in an async fn.
+#[async_trait]
+pub trait BundleStore: Send + Sync {
     /// Store a blob's bytes under its content address. Idempotent — the same hash is the same blob, so
     /// re-publishing identical bytes is a no-op (dedup is free).
-    fn put_blob(&self, hash: &str, bytes: &[u8]) -> Result<()>;
+    async fn put_blob(&self, hash: &str, bytes: &[u8]) -> Result<()>;
     /// Fetch a blob's bytes by content address.
-    fn get_blob(&self, hash: &str) -> Result<Vec<u8>>;
+    async fn get_blob(&self, hash: &str) -> Result<Vec<u8>>;
     /// Point `name@version` at a hash (the caller advances `latest` separately). The only mutation.
-    fn set_ref(&self, name: &str, version: &str, hash: &str) -> Result<()>;
+    async fn set_ref(&self, name: &str, version: &str, hash: &str) -> Result<()>;
     /// Resolve `name@version` to a hash. Errors *loudly* when the name/version is unknown.
-    fn get_ref(&self, name: &str, version: &str) -> Result<String>;
+    async fn get_ref(&self, name: &str, version: &str) -> Result<String>;
 }
 
 /// A filesystem-backed [`BundleStore`] — "a directory is a registry." The zero-dependency,
@@ -113,8 +116,9 @@ impl FsStore {
     }
 }
 
+#[async_trait]
 impl BundleStore for FsStore {
-    fn put_blob(&self, hash: &str, bytes: &[u8]) -> Result<()> {
+    async fn put_blob(&self, hash: &str, bytes: &[u8]) -> Result<()> {
         let path = self.blob_path(hash);
         if path.exists() {
             return Ok(()); // content-addressed: identical bytes already present, nothing to do
@@ -127,14 +131,14 @@ impl BundleStore for FsStore {
         Ok(())
     }
 
-    fn get_blob(&self, hash: &str) -> Result<Vec<u8>> {
+    async fn get_blob(&self, hash: &str) -> Result<Vec<u8>> {
         let path = self.blob_path(hash);
         std::fs::read(&path).with_context(|| {
             format!("blob {hash} not found in registry (no {})", path.display())
         })
     }
 
-    fn set_ref(&self, name: &str, version: &str, hash: &str) -> Result<()> {
+    async fn set_ref(&self, name: &str, version: &str, hash: &str) -> Result<()> {
         let path = self.ref_path(name, version);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -144,7 +148,7 @@ impl BundleStore for FsStore {
         Ok(())
     }
 
-    fn get_ref(&self, name: &str, version: &str) -> Result<String> {
+    async fn get_ref(&self, name: &str, version: &str) -> Result<String> {
         let path = self.ref_path(name, version);
         let hash = std::fs::read_to_string(&path).with_context(|| {
             format!("nest '{name}@{version}' not found in this registry")
@@ -153,17 +157,34 @@ impl BundleStore for FsStore {
     }
 }
 
-/// Open a store from a `--registry` locator. Slice 1: a filesystem path. An `http(s)://` locator (an
-/// object-store bucket or a remote index) is slice 2 — refused *loudly* for now so nobody assumes it
-/// works.
+/// Open a store from a `--registry` locator by scheme:
+/// - `s3://bucket/prefix` (and `memory://…` for tests) → the object-store backend ([`ObjStore`],
+///   requires a build with `--features object-store`).
+/// - `http(s)://…` → a *remote index* registry, not built yet — refused loudly (a raw `http` URL to a
+///   `.bundle` is still `nest load <url>`, RFC-0012, not a registry).
+/// - anything else (a path, or `file://…`) → the filesystem store ([`FsStore`]).
 pub fn open(locator: &str) -> Result<Box<dyn BundleStore>> {
-    if locator.starts_with("http://") || locator.starts_with("https://") {
-        bail!(
-            "remote/object-store registries aren't built yet (RFC-0019 slice 2) — \
-             use a filesystem path for `--registry` for now"
-        );
+    match locator.split_once("://").map(|(s, _)| s) {
+        Some("s3") | Some("memory") => open_object_store(locator),
+        Some("http") | Some("https") => bail!(
+            "remote HTTP registries aren't built yet (RFC-0019) — use a filesystem path or an \
+             object-store URL (s3://bucket/prefix)"
+        ),
+        _ => Ok(Box::new(FsStore::new(locator))), // a plain path (or file://…)
     }
-    Ok(Box::new(FsStore::new(locator)))
+}
+
+#[cfg(feature = "object-store")]
+fn open_object_store(locator: &str) -> Result<Box<dyn BundleStore>> {
+    Ok(Box::new(ObjStore::from_locator(locator)?))
+}
+
+#[cfg(not(feature = "object-store"))]
+fn open_object_store(_locator: &str) -> Result<Box<dyn BundleStore>> {
+    bail!(
+        "object-store registries (s3://…) need a build with `--features object-store` — the default \
+         binary ships only the filesystem registry"
+    )
 }
 
 /// The result of a publish: where the bundle now lives in the registry.
@@ -177,7 +198,7 @@ pub struct PublishOutcome {
 /// Publish a `.bundle` file to a store under `name@version`, advancing `latest`. Returns the blob's
 /// content address. `name` defaults to the manifest's nest name; `version` defaults to `h<hash12>` (a
 /// content-honest label — semantic versioning meaning is RFC-0020's concern, layered on top).
-pub fn publish(
+pub async fn publish(
     store: &dyn BundleStore,
     bundle_file: &Path,
     name: Option<&str>,
@@ -196,9 +217,9 @@ pub fn publish(
     validate_token(&name).context("resolved nest name")?;
     validate_token(&version).context("resolved version")?;
 
-    store.put_blob(&hash, &bytes)?;
-    store.set_ref(&name, &version, &hash)?;
-    store.set_ref(&name, LATEST, &hash)?;
+    store.put_blob(&hash, &bytes).await?;
+    store.set_ref(&name, &version, &hash).await?;
+    store.set_ref(&name, LATEST, &hash).await?;
     Ok(PublishOutcome {
         name,
         version,
@@ -207,15 +228,15 @@ pub fn publish(
 }
 
 /// Resolve a `name[@version]` reference and fetch its bundle bytes. Returns `(content-address, bytes)`.
-pub fn pull(store: &dyn BundleStore, r: &NestRef) -> Result<(String, Vec<u8>)> {
-    let hash = store.get_ref(&r.name, r.version_key())?;
-    let bytes = store.get_blob(&hash)?;
+pub async fn pull(store: &dyn BundleStore, r: &NestRef) -> Result<(String, Vec<u8>)> {
+    let hash = store.get_ref(&r.name, r.version_key()).await?;
+    let bytes = store.get_blob(&hash).await?;
     Ok((hash, bytes))
 }
 
 /// `nuthatch nest publish <bundle> --registry <path> [--as <name[@version]>]`: publish a bundle and
 /// print where to find it.
-pub fn publish_cli(registry: &str, bundle_file: &Path, as_ref: Option<&str>) -> Result<()> {
+pub async fn publish_cli(registry: &str, bundle_file: &Path, as_ref: Option<&str>) -> Result<()> {
     let store = open(registry)?;
     let (name, version) = match as_ref {
         Some(s) => {
@@ -224,7 +245,7 @@ pub fn publish_cli(registry: &str, bundle_file: &Path, as_ref: Option<&str>) -> 
         }
         None => (None, None),
     };
-    let out = publish(store.as_ref(), bundle_file, name.as_deref(), version.as_deref())?;
+    let out = publish(store.as_ref(), bundle_file, name.as_deref(), version.as_deref()).await?;
     println!("✓ published {}@{}", out.name, out.version);
     println!("  hash:  {}", out.hash);
     println!(
@@ -239,7 +260,7 @@ pub fn publish_cli(registry: &str, bundle_file: &Path, as_ref: Option<&str>) -> 
 pub async fn load_from_registry(registry: &str, reference: &str, target: Option<&Path>) -> Result<()> {
     let store = open(registry)?;
     let r = NestRef::parse(reference)?;
-    let (hash, bytes) = pull(store.as_ref(), &r)?;
+    let (hash, bytes) = pull(store.as_ref(), &r).await?;
     let tmp = tempfile::tempdir().context("temp dir for pulled bundle")?;
     let bundle_file = tmp.path().join("pulled.bundle");
     std::fs::write(&bundle_file, &bytes).context("writing pulled bundle")?;
@@ -252,6 +273,107 @@ pub async fn load_from_registry(registry: &str, reference: &str, target: Option<
     )
     .await
 }
+
+/// The S3-compatible registry backend (RFC-0019 slice 2), behind the `object-store` feature so the
+/// default embedded binary never pulls the S3 dep tree. Same [`BundleStore`] contract as [`FsStore`];
+/// same key layout (`<prefix>/blobs/<hash>.bundle`, `<prefix>/index/<name>/<version>`).
+#[cfg(feature = "object-store")]
+mod object_store_impl {
+    use super::*;
+    use object_store::path::Path as ObjPath;
+    use object_store::ObjectStore as _;
+    use std::sync::Arc;
+
+    /// An S3-compatible [`BundleStore`] over the `object_store` crate. Exercised with an in-memory
+    /// store in tests and with MinIO/S3/R2 live (config via `AWS_*` env, incl. `AWS_ENDPOINT`).
+    pub struct ObjStore {
+        inner: Arc<dyn object_store::ObjectStore>,
+        prefix: ObjPath,
+    }
+
+    impl ObjStore {
+        pub fn from_locator(locator: &str) -> Result<ObjStore> {
+            // `memory://<prefix>` is an ephemeral, per-instance store for tests.
+            if let Some(rest) = locator.strip_prefix("memory://") {
+                return Ok(ObjStore {
+                    inner: Arc::new(object_store::memory::InMemory::new()),
+                    prefix: ObjPath::from(rest.trim_start_matches('/')),
+                });
+            }
+            let url = url::Url::parse(locator)
+                .with_context(|| format!("parsing registry URL {locator:?}"))?;
+            // parse_url_opts applies env-based config (region, keys, AWS_ENDPOINT for MinIO/R2).
+            let (store, path) = object_store::parse_url_opts(&url, std::env::vars())
+                .with_context(|| format!("opening object-store registry {locator:?}"))?;
+            Ok(ObjStore {
+                inner: Arc::from(store),
+                prefix: path,
+            })
+        }
+
+        fn blob_key(&self, hash: &str) -> ObjPath {
+            self.prefix.child("blobs").child(format!("{hash}.bundle"))
+        }
+
+        fn ref_key(&self, name: &str, version: &str) -> ObjPath {
+            self.prefix.child("index").child(name).child(version)
+        }
+    }
+
+    #[async_trait]
+    impl BundleStore for ObjStore {
+        async fn put_blob(&self, hash: &str, bytes: &[u8]) -> Result<()> {
+            let key = self.blob_key(hash);
+            // Content-addressed → immutable: if it's already there, the bytes are identical.
+            if self.inner.head(&key).await.is_ok() {
+                return Ok(());
+            }
+            self.inner
+                .put(&key, object_store::PutPayload::from(bytes.to_vec()))
+                .await
+                .with_context(|| format!("writing blob {hash}"))?;
+            Ok(())
+        }
+
+        async fn get_blob(&self, hash: &str) -> Result<Vec<u8>> {
+            let key = self.blob_key(hash);
+            let got = self.inner.get(&key).await.map_err(|e| match e {
+                object_store::Error::NotFound { .. } => {
+                    anyhow::anyhow!("blob {hash} not found in registry")
+                }
+                other => anyhow::Error::new(other).context("fetching blob"),
+            })?;
+            Ok(got.bytes().await.context("reading blob bytes")?.to_vec())
+        }
+
+        async fn set_ref(&self, name: &str, version: &str, hash: &str) -> Result<()> {
+            let key = self.ref_key(name, version);
+            self.inner
+                .put(&key, object_store::PutPayload::from(hash.as_bytes().to_vec()))
+                .await
+                .with_context(|| format!("writing ref {name}@{version}"))?;
+            Ok(())
+        }
+
+        async fn get_ref(&self, name: &str, version: &str) -> Result<String> {
+            let key = self.ref_key(name, version);
+            let got = self.inner.get(&key).await.map_err(|e| match e {
+                object_store::Error::NotFound { .. } => {
+                    anyhow::anyhow!("nest '{name}@{version}' not found in this registry")
+                }
+                other => anyhow::Error::new(other).context("resolving ref"),
+            })?;
+            let raw = got.bytes().await.context("reading ref")?;
+            Ok(String::from_utf8(raw.to_vec())
+                .context("ref is not valid utf-8")?
+                .trim()
+                .to_string())
+        }
+    }
+}
+
+#[cfg(feature = "object-store")]
+use object_store_impl::ObjStore;
 
 #[cfg(test)]
 mod tests {
@@ -309,17 +431,17 @@ abi = "abis/c.json"
         }
     }
 
-    #[test]
-    fn fs_store_round_trips_blobs_and_refs() {
+    #[tokio::test]
+    async fn fs_store_round_trips_blobs_and_refs() {
         let root = tempfile::tempdir().unwrap();
         let store = FsStore::new(root.path());
-        store.put_blob("abc123", b"hello").unwrap();
-        assert_eq!(store.get_blob("abc123").unwrap(), b"hello");
-        store.set_ref("n", "1.0.0", "abc123").unwrap();
-        assert_eq!(store.get_ref("n", "1.0.0").unwrap(), "abc123");
+        store.put_blob("abc123", b"hello").await.unwrap();
+        assert_eq!(store.get_blob("abc123").await.unwrap(), b"hello");
+        store.set_ref("n", "1.0.0", "abc123").await.unwrap();
+        assert_eq!(store.get_ref("n", "1.0.0").await.unwrap(), "abc123");
         // Unknown ref and unknown blob both fail loudly.
-        assert!(store.get_ref("n", "9.9.9").is_err());
-        assert!(store.get_blob("deadbeef").is_err());
+        assert!(store.get_ref("n", "9.9.9").await.is_err());
+        assert!(store.get_blob("deadbeef").await.is_err());
     }
 
     #[tokio::test]
@@ -331,12 +453,18 @@ abi = "abis/c.json"
         let hash = write_bundle_fixture(&bundle_file, "one");
 
         let store = open(registry).unwrap();
-        let out = publish(store.as_ref(), &bundle_file, Some("horizon"), Some("1.0.0")).unwrap();
+        let out = publish(store.as_ref(), &bundle_file, Some("horizon"), Some("1.0.0"))
+            .await
+            .unwrap();
         assert_eq!(out.hash, hash);
 
         // Pull by explicit version and by latest → same hash, same bytes as the original bundle.
-        let by_version = pull(store.as_ref(), &NestRef::parse("horizon@1.0.0").unwrap()).unwrap();
-        let by_latest = pull(store.as_ref(), &NestRef::parse("horizon").unwrap()).unwrap();
+        let by_version = pull(store.as_ref(), &NestRef::parse("horizon@1.0.0").unwrap())
+            .await
+            .unwrap();
+        let by_latest = pull(store.as_ref(), &NestRef::parse("horizon").unwrap())
+            .await
+            .unwrap();
         assert_eq!(by_version.0, hash);
         assert_eq!(by_latest.0, hash);
         assert_eq!(by_version.1, std::fs::read(&bundle_file).unwrap());
@@ -351,8 +479,8 @@ abi = "abis/c.json"
         assert!(installed.join("abis/c.json").exists());
     }
 
-    #[test]
-    fn republish_is_idempotent_and_versions_coexist_latest_moves() {
+    #[tokio::test]
+    async fn republish_is_idempotent_and_versions_coexist_latest_moves() {
         let reg = tempfile::tempdir().unwrap();
         let registry = reg.path().to_str().unwrap();
         let store = open(registry).unwrap();
@@ -362,9 +490,9 @@ abi = "abis/c.json"
         let h1 = write_bundle_fixture(&f1, "v1");
 
         // Publish v1 twice → idempotent (same blob, no error), latest = h1.
-        publish(store.as_ref(), &f1, Some("n"), Some("1.0.0")).unwrap();
-        publish(store.as_ref(), &f1, Some("n"), Some("1.0.0")).unwrap();
-        assert_eq!(store.get_ref("n", "latest").unwrap(), h1);
+        publish(store.as_ref(), &f1, Some("n"), Some("1.0.0")).await.unwrap();
+        publish(store.as_ref(), &f1, Some("n"), Some("1.0.0")).await.unwrap();
+        assert_eq!(store.get_ref("n", "latest").await.unwrap(), h1);
 
         // A *different* bundle (distinct inputs → distinct content address) published as v2 → both
         // versions resolve; latest moves to v2.
@@ -372,10 +500,10 @@ abi = "abis/c.json"
         let f2 = b2.path().join("b.bundle");
         let h2 = write_bundle_fixture(&f2, "v2");
         assert_ne!(h1, h2, "distinct inputs must yield distinct content addresses");
-        publish(store.as_ref(), &f2, Some("n"), Some("2.0.0")).unwrap();
-        assert_eq!(store.get_ref("n", "1.0.0").unwrap(), h1);
-        assert_eq!(store.get_ref("n", "2.0.0").unwrap(), h2);
-        assert_eq!(store.get_ref("n", "latest").unwrap(), h2);
+        publish(store.as_ref(), &f2, Some("n"), Some("2.0.0")).await.unwrap();
+        assert_eq!(store.get_ref("n", "1.0.0").await.unwrap(), h1);
+        assert_eq!(store.get_ref("n", "2.0.0").await.unwrap(), h2);
+        assert_eq!(store.get_ref("n", "latest").await.unwrap(), h2);
     }
 
     #[tokio::test]
@@ -396,6 +524,47 @@ abi = "abis/c.json"
             Err(e) => e.to_string(),
             Ok(_) => panic!("an http registry locator should be refused for now"),
         };
-        assert!(err.contains("slice 2"), "got: {err}");
+        assert!(err.contains("aren't built yet"), "got: {err}");
+    }
+
+    /// The object-store backend, exercised against an in-memory store (no infra) — same round trip as
+    /// the FS path. InMemory is per-instance, so `store` is reused for publish + pull (each `open()`
+    /// would mint a fresh, empty store). Live MinIO/S3 is a VPS integration concern.
+    #[cfg(feature = "object-store")]
+    #[tokio::test]
+    async fn object_store_memory_round_trips() {
+        let bundle = tempfile::tempdir().unwrap();
+        let bundle_file = bundle.path().join("t.bundle");
+        let hash = write_bundle_fixture(&bundle_file, "obj");
+
+        let store = open("memory://reg").unwrap();
+        let out = publish(store.as_ref(), &bundle_file, Some("horizon"), Some("1.0.0"))
+            .await
+            .unwrap();
+        assert_eq!(out.hash, hash);
+
+        let (h, bytes) = pull(store.as_ref(), &NestRef::parse("horizon@1.0.0").unwrap())
+            .await
+            .unwrap();
+        assert_eq!(h, hash);
+        assert_eq!(bytes, std::fs::read(&bundle_file).unwrap());
+
+        // Idempotent re-publish; latest resolves.
+        publish(store.as_ref(), &bundle_file, Some("horizon"), Some("1.0.0"))
+            .await
+            .unwrap();
+        assert_eq!(store.get_ref("horizon", "latest").await.unwrap(), hash);
+        // Unknown ref fails loudly.
+        assert!(store.get_ref("horizon", "9.9.9").await.is_err());
+    }
+
+    #[cfg(not(feature = "object-store"))]
+    #[test]
+    fn s3_locator_needs_the_feature() {
+        let err = match open("s3://bucket/prefix") {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("s3:// should require the object-store feature"),
+        };
+        assert!(err.contains("object-store"), "got: {err}");
     }
 }
