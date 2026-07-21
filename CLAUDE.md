@@ -12,11 +12,12 @@ non-negotiables below, stop and flag it instead of proceeding.
 1. **Single static binary** is the primary deliverable. Embedded mode must run with zero
    external services: no Postgres, no Docker, no IPFS. `curl | sh` → `nuthatch init 0xAddr
    --chain mainnet` → `nuthatch dev` → live API. Target: <2 minutes to first indexed query.
-2. **Footprint budget: ≤2 GB RAM** for a single-chain **roost** (one runtime following one
-   chain, whether it hosts one nest or several) tip-following + serving in embedded mode. The
-   budget is per-runtime and shared across mounted nests — density is RAM-bounded, not free.
-   Treat this as a CI-enforced budget, not an aspiration. If a design decision threatens it,
-   surface the tradeoff before implementing.
+2. **Footprint budget: ≤2 GB RAM per active-chain cursor** — one chain's tip-following +
+   serving in embedded mode, whether that cursor hosts one nest or several. A single-chain
+   roost is one cursor (≤2 GB); a multichain roost's total is Σ cursors (RFC-0021). The budget
+   is per-cursor and shared across the nests on that cursor — density is RAM-bounded, not free.
+   Treat this as a CI-enforced budget (per cursor), not an aspiration. If a design decision
+   threatens it, surface the tradeoff before implementing.
 3. **No phone-home.** No telemetry, no mandatory API tokens, no gated data services. AI
    features use local models (Ollama) or BYO API key, and degrade gracefully offline.
 4. **Determinism in the core.** ABI decoding, reorg handling, entity derivation, and anything
@@ -41,14 +42,20 @@ DataFusion federates hot + cold behind one SQL surface. Feature-flag the storage
 behind a trait; no `#[cfg]` forks of business logic.
 
 **Multi-nest co-tenancy (a *roost*):** one runtime may host N nests an operator chose to
-co-locate on the same chain, sharing one same-chain cursor, one hot DB, one finality view.
-Cooperating tenants an operator picked — not paying strangers (that's the hosted-SaaS path,
-out of scope). Strict per-nest isolation of storage, reorg, and blast radius: one nest's bad
-view or runaway factory must not harm another. Still one cursor, one writer, one observable
-failure boundary — the single-cursor non-negotiable holds. A second chain means a second
-cursor means a second process; never multiplex chains behind one cursor. See RFC-0012.
+co-locate, across **one or more chains**, running **one isolated cursor per distinct chain**
+(RFC-0021) — each cursor with its own hot DB, finality view, and reorg boundary. Cooperating
+tenants an operator picked — not paying strangers (that's the hosted-SaaS path, out of scope).
+Strict per-nest **and per-cursor** isolation of storage, reorg, and blast radius: one nest's
+bad view or runaway factory, or one chain's stall or reorg, must not harm another. The
+single-cursor law holds **per chain**: a cursor is always single-chain, single-writer, one
+observable failure boundary — never multiplex two chains behind one cursor. Multichain in one
+runtime is a **capability, not a mandate**; one-chain-per-roost stays valid and is the default.
+A second chain means a second cursor — in the same runtime (a multichain roost) or on another
+worker (the distributed pool, RFC-0022) — but never a second chain behind one cursor. See
+RFC-0012, RFC-0021.
 
-**Reorg strategy:** reorgs only ever touch the mutable hot store. Segments are sealed to
+**Reorg strategy:** reorgs only ever touch the mutable hot store — and only that of the
+affected chain's cursor, isolated from other cursors in the same roost. Segments are sealed to
 Parquet strictly past finality, so the columnar layer is append-only and immutable. If a
 change requires mutating sealed segments, the design is wrong — go back.
 
@@ -135,8 +142,11 @@ Do not start slice N+1 while slice N has failing tests or an unmet budget.
 
 - Hosted service, billing, metering, **hosted-SaaS multi-tenancy** (per-tenant authz/quotas,
   isolation between mutually-untrusting paying customers — that's the become-a-data-service-
-  company path, and the gateway's job regardless). Note: *multi-nest co-tenancy* (a roost) is
-  in scope — see Architecture; the two are different things.
+  company path, and the gateway's job regardless). Note: *multi-nest co-tenancy* (a roost) and
+  *distributed **self-hosted** scaled mode* (one operator's writer pool + query-FE tier +
+  control-plane over cooperating nests, RFC-0022) are both **in scope** — see Architecture. The
+  line is per-tenant billing/authz between untrusting **paying** customers: that stays out and
+  is the gateway's job.
 - Token, staking, decentralized network features (a possible future Graph Horizon data
   service is explicitly deferred).
 - Non-EVM chains before EVM is airtight.
