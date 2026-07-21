@@ -220,6 +220,20 @@ pub async fn add(args: AddArgs) -> Result<()> {
     Ok(())
 }
 
+/// `nuthatch schema` — regenerate the derived artifacts (`schema.json`, `llms.txt`, `semantic.toml`
+/// footguns) from the current `nuthatch.toml`. The manual counterpart to what `init`/`add` do
+/// automatically: run it after hand-editing the config — notably adding a factory `[[templates]]` /
+/// `[[factories]]`, which introduces the `{template}__{event}` tables and their `*_dec` columns that
+/// the auto path never saw. Idempotent: authored views and semantic descriptions are preserved.
+pub fn regen(args: crate::cli::SchemaArgs) -> Result<()> {
+    let dir = PathBuf::from(&args.dir);
+    let config = Config::load(&dir)
+        .with_context(|| format!("no nest at '{}' (need a nuthatch.toml)", dir.display()))?;
+    let n = write_nest_artifacts(&dir, &config.nest.chain, &config)?;
+    println!("✓ regenerated schema.json + AI surface from nuthatch.toml — {n} table(s)");
+    Ok(())
+}
+
 /// Build the registry from the vendored ABIs and (re)write the derived artifacts — `schema.json` and
 /// the AI surface (`llms.txt` + the scaffolded skill). One source of truth: `init` and `add` both
 /// call this so the artifacts never drift from `nuthatch.toml`. Returns the table count.
