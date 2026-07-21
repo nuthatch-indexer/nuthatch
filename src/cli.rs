@@ -131,6 +131,10 @@ pub enum NestWhat {
     /// only (safe to hot-swap on the same endpoint); breaking = a consumer-observable change (needs a
     /// new endpoint). Each argument is a nest directory or a `schema.json` path.
     Diff(NestDiffArgs),
+    /// Hot-upgrade a running nest to a compatible new version with zero downtime (RFC-0020): serve the
+    /// old version, index the new one concurrently, then atomically flip the endpoint once it catches
+    /// up. A breaking update is refused (it needs a new endpoint). The served address never changes.
+    Upgrade(NestUpgradeArgs),
 }
 
 #[derive(Args)]
@@ -191,6 +195,41 @@ pub struct NestDiffArgs {
     pub old: String,
     /// The new (proposed) version: a nest directory or a `schema.json` path.
     pub new: String,
+}
+
+#[derive(Args)]
+pub struct NestUpgradeArgs {
+    /// The running/current nest directory — the OLD version being upgraded from.
+    #[arg(long, default_value = ".")]
+    pub dir: String,
+
+    /// The NEW version to upgrade to: a prepared nest directory (e.g. from `nest load`).
+    #[arg(long)]
+    pub to: String,
+
+    /// Address to serve on. The endpoint stays the same across the flip — this is the whole point.
+    #[arg(long, default_value = "127.0.0.1:8288")]
+    pub listen: String,
+
+    /// Override `rpc_urls` at runtime (repeatable); tried ahead of the configured endpoints.
+    #[arg(long)]
+    pub rpc: Vec<String>,
+
+    /// Backfill the new version's finalized history straight to Parquet before tip-following (RFC-0004).
+    #[arg(long)]
+    pub seal_direct: bool,
+
+    /// Concurrent window fetches during the new version's seal-direct backfill.
+    #[arg(long, default_value_t = 1)]
+    pub concurrency: usize,
+
+    /// Override the `eth_getLogs` block-window for the new version's backfill.
+    #[arg(long)]
+    pub window: Option<u64>,
+
+    /// Disable the built-in admin UI entirely.
+    #[arg(long)]
+    pub no_admin: bool,
 }
 
 #[derive(Args)]

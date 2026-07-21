@@ -88,6 +88,19 @@ async fn main() -> Result<()> {
             cli::NestWhat::Diff(a) => {
                 lifecycle::diff_cli(std::path::Path::new(&a.old), std::path::Path::new(&a.new))
             }
+            cli::NestWhat::Upgrade(a) => {
+                indexer::upgrade(
+                    std::path::PathBuf::from(&a.dir),
+                    std::path::PathBuf::from(&a.to),
+                    a.listen,
+                    a.rpc,
+                    a.seal_direct,
+                    a.concurrency,
+                    a.window,
+                    a.no_admin,
+                )
+                .await
+            }
         },
         cli::Command::SkillRefs => {
             nuthatch::skill::write_refs(std::path::Path::new("."))?;

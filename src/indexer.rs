@@ -70,6 +70,146 @@ pub async fn dev(args: DevArgs) -> Result<()> {
     .await
 }
 
+/// Interpret a finished background task's join result: a clean `Ok(())`, an indexing/serving error, or
+/// a panic/cancellation — labelled for the operator (deadlock-review C1: a dead task must surface, never
+/// be served over).
+fn join_task(what: &str, joined: Result<Result<()>, tokio::task::JoinError>) -> Result<()> {
+    match joined {
+        Ok(inner) => inner,
+        Err(e) if e.is_panic() => Err(anyhow::anyhow!("{what} panicked")),
+        Err(e) => Err(anyhow::anyhow!("{what} task failed: {e}")),
+    }
+}
+
+/// Poll interval for the hot-upgrade catch-up check.
+const UPGRADE_POLL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// `nuthatch nest upgrade` (RFC-0020 slice 2b): hot-upgrade a running nest to a **compatible** new
+/// version with zero downtime. Classify old→new; a *breaking* change is refused (it needs a new
+/// endpoint — slice 3 — not a hot swap). For a compatible change: serve the OLD version immediately,
+/// index the NEW version concurrently against the same chain, and atomically flip the endpoint to it
+/// once caught up, then retire the old indexer. Two hot stores run during the overlap (the density cost
+/// accepted for decode-changed generality). The consumer's endpoint never changes.
+#[allow(clippy::too_many_arguments)]
+pub async fn upgrade(
+    old_dir: PathBuf,
+    new_dir: PathBuf,
+    listen: String,
+    rpc_override: Vec<String>,
+    seal_direct: bool,
+    concurrency: usize,
+    window: Option<u64>,
+    no_admin: bool,
+) -> Result<()> {
+    let old_config = Config::load(&old_dir)?;
+    let new_config = Config::load(&new_dir)?;
+
+    // Gate: a breaking update must not be hot-swapped — it needs a new versioned endpoint (slice 3).
+    let verdict = crate::lifecycle::classify_paths(&old_dir, &new_dir)?;
+    if verdict.verdict == crate::lifecycle::Verdict::Breaking {
+        let reasons: Vec<String> = verdict.breaking_changes().map(|c| c.describe()).collect();
+        anyhow::bail!(
+            "refusing to hot-swap a BREAKING update: a consumer-observable change must be served on a \
+             NEW versioned endpoint, run alongside the old so downstream migrate on their clock \
+             (RFC-0020 slice 3). Breaking change(s):\n  - {}",
+            reasons.join("\n  - ")
+        );
+    }
+    tracing::info!(
+        additive = verdict.additive_changes().count(),
+        "compatible update — hot-upgrading with zero downtime"
+    );
+
+    // A compatible update never changes chains, so one source feeds both indexers.
+    let rpc_urls = crate::rpc::merge_rpcs(&rpc_override, old_config.nest.rpc_urls.clone());
+    let endpoint_count = rpc_urls.len();
+    let source: Arc<dyn Source> = Arc::new(RpcClient::new(rpc_urls)?);
+    let concurrency = safe_backfill_concurrency(endpoint_count, concurrency);
+    let admin_enabled = admin_enabled(no_admin, &listen);
+    let admin_token = admin_required_token(admin_enabled, &listen);
+
+    // OLD serves immediately; NEW backfills concurrently.
+    let old_rt = spawn_nest(
+        source.clone(),
+        old_dir,
+        old_config,
+        None,
+        seal_direct,
+        concurrency,
+        window,
+        admin_enabled,
+        admin_token.clone(),
+    )
+    .await?;
+    let new_rt = spawn_nest(
+        source,
+        new_dir,
+        new_config,
+        None,
+        seal_direct,
+        concurrency,
+        window,
+        admin_enabled,
+        admin_token,
+    )
+    .await?;
+
+    let old_store = old_rt.state.store.clone();
+    let new_store = new_rt.state.store.clone();
+    let new_state = new_rt.state; // handed to the flip
+    let shared = serve::SharedNest::new(old_rt.state);
+    let mut ingest_old = old_rt.ingest;
+    let mut ingest_new = new_rt.ingest;
+    let old_alert = old_rt.alert_worker;
+    let new_alert = new_rt.alert_worker;
+
+    let mut serve_task = {
+        let shared = shared.clone();
+        tokio::spawn(async move { serve::run_shared(&listen, shared).await })
+    };
+    let mut flip_task = {
+        let shared = shared.clone();
+        let old_store = old_store.clone();
+        let new_store = new_store.clone();
+        tokio::spawn(async move {
+            await_catchup_and_flip(&shared, &old_store, &new_store, new_state, UPGRADE_POLL).await
+        })
+    };
+
+    // Phase 1 — old + new both live. Any task dying fails loudly (C1). The flip completing → phase 2.
+    let result = tokio::select! {
+        r = &mut serve_task => join_task("serving", r),
+        j = &mut ingest_old => join_task("old indexing", j),
+        j = &mut ingest_new => join_task("new indexing", j),
+        f = &mut flip_task => match f {
+            Ok(Ok(())) => {
+                tracing::info!("hot-upgrade flip complete — retiring the old version's indexer");
+                // The old indexer is now intentionally retired; its cancellation is NOT a failure.
+                ingest_old.abort();
+                // Phase 2 — only the new version + serving remain.
+                tokio::select! {
+                    r = &mut serve_task => join_task("serving", r),
+                    j = &mut ingest_new => join_task("new indexing", j),
+                }
+            }
+            Ok(Err(e)) => Err(e.context("hot-upgrade flip")),
+            Err(e) => Err(anyhow::anyhow!("flip task failed: {e}")),
+        },
+    };
+
+    ingest_old.abort();
+    ingest_new.abort();
+    serve_task.abort();
+    flip_task.abort();
+    if let Some(w) = old_alert {
+        w.abort();
+    }
+    if let Some(w) = new_alert {
+        w.abort();
+    }
+    result
+}
+
 /// A single nest's contribution to a running process: its serve state plus the background tasks that
 /// keep it fed (the ingestion loop, and an optional alert/webhook delivery worker). Built by
 /// [`spawn_nest`]; consumed either by [`run`] (one nest, served at the root) or by the roost

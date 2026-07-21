@@ -158,11 +158,12 @@ who need more — none of it in the way of the happy path:
   path or any S3-compatible bucket (MinIO/S3/R2, via `AWS_*` env), with **private nests** behind your
   bucket's auth. Self-hosted-first: the registry is decoupled and never mandatory — a self-built bundle
   and `load <file|dir>` need no registry at all. (S3 backend: build with `--features object-store`.)
-- **Safe upgrades — no resync tax** (RFC-0020, in progress). `nuthatch nest diff <old> <new>` classifies
-  a nest update over its schema as *compatible* (additive only — meant to hot-swap behind the same
-  endpoint) or *breaking* (a consumer-observable change — a new versioned endpoint, run alongside the
-  old), so updating a nest stops being a subgraph-style genesis resync. The classifier is shipped; the
-  hot-swap and endpoint machinery follow.
+- **Safe upgrades — no resync tax** (RFC-0020). `nuthatch nest diff <old> <new>` classifies a nest
+  update as *compatible* (additive only) or *breaking* (a consumer-observable change); `nuthatch nest
+  upgrade --to <new>` then **hot-swaps a compatible update with zero downtime** — it serves the old
+  version, indexes the new one concurrently, and atomically flips the endpoint the moment the new one
+  catches up. Updating a nest stops being a subgraph-style genesis resync, and the served address never
+  changes. A breaking update is refused (it needs a new endpoint — the deprecation-window path is next).
 - **Metrics.** Prometheus `/metrics` — tip lag, rows decoded/sealed, reorgs, query counts, RSS.
 
 ---

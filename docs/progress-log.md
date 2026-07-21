@@ -2,6 +2,17 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-21 - RFC-0020 slice 2b-ii: `nest upgrade` — the compatible hot-swap, user-facing.** Wires
+  the proven flip into a command: `nuthatch nest upgrade --dir <old> --to <new>` classifies the update,
+  **refuses a breaking one** (clear message naming the change — it needs a new endpoint, slice 3), and
+  for a compatible one serves the OLD version immediately while indexing the NEW concurrently, then
+  atomically flips the endpoint once caught up and retires the old indexer — the served address never
+  changes. A two-phase `tokio::select` enforces the C1 fate-sharing rule (any indexer/serve death fails
+  loudly) while treating the *intentional* post-flip old-indexer abort as success, not failure. One
+  shared source feeds both (a compatible update never changes chains). Verified offline: the CLI parses
+  and a breaking update is refused before any network touch; the compatible flip itself is the e2e-proven
+  2b core. **RFC-0020 slices 1–2 complete.** 224 lib + 3 e2e green, clippy + fmt clean. README + roadmap
+  updated.
 - **2026-07-21 - RFC-0020 slice 2b (core): the concurrent re-index + atomic flip, proven end-to-end.**
   The compatible hot-upgrade Chief chose (full concurrent): `await_catchup_and_flip` runs the **old and
   new versions' indexers together**, serving the old backing, and **atomically flips** the endpoint to
