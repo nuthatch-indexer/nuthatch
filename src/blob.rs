@@ -252,6 +252,16 @@ pub fn load_manifest(blob_dir: &Path) -> Result<Manifest> {
     serde_json::from_str(&raw).context("parsing blob manifest")
 }
 
+/// The manifest of a single-file `.bundle`, read without installing it — extract, parse, done. The
+/// registry (RFC-0019) uses this to key a blob by its content address (`.blob_hash()`) and to read its
+/// nest name for the default `name@version`, all without touching the install path.
+pub fn bundle_manifest(bundle_file: &Path) -> Result<Manifest> {
+    let tmp = tempfile::tempdir().context("temp dir for bundle manifest")?;
+    let blob_dir = tmp.path().join("unpacked");
+    extract_bundle(bundle_file, &blob_dir)?;
+    load_manifest(&blob_dir)
+}
+
 /// Join a **manifest-declared** relative path onto `base`, refusing anything that could escape it — an
 /// bundle is a distributable, hash-resolved deploy unit (RFC-0012 §4/§5), so its file paths are
 /// untrusted input. Only `Normal` path components are allowed: an absolute path (which `Path::join`
