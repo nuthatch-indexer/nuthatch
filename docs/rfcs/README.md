@@ -5,6 +5,8 @@ dependencies. Status lifecycle: **Draft → Accepted → Implemented → (Supers
 For everything *deferred or not-yet-done* across the whole series (the infra track + leftovers),
 see **[backlog.md](../backlog.md)**. For the bar a release must clear before it's pointed at a real
 workload unattended, see the **[production-readiness checklist](../prod-readiness.md)**.
+RFCs **0019–0023** derive from the **[Jul–Aug 2026 roadmap](../high-level-roadmap-jul-aug-2026.md)**
+(strategy agreed 2026-07-21); their decisions log is the authority for the choices they encode.
 Statuses last reconciled against the [progress log](../progress-log.md) on 2026-07-21.
 
 | RFC | Title | Depends on | Status |
@@ -27,6 +29,11 @@ Statuses last reconciled against the [progress log](../progress-log.md) on 2026-
 | [0016](0016-governed-semantic-layer-and-agent-grade-mcp.md) | The governed semantic layer and the agent-grade MCP experience | 0001, 0012, 0015 | **Implemented** (S1 eval harness → S2 semantic layer → S3 errors-as-prompts + explain → S4 result shaping → S5 resources/prompts; Tier-B baseline pending a keyed run) |
 | [0017](0017-builder-skill.md) | The builder skill — teaching coding agents to drive nuthatch | 0016, 0015 | **Implemented** (generated CLI ref + drift-checked authored skill; authoring eval pending a keyed run) |
 | [0018](0018-what-a-nest-is-authored-logic-and-composable-nests.md) | What a nest is — first-class authored logic (SQL views); Starlark composition (retired) | 0001, 0012, 0013, 0016, 0017 | **§1 Implemented · §2 retired · §3 deferred** (2026-07-21) — §1 authored SQL views shipped (horizon-nest is the exemplar); §2 Starlark front-end **retired** (single graph nest, plain TOML — `graph-network-nest` fork binned, code shipped-but-unused); §3 hot incremental views deferred |
+| [0019](0019-nest-registry-and-distribution.md) | The nest registry and distribution — publish, pull, private nests | 0012, 0001 | **Accepted** (2026-07-21) — roadmap thread 3 |
+| [0020](0020-nest-lifecycle-and-the-n-1-upgrade.md) | Nest lifecycle and the N-1 upgrade — kill the subgraph resync tax | 0012, 0019, 0018 §1, 0013 §3 | **Accepted** (2026-07-21) — roadmap thread 4; compatible-vs-breaking settled |
+| [0021](0021-the-multichain-roost.md) | The multichain roost — one runtime, many chains, one cursor each | 0012, 0009 | **Accepted** (2026-07-21) — roadmap thread 2A; §0 brief amendment applied to CLAUDE.md |
+| [0022](0022-distributed-scaled-mode.md) | Distributed scaled mode — read/write planes, writer pool, dynamic placement | 0013, 0019, 0021 | **Accepted** (2026-07-21) — roadmap thread 2B; §0 brief amendment applied; design-now-build-later |
+| [0023](0023-contract-state-eth-call-derive-first.md) | Contract state (eth_call) — derive-first, with a verifiable fallback | 0018 §1, 0001, 0013 §3, 0019 | **Accepted** (2026-07-21) — roadmap thread 1; tiers 1+2 buildable, 3+4 designed |
 
 ## Conventions
 
