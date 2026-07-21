@@ -2,6 +2,17 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
+- **2026-07-21 - RFC-0020 slice 1: the compatible-vs-breaking classifier.** The first piece of killing
+  the subgraph resync tax: `nuthatch nest diff <old> <new>` classifies a nest update over its schema
+  surface (`schema.json` — the decoded event tables + columns a consumer queries). **Compatible** =
+  additive only (a new table/column; hot-swap behind the same endpoint); **breaking** = anything a
+  consumer can observe as removed/renamed/retyped (a new versioned endpoint, run alongside the old).
+  `indexed`-flag flips are compatible (cost, not shape); a rename reads as remove+add → breaking;
+  malformed schema errors rather than misclassifies (real fault ≠ breaking verdict). New
+  `src/lifecycle.rs`, pure + deterministic (BTree-ordered diffs), decision-only — moves no data, touches
+  no serving path (slices 2–4 act on the verdict). Verified live: `nest diff` on the trial nest —
+  identical → compatible, added column → compatible, dropped table → breaking, each with legible
+  reasons. 8 new tests, 222 lib tests green, clippy clean. README + roadmap updated.
 - **2026-07-21 - RFC-0019 slice 3: private nests — access denied, said out loud.** A private nest is a
   bundle only the credentialed can fetch; the mechanism is the store's (S3 bucket policy / filesystem
   perms), so this slice is about *legibility*: a rejected/absent-credential read now surfaces a clear

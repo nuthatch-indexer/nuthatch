@@ -1,6 +1,8 @@
 # RFC-0020: Nest lifecycle and the N-1 upgrade — kill the subgraph resync tax
 
-- Status: **Accepted** (2026-07-21)
+- Status: **Accepted** (2026-07-21) — **slice 1 (compatible/breaking classifier + `nest diff`) shipped
+  2026-07-21**; slices 2 (compatible hot-swap, same endpoint), 3 (breaking → new endpoint + deprecation),
+  4 (segment reuse) pending.
 - Author: Pete (cargopete)
 - Date: 2026-07-21
 - Depends on: RFC-0012 (a nest version *is* a content-addressed bundle), RFC-0019 (the registry that
