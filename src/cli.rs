@@ -127,6 +127,10 @@ pub enum NestWhat {
     /// registry is a decoupled, optional store — a filesystem path now; object storage lands next. A
     /// self-built bundle and `nest load <file|dir>` never need one. Prints the content address.
     Publish(NestPublishArgs),
+    /// Classify an update between two nests as compatible or breaking (RFC-0020). Compatible = additive
+    /// only (safe to hot-swap on the same endpoint); breaking = a consumer-observable change (needs a
+    /// new endpoint). Each argument is a nest directory or a `schema.json` path.
+    Diff(NestDiffArgs),
 }
 
 #[derive(Args)]
@@ -179,6 +183,14 @@ pub struct NestPublishArgs {
     /// `h<hash12>` (a content-addressed label — semantic versions are RFC-0020's concern).
     #[arg(long = "as")]
     pub as_ref: Option<String>,
+}
+
+#[derive(Args)]
+pub struct NestDiffArgs {
+    /// The old (current) version: a nest directory or a `schema.json` path.
+    pub old: String,
+    /// The new (proposed) version: a nest directory or a `schema.json` path.
+    pub new: String,
 }
 
 #[derive(Args)]

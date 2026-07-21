@@ -23,6 +23,7 @@ pub mod factory;
 pub mod flags;
 pub mod indexer;
 pub mod labels;
+pub mod lifecycle;
 pub mod lists;
 pub mod mcp;
 pub mod metrics;

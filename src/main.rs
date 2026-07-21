@@ -11,8 +11,8 @@
 //! just the CLI front door; the engine lives in the library crate.
 
 use nuthatch::{
-    analytics, audit, bench, blob, check, cli, config, distribution, indexer, labels, lists, mcp,
-    pack, project, roost, screen, store, transform,
+    analytics, audit, bench, blob, check, cli, config, distribution, indexer, labels, lifecycle,
+    lists, mcp, pack, project, roost, screen, store, transform,
 };
 
 use anyhow::{Context, Result};
@@ -85,6 +85,10 @@ async fn main() -> Result<()> {
                 )
                 .await
             }
+            cli::NestWhat::Diff(a) => lifecycle::diff_cli(
+                std::path::Path::new(&a.old),
+                std::path::Path::new(&a.new),
+            ),
         },
         cli::Command::SkillRefs => {
             nuthatch::skill::write_refs(std::path::Path::new("."))?;
