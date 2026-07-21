@@ -266,11 +266,8 @@ impl Source for TapeSource {
 pub fn scaffold_nest(dir: &Path, name: &str, address: &str) -> Config {
     let abi_dir = dir.join("abis");
     std::fs::create_dir_all(&abi_dir).expect("create abis dir");
-    let example_abi = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/examples/roost/nests/usdc/abis/erc20.json"
-    );
-    let abi = std::fs::read(example_abi).expect("read example erc20 abi");
+    let example_abi = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/erc20.json");
+    let abi = std::fs::read(example_abi).expect("read erc20 abi fixture");
     std::fs::write(abi_dir.join("erc20.json"), abi).expect("write erc20 abi");
 
     let toml = format!(
