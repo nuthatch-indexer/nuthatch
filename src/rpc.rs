@@ -207,6 +207,16 @@ impl RpcClient {
         Ok(result.as_str().unwrap_or("0x0").to_string())
     }
 
+    /// A read-only `eth_call` at latest block: send `data` (a selector + args) to `to`, returning the
+    /// raw hex result. Used at init to ask a beacon proxy's beacon for its `implementation()`; never on
+    /// the ingest path.
+    pub async fn eth_call(&self, to: &str, data: &str) -> Result<String> {
+        let result = self
+            .call("eth_call", json!([{ "to": to, "data": data }, "latest"]))
+            .await?;
+        Ok(result.as_str().unwrap_or("0x").to_string())
+    }
+
     /// Contract bytecode at `address` as of `block`. `"0x"` (empty) means not yet deployed.
     pub async fn get_code(&self, address: &str, block: u64) -> Result<String> {
         let result = self

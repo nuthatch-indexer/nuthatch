@@ -474,33 +474,67 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Well-known proxy implementation storage slots, tried in order:
+/// Well-known proxy implementation storage slots, tried in order — each holds the implementation
+/// address *directly*:
 /// - EIP-1967: keccak256("eip1967.proxy.implementation") − 1
+/// - EIP-1822 (UUPS "Proxiable"): keccak256("PROXIABLE")
 /// - legacy OpenZeppelin/zeppelinos: keccak256("org.zeppelinos.proxy.implementation") (e.g. USDC)
 const PROXY_IMPL_SLOTS: &[&str] = &[
     "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+    "0xc5f16f0fcc639fa48a6947836d9850f504798523bf8c9a3a87d5876cf622bcf7",
     "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
 ];
 
+/// EIP-1967 beacon slot: keccak256("eip1967.proxy.beacon") − 1. A *beacon* proxy stores a beacon
+/// address here (not the implementation); the implementation comes from calling `implementation()` on
+/// that beacon — a common shape for factory-deployed proxies that share one upgradeable logic contract.
+const PROXY_BEACON_SLOT: &str =
+    "0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50";
+
+/// Selector for `implementation()` — `keccak256("implementation()")[..4]`. Both a beacon and an
+/// EIP-897 delegate proxy expose the implementation this way.
+const IMPLEMENTATION_SELECTOR: &str = "0x5c60da1b";
+
 /// Resolve the ABI to index events with. For a proxy (e.g. USDC), events emit from the proxy address
 /// but use the *implementation's* event definitions, so resolve the implementation's ABI. Falls back
-/// to the address's own ABI if it isn't a proxy or the implementation can't resolve.
+/// to the address's own ABI if it isn't a proxy or the implementation can't resolve. Init-time only —
+/// the resolved ABI is vendored and frozen, so the deterministic decode path never depends on a live
+/// proxy read.
 async fn resolve_abi(rpc: &RpcClient, chain_id: u64, address: &str) -> Result<serde_json::Value> {
-    for slot in PROXY_IMPL_SLOTS {
-        let Ok(word) = rpc.get_storage_at(address, slot).await else {
-            continue;
-        };
-        let Some(implementation) = impl_from_slot(&word) else {
-            continue;
-        };
+    if let Some(implementation) = resolve_implementation(rpc, address).await {
         println!("  · proxy → implementation {implementation}");
         if let Ok(abi) = abi::resolve(chain_id, &implementation).await {
             return Ok(abi);
         }
         println!("  · implementation ABI unresolved; using the proxy's own ABI");
-        break;
     }
     abi::resolve(chain_id, address).await
+}
+
+/// Follow the well-known proxy patterns to an implementation address, or `None` if `address` is not a
+/// recognised proxy. Direct-slot proxies (EIP-1967 / EIP-1822 / legacy zeppelinos) hold the impl
+/// address in a storage slot; a beacon proxy holds a beacon whose `implementation()` we then call.
+async fn resolve_implementation(rpc: &RpcClient, address: &str) -> Option<String> {
+    for slot in PROXY_IMPL_SLOTS {
+        if let Ok(word) = rpc.get_storage_at(address, slot).await {
+            if let Some(implementation) = impl_from_slot(&word) {
+                return Some(implementation);
+            }
+        }
+    }
+    // Beacon proxy: the implementation is one hop further — the proxy points at a beacon, and the
+    // beacon answers `implementation()`. Both the stored word and the call return are 32-byte,
+    // left-padded addresses, so `impl_from_slot` decodes either.
+    if let Ok(word) = rpc.get_storage_at(address, PROXY_BEACON_SLOT).await {
+        if let Some(beacon) = impl_from_slot(&word) {
+            if let Ok(ret) = rpc.eth_call(&beacon, IMPLEMENTATION_SELECTOR).await {
+                if let Some(implementation) = impl_from_slot(&ret) {
+                    return Some(implementation);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Extract a non-zero implementation address from a 32-byte storage word.
@@ -821,6 +855,26 @@ mod tests {
             impl_from_slot("0x00000000000000000000000043506849d7c04f9138d1a2050bbf3a0c054402dd"),
             Some("0x43506849d7c04f9138d1a2050bbf3a0c054402dd".to_string())
         );
+        // A beacon's `implementation()` return is the same 32-byte left-padded address as a slot word,
+        // so the same decoder handles the beacon hop.
+        assert_eq!(
+            impl_from_slot("0x000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+            Some("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48".to_string())
+        );
+        // An empty `eth_call` return (non-proxy / reverted) yields no implementation, not a bad address.
+        assert!(impl_from_slot("0x").is_none());
+    }
+
+    #[test]
+    fn proxy_slots_are_well_formed() {
+        // The three direct-address patterns (EIP-1967, EIP-1822, legacy zeppelinos) plus the beacon
+        // slot are all 32-byte (66-char) storage keys.
+        assert_eq!(PROXY_IMPL_SLOTS.len(), 3);
+        assert!(PROXY_IMPL_SLOTS
+            .iter()
+            .all(|s| s.len() == 66 && s.starts_with("0x")));
+        assert_eq!(PROXY_BEACON_SLOT.len(), 66);
+        assert_eq!(IMPLEMENTATION_SELECTOR, "0x5c60da1b");
     }
 
     #[test]
