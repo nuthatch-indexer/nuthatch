@@ -127,6 +127,13 @@ impl Store {
 
     /// Key entities as `{block:012}-{log_index:06}` so iteration is chain-ordered.
     pub fn entity_key(block: u64, log_index: u64) -> String {
+        // The 6-digit zero-pad holds log_index up to 999,999; a 7-digit index would break the
+        // zero-padded lexicographic ordering the range scans and prune bounds rely on. Unreachable at
+        // real block gas limits (~80k logs); catch it in tests/CI rather than silently mis-order.
+        debug_assert!(
+            log_index < 1_000_000,
+            "log_index {log_index} exceeds the 6-digit entity-key width"
+        );
         format!("{block:012}-{log_index:06}")
     }
 

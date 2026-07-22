@@ -321,6 +321,14 @@ impl DecodedRow {
     /// (block, log_index): `block << 20 | log_index`. Deterministic (re-executable) by construction -
     /// no mutable insertion counter - and total/stable since log_index is unique within a block.
     pub fn seq(&self) -> u64 {
+        // The 20-bit log_index field holds up to 1,048,575 - orders of magnitude above any real block's
+        // log count (~80k at current gas limits). A pathological block beyond that would collide/wrap;
+        // catch it in tests/CI rather than let it silently mis-order.
+        debug_assert!(
+            self.log_index < (1 << 20),
+            "log_index {} exceeds the 20-bit _seq field",
+            self.log_index
+        );
         (self.block_number << 20) | (self.log_index & 0xF_FFFF)
     }
 
@@ -416,7 +424,9 @@ impl DecodeRegistry {
     pub fn from_nest(dir: &Path, config: &Config) -> Result<DecodeRegistry> {
         let mut specs = Vec::with_capacity(config.contracts.len());
         for c in &config.contracts {
-            let abi_path = dir.join(&c.abi);
+            // Guard the ABI path against traversal/absolute-path escape (`abi = "/etc/shadow"` or
+            // `abi = "../.."`): untrusted `.bundle`/config input must resolve inside the nest dir.
+            let abi_path = crate::blob::checked_join(dir, &c.abi)?;
             let raw = std::fs::read_to_string(&abi_path)
                 .with_context(|| format!("reading ABI {}", abi_path.display()))?;
             let abi: JsonAbi = serde_json::from_str(&raw)
@@ -431,7 +441,7 @@ impl DecodeRegistry {
         // Template ABIs (RFC-0009): loaded the same way, keyed by template name (not an address).
         let mut templates = Vec::with_capacity(config.templates.len());
         for t in &config.templates {
-            let abi_path = dir.join(&t.abi);
+            let abi_path = crate::blob::checked_join(dir, &t.abi)?;
             let raw = std::fs::read_to_string(&abi_path)
                 .with_context(|| format!("reading template ABI {}", abi_path.display()))?;
             let abi: JsonAbi = serde_json::from_str(&raw)
@@ -819,6 +829,67 @@ fn parse_bytes(s: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_transfer_shaped_gates_on_shape_not_name() {
+        // Build a TableSchema from a name + its event-param Solidity types (implicit columns aside).
+        fn ts(name: &str, params: &[&str]) -> TableSchema {
+            TableSchema {
+                table: name.to_string(),
+                alias: "t".to_string(),
+                event: "E".to_string(),
+                topic0: "0x00".to_string(),
+                columns: params
+                    .iter()
+                    .map(|s| ColumnSchema {
+                        name: "c".to_string(),
+                        sol_type: s.to_string(),
+                        storage: "x".to_string(),
+                        indexed: false,
+                    })
+                    .collect(),
+            }
+        }
+        // Real ERC-20/721 Transfer shape (USDC from/to/value, WETH src/dst/wad - names don't matter).
+        assert!(ts("usdc__transfer", &["address", "address", "uint256"]).is_transfer_shaped());
+        assert!(ts("weth__transfer", &["address", "address", "uint256"]).is_transfer_shaped());
+        // Not transfer-shaped:
+        assert!(
+            !ts("usdc__approval", &["address", "address", "uint256"]).is_transfer_shaped(),
+            "wrong table name"
+        );
+        assert!(
+            !ts("x__transfer", &["address", "address"]).is_transfer_shaped(),
+            "only 2 params"
+        );
+        assert!(
+            !ts("x__transfer", &["address", "address", "uint256", "uint256"]).is_transfer_shaped(),
+            "4 params"
+        );
+        assert!(
+            !ts("x__transfer", &["address", "uint256", "address"]).is_transfer_shaped(),
+            "2nd param not an address"
+        );
+        assert!(
+            !ts("x__transfer", &["uint256", "address", "uint256"]).is_transfer_shaped(),
+            "1st param not an address"
+        );
+        // Implicit columns (block_number etc.) precede the params in a real schema and must be ignored.
+        let mut with_implicit = ts("x__transfer", &["address", "address", "uint256"]);
+        with_implicit.columns.insert(
+            0,
+            ColumnSchema {
+                name: "block_number".to_string(),
+                sol_type: "implicit".to_string(),
+                storage: "u64".to_string(),
+                indexed: false,
+            },
+        );
+        assert!(
+            with_implicit.is_transfer_shaped(),
+            "implicit columns must not affect the shape check"
+        );
+    }
 
     #[test]
     fn signed_and_large_bigints_render_as_decimals() {
