@@ -6,7 +6,11 @@
   `Link` to successor), **4** (segment reuse: a compatible update whose decode is unchanged mounts the
   old version's sealed content-addressed segments instead of re-indexing, and resumes past the reused
   watermark). **The N-1 problem is solved** — every update is painless, and a decode-unchanged one is a
-  *no-re-index* mount, a capability subgraphs structurally lack.
+  *no-re-index* mount, a capability subgraphs structurally lack. **Operator-driven bits (by design, not
+  gaps):** the breaking-endpoint **deprecation lifecycle** (active → deprecated → sunset) is the
+  operator's to drive — nuthatch keeps the old endpoint alive with a `Deprecation` header and never
+  force-sunsets it; and the compat-vs-breaking **detection authority** (auto-diff, currently) may be
+  raised (never lowered) by a nest author.
 - Author: Pete (cargopete)
 - Date: 2026-07-21
 - Depends on: RFC-0012 (a nest version *is* a content-addressed bundle), RFC-0019 (the registry that
