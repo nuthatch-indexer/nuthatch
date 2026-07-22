@@ -21,7 +21,7 @@ throughout are i128 base units, returned as decimal strings. Flags are authorita
 Every compliance annotation is **replayable**: `nuthatch audit replay` re-runs screening over the
 sealed segments and confirms the stored hits reproduce *exactly*. A hit carries its `list_snapshot`
 hash, so it traces to (list version, block, component). This is verifiability by deterministic
-re-execution — nothing heavier (no TEE, no zk).
+re-execution - nothing heavier (no TEE, no zk).
 
 ```sh
 # Screen a range against a fetched sanctions snapshot, then prove it reproduces.
@@ -36,5 +36,5 @@ The `sanction_hit` table is queryable SQL:
 nuthatch sql "SELECT block_number, counterparty, list_snapshot FROM sanction_hit WHERE lower(address) = '0x…'"
 ```
 
-Do not present compliance output as legal/regulatory advice — it is a deterministic, auditable
+Do not present compliance output as legal/regulatory advice - it is a deterministic, auditable
 annotation layer, not a compliance opinion.

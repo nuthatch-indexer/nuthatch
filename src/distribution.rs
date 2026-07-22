@@ -7,21 +7,21 @@
 //! url>` (RFC-0012) keeps working with no registry in the loop, and a self-built bundle never touches
 //! one. nuthatch *pulls*; it never *becomes* the registry.
 //!
-//! Slice 1 (this file) ships the filesystem-backed store ([`FsStore`] — "a directory is a registry"),
+//! Slice 1 (this file) ships the filesystem-backed store ([`FsStore`] - "a directory is a registry"),
 //! the zero-dependency, self-hosted-first default. An S3-compatible object-store backend (slice 2)
 //! and private nests + auth (slice 3) land behind the same [`BundleStore`] trait, so callers never
 //! change.
 //!
-//! A pulled blob is verified against its resolved content address by the RFC-0012 install path — so a
+//! A pulled blob is verified against its resolved content address by the RFC-0012 install path - so a
 //! registry pull is exactly as safe as an `--expect`ed file load. And the store only ever holds
-//! authored bundles: **no runtime secret is ever written here** — nest runtime credentials (RFC-0019
+//! authored bundles: **no runtime secret is ever written here** - nest runtime credentials (RFC-0019
 //! §4, credential kind *b*) are injected at mount, never bundled.
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 
-/// The movable per-name pointer to the most recently published version — the one mutable thing in an
+/// The movable per-name pointer to the most recently published version - the one mutable thing in an
 /// otherwise append-only store.
 pub const LATEST: &str = "latest";
 
@@ -74,12 +74,12 @@ fn validate_token(t: &str) -> Result<()> {
     Ok(())
 }
 
-/// The message shown when a registry *denies* access — a private nest fetched (or published) without a
+/// The message shown when a registry *denies* access - a private nest fetched (or published) without a
 /// credential, or with one the store rejected (RFC-0019 §3). Kept in one place so every backend says
 /// the same helpful thing, and distinct from "not found" so a private nest never masquerades as absent.
 fn access_denied(subject: &str) -> String {
     format!(
-        "{subject}: access denied by the registry — this nest is private, or your registry credential \
+        "{subject}: access denied by the registry - this nest is private, or your registry credential \
          was rejected. For S3, check your AWS_* env (keys, region, AWS_ENDPOINT); for a filesystem \
          registry, check directory permissions."
     )
@@ -87,10 +87,10 @@ fn access_denied(subject: &str) -> String {
 
 /// A content-addressed bundle store: immutable blobs keyed by hash, plus a thin name→hash index. Both
 /// a local directory ([`FsStore`]) and an S3 bucket ([`ObjectStore`]) implement this; callers never see
-/// which. Async because object storage is — the FS impl just does its (fast) sync work in an async fn.
+/// which. Async because object storage is - the FS impl just does its (fast) sync work in an async fn.
 #[async_trait]
 pub trait BundleStore: Send + Sync {
-    /// Store a blob's bytes under its content address. Idempotent — the same hash is the same blob, so
+    /// Store a blob's bytes under its content address. Idempotent - the same hash is the same blob, so
     /// re-publishing identical bytes is a no-op (dedup is free).
     async fn put_blob(&self, hash: &str, bytes: &[u8]) -> Result<()>;
     /// Fetch a blob's bytes by content address.
@@ -101,7 +101,7 @@ pub trait BundleStore: Send + Sync {
     async fn get_ref(&self, name: &str, version: &str) -> Result<String>;
 }
 
-/// A filesystem-backed [`BundleStore`] — "a directory is a registry." The zero-dependency,
+/// A filesystem-backed [`BundleStore`] - "a directory is a registry." The zero-dependency,
 /// self-hosted-first default. Layout:
 /// ```text
 /// <root>/blobs/<hash>.bundle       immutable, content-addressed
@@ -166,7 +166,7 @@ impl BundleStore for FsStore {
 
 /// Map a filesystem read error into a legible registry error: a missing file is "not found", a
 /// permission error is the shared [`access_denied`] message (a private FS registry), anything else
-/// keeps its context. Read-side only — where the private-vs-absent distinction matters to a puller.
+/// keeps its context. Read-side only - where the private-vs-absent distinction matters to a puller.
 fn map_io_err(e: std::io::Error, subject: &str, path: &Path) -> anyhow::Error {
     match e.kind() {
         std::io::ErrorKind::NotFound => {
@@ -180,14 +180,14 @@ fn map_io_err(e: std::io::Error, subject: &str, path: &Path) -> anyhow::Error {
 /// Open a store from a `--registry` locator by scheme:
 /// - `s3://bucket/prefix` (and `memory://…` for tests) → the object-store backend ([`ObjStore`],
 ///   requires a build with `--features object-store`).
-/// - `http(s)://…` → a *remote index* registry, not built yet — refused loudly (a raw `http` URL to a
+/// - `http(s)://…` → a *remote index* registry, not built yet - refused loudly (a raw `http` URL to a
 ///   `.bundle` is still `nest load <url>`, RFC-0012, not a registry).
 /// - anything else (a path, or `file://…`) → the filesystem store ([`FsStore`]).
 pub fn open(locator: &str) -> Result<Box<dyn BundleStore>> {
     match locator.split_once("://").map(|(s, _)| s) {
         Some("s3") | Some("memory") => open_object_store(locator),
         Some("http") | Some("https") => bail!(
-            "remote HTTP registries aren't built yet (RFC-0019) — use a filesystem path or an \
+            "remote HTTP registries aren't built yet (RFC-0019) - use a filesystem path or an \
              object-store URL (s3://bucket/prefix)"
         ),
         _ => Ok(Box::new(FsStore::new(locator))), // a plain path (or file://…)
@@ -202,7 +202,7 @@ fn open_object_store(locator: &str) -> Result<Box<dyn BundleStore>> {
 #[cfg(not(feature = "object-store"))]
 fn open_object_store(_locator: &str) -> Result<Box<dyn BundleStore>> {
     bail!(
-        "object-store registries (s3://…) need a build with `--features object-store` — the default \
+        "object-store registries (s3://…) need a build with `--features object-store` - the default \
          binary ships only the filesystem registry"
     )
 }
@@ -217,7 +217,7 @@ pub struct PublishOutcome {
 
 /// Publish a `.bundle` file to a store under `name@version`, advancing `latest`. Returns the blob's
 /// content address. `name` defaults to the manifest's nest name; `version` defaults to `h<hash12>` (a
-/// content-honest label — semantic versioning meaning is RFC-0020's concern, layered on top).
+/// content-honest label - semantic versioning meaning is RFC-0020's concern, layered on top).
 pub async fn publish(
     store: &dyn BundleStore,
     bundle_file: &Path,
@@ -515,7 +515,7 @@ abi = "abis/c.json"
         let path = root.path().join("index/secret/1.0.0");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
         if std::fs::read(&path).is_ok() {
-            // Running as root — file perms don't apply; the test can't be meaningful.
+            // Running as root - file perms don't apply; the test can't be meaningful.
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).ok();
             return;
         }
@@ -624,7 +624,7 @@ abi = "abis/c.json"
         assert!(err.contains("aren't built yet"), "got: {err}");
     }
 
-    /// The object-store backend, exercised against an in-memory store (no infra) — same round trip as
+    /// The object-store backend, exercised against an in-memory store (no infra) - same round trip as
     /// the FS path. InMemory is per-instance, so `store` is reused for publish + pull (each `open()`
     /// would mint a fresh, empty store). Live MinIO/S3 is a VPS integration concern.
     #[cfg(feature = "object-store")]

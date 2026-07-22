@@ -3,13 +3,13 @@
 nuthatch is a single-binary indexer that people run on their own machines and, increasingly,
 as a hosted service in front of untrusted callers. Two attack surfaces matter most:
 
-1. **The `/sql` and MCP surfaces** — a caller can run arbitrary read-only SQL. The core ships
+1. **The `/sql` and MCP surfaces** - a caller can run arbitrary read-only SQL. The core ships
    resource guards (timeout, row cap, concurrency semaphore) and binds to `127.0.0.1` by
    default with a loud warning off-localhost. Authentication is deliberately *not* in the core
-   (see [GOVERNANCE.md](GOVERNANCE.md) — that is the operator layer). A report that defeats the
+   (see [GOVERNANCE.md](GOVERNANCE.md) - that is the operator layer). A report that defeats the
    guards, reads outside the attached read-only segments, or escalates a read into a write is
    in scope.
-2. **The WASM transform host boundary** — components are sandboxed by capability injection at
+2. **The WASM transform host boundary** - components are sandboxed by capability injection at
    composition time; a zero-capability component must be inert. A report that lets a component
    reach a capability it was not granted (filesystem, network, host memory) is in scope, and is
    the surface we most want audited (RFC-0006 M4).
@@ -28,7 +28,7 @@ anything requiring a malicious operator who already controls the host.
 the [GitHub profile](https://github.com/cargopete). Include a description, affected version
 (`nuthatch --version`), and a reproduction if you have one.
 
-Expect an acknowledgement within a few days — this is a solo-maintained public good, so please
+Expect an acknowledgement within a few days - this is a solo-maintained public good, so please
 be patient with the "few," not the "days." We will agree a disclosure timeline with you; the
 default is coordinated disclosure once a fix ships, with credit unless you'd rather stay
 anonymous.

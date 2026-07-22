@@ -5,4 +5,4 @@ contact_links:
     about: Open-ended questions, usage help, and design discussion live in Discussions, not issues.
   - name: Security vulnerability
     url: https://github.com/nuthatch-indexer/nuthatch/security/advisories/new
-    about: Please report vulnerabilities privately — see SECURITY.md. Do not open a public issue.
+    about: Please report vulnerabilities privately - see SECURITY.md. Do not open a public issue.

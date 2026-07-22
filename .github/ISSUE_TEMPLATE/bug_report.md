@@ -7,7 +7,7 @@ assignees: ""
 ---
 
 **Not a security issue?** If this is a vulnerability (guard bypass, sandbox escape, segment
-corruption), stop and follow [SECURITY.md](../../SECURITY.md) instead — please don't file it in
+corruption), stop and follow [SECURITY.md](../../SECURITY.md) instead - please don't file it in
 the open.
 
 ## What happened
@@ -39,5 +39,5 @@ nuthatch dev ...
 ## Logs
 
 Relevant log output, the tail of `/metrics` if the process is still up, and the panic backtrace
-if it panicked (`RUST_BACKTRACE=1`). Redact anything private — including any API key baked into
+if it panicked (`RUST_BACKTRACE=1`). Redact anything private - including any API key baked into
 an RPC URL.

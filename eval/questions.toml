@@ -1,13 +1,13 @@
-# eval/questions.toml — the pinned question set for the agent-grade MCP eval (RFC-0016 §1).
+# eval/questions.toml - the pinned question set for the agent-grade MCP eval (RFC-0016 §1).
 #
 # Each question carries a natural-language ask (what a Tier-B agent is given), the *known-correct*
 # SQL (the oracle), and the expected result. The SQL + expected pair is asserted deterministically
-# against the fixture nest by `tests/eval_harness.rs` (Tier A, CI-gated, no LLM) — so the oracle is
+# against the fixture nest by `tests/eval_harness.rs` (Tier A, CI-gated, no LLM) - so the oracle is
 # proven correct before any agent is ever scored against it. Tier B (an agent with only the MCP
 # tools) is scored by comparing *its* query's result to `expect`; we compare data, never prose.
 #
 # The fixture is built deterministically by the harness (see eval/README.md): the `usdc__transfer`
-# table over 10 blocks —
+# table over 10 blocks -
 #   blocks 1..5 : a1 -> a2, value 100*b   (100,200,300,400,500)
 #   blocks 6..10: a2 -> a3, value 100*b   (600,700,800,900,1000)
 # where a1=0x..01, a2=0x..02, a3=0x..03. Blocks 1..7 are sealed; 8..10 are the hot tip. The `sql`
@@ -63,7 +63,7 @@ expect = '[{"mean": 550}]'
 id = "reserved-word-from"
 class = "reserved-word"
 question = "How many transfers were sent by the address ending in 0001?"
-# The footgun: `from` is a SQL reserved word AND a column — it must be double-quoted.
+# The footgun: `from` is a SQL reserved word AND a column - it must be double-quoted.
 sql = "SELECT count(*) AS n FROM usdc__transfer WHERE \"from\" = '0x0000000000000000000000000000000000000001'"
 expect = '[{"n": 5}]'
 

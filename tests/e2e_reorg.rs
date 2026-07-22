@@ -1,4 +1,4 @@
-//! End-to-end reorg tests — the C1 coverage gap (`detect_reorg` has zero coverage today, because the
+//! End-to-end reorg tests - the C1 coverage gap (`detect_reorg` has zero coverage today, because the
 //! other test doubles answer `block_hash -> None` and make it a no-op).
 //!
 //! `TapeSource::reorg` rewrites the chain above a fork with new hashes+logs; the running
@@ -151,7 +151,7 @@ proptest! {
     }
 }
 
-/// A reorg *below* the sealed/finalized watermark is a finality violation this model can't repair —
+/// A reorg *below* the sealed/finalized watermark is a finality violation this model can't repair -
 /// the doomed blocks are already in immutable sealed segments. The loop must halt loudly (return an
 /// error), not silently corrupt.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -194,7 +194,7 @@ async fn reorg_below_finality_halts() {
     let sealed = wait_until(POLL_TIMEOUT, || store.sealed_through() >= 8).await;
     assert!(sealed, "range [1,8] did not seal in time");
 
-    // Reorg at block 5 — below the finalized watermark (8). The replacement rewrites blocks 6..=12.
+    // Reorg at block 5 - below the finalized watermark (8). The replacement rewrites blocks 6..=12.
     let mut replacement: Vec<BlockFixture> = (6..=10).map(replacement_block).collect();
     replacement.push(empty_block(11, 1, 1_700_000_611));
     replacement.push(empty_block(12, 1, 1_700_000_612));
@@ -217,10 +217,10 @@ async fn reorg_below_finality_halts() {
     }
 }
 
-/// RFC-0021 §2 — **cross-cursor reorg isolation.** Two independent cursors (two chains) run in one
+/// RFC-0021 §2 - **cross-cursor reorg isolation.** Two independent cursors (two chains) run in one
 /// process, exactly as a multichain roost hosts one isolated cursor per chain (each its own source,
 /// stores, tip, finality, reorg boundary). A reorg on chain A must leave chain B's data
-/// **byte-identical** — one chain's reorg can never reach across into another's. Isolation is by
+/// **byte-identical** - one chain's reorg can never reach across into another's. Isolation is by
 /// construction; this proves it, and guards the CLAUDE.md per-cursor-isolation non-negotiable.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reorg_on_one_chain_leaves_the_other_untouched() {
@@ -246,7 +246,7 @@ async fn reorg_on_one_chain_leaves_the_other_untouched() {
     let replacement: Vec<BlockFixture> = ((fork + 1)..=10).map(replacement_block).collect();
     tape_a.reorg(fork, replacement);
 
-    // Wait until cursor A has actually reconverged (block 10 carries the replacement hash) — otherwise
+    // Wait until cursor A has actually reconverged (block 10 carries the replacement hash) - otherwise
     // the isolation assertion would be vacuous (nothing happened on A).
     let want_hash = block_hash(10, 1);
     let converged = wait_until(POLL_TIMEOUT, || {
@@ -261,7 +261,7 @@ async fn reorg_on_one_chain_leaves_the_other_untouched() {
     .await;
     assert!(converged, "chain A did not reconverge after its reorg");
 
-    // Chain B must be byte-identical — it never saw a reorg — and still at its tip.
+    // Chain B must be byte-identical - it never saw a reorg - and still at its tip.
     let b_after = store_b.entities_in_range(1, 10).unwrap();
     assert_eq!(
         b_before, b_after,

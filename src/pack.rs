@@ -1,10 +1,10 @@
 //! The compliance-pack manifest (RFC-0008 C6): a signed, content-addressed declaration of exactly
-//! which artifacts produced a nest's compliance annotations — the trust interface between an operator
+//! which artifacts produced a nest's compliance annotations - the trust interface between an operator
 //! and its customer/auditor. `pack build` assembles it from the nest's config and the real artifact
 //! hashes; `pack verify` checks the signature, re-hashes the referenced artifacts, and confirms each
 //! component's capability grants still bound its actual imports. A customer can thus confirm *which*
 //! pack (component hashes, grants, list snapshots) generated their alerts without trusting the source,
-//! and `audit replay` reproduces the results — operated convenience with customer-verifiable outputs.
+//! and `audit replay` reproduces the results - operated convenience with customer-verifiable outputs.
 
 use anyhow::{anyhow, bail, Context, Result};
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
@@ -23,12 +23,12 @@ pub struct Manifest {
 }
 
 /// The signed portion. Field order is fixed (serde serialises structs in declaration order), so its
-/// canonical JSON encoding — what we sign — is deterministic.
+/// canonical JSON encoding - what we sign - is deterministic.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Body {
     pub name: String,
     pub created: String,
-    /// The decode-registry content hash — the data model the annotations were computed against.
+    /// The decode-registry content hash - the data model the annotations were computed against.
     pub registry_hash: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub screening: Vec<ScreeningEntry>,
@@ -57,7 +57,7 @@ pub struct FlagsEntry {
 }
 
 /// A WASM component the pack uses, by content hash, with the capabilities it is granted. A pure stage
-/// (like `screen`) has an empty grant set — verifiable from its imports.
+/// (like `screen`) has an empty grant set - verifiable from its imports.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ComponentEntry {
     pub name: String,
@@ -78,14 +78,14 @@ pub struct Signature {
     pub sig: String,
 }
 
-/// An ed25519 keypair, stored in a local JSON file (no key service — the RFC's constraint).
+/// An ed25519 keypair, stored in a local JSON file (no key service - the RFC's constraint).
 #[derive(Serialize, Deserialize)]
 struct KeyFile {
     secret: String,
     public: String,
 }
 
-/// `nuthatch pack keygen --out <file>` — generate a signing keypair into a local JSON file.
+/// `nuthatch pack keygen --out <file>` - generate a signing keypair into a local JSON file.
 pub fn keygen(out: &Path) -> Result<()> {
     let mut seed = [0u8; 32];
     getrandom::getrandom(&mut seed).map_err(|e| anyhow!("OS randomness unavailable: {e}"))?;
@@ -122,7 +122,7 @@ fn signing_bytes(body: &Body) -> Result<Vec<u8>> {
     serde_json::to_vec(body).context("failed to canonicalise manifest body")
 }
 
-/// `nuthatch pack build [--key <file>]` — assemble the manifest from the nest's config + real artifact
+/// `nuthatch pack build [--key <file>]` - assemble the manifest from the nest's config + real artifact
 /// hashes, sign it if a key is given, and write `compliance-pack.toml`.
 pub fn build(dir: &Path, key: Option<&Path>, created: &str) -> Result<()> {
     let config = crate::config::Config::load(dir)?;
@@ -203,9 +203,9 @@ pub fn build(dir: &Path, key: Option<&Path>, created: &str) -> Result<()> {
     std::fs::write(&path, toml).with_context(|| format!("cannot write {}", path.display()))?;
     println!("✓ wrote {}", path.display());
     if key.is_some() {
-        println!("  signed — auditors can `nuthatch pack verify` against your public key");
+        println!("  signed - auditors can `nuthatch pack verify` against your public key");
     } else {
-        println!("  unsigned — pass --key <file> to sign (see `nuthatch pack keygen`)");
+        println!("  unsigned - pass --key <file> to sign (see `nuthatch pack keygen`)");
     }
     Ok(())
 }
@@ -223,12 +223,12 @@ impl VerifyReport {
     }
 }
 
-/// `nuthatch pack verify` — check the signature, re-hash referenced artifacts, and confirm each
+/// `nuthatch pack verify` - check the signature, re-hash referenced artifacts, and confirm each
 /// component's actual imports stay within its declared grants. Returns a structured report.
 pub fn verify(dir: &Path) -> Result<VerifyReport> {
     let path = dir.join(PACK_FILE);
     let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("no {} — run `nuthatch pack build` first", path.display()))?;
+        .with_context(|| format!("no {} - run `nuthatch pack build` first", path.display()))?;
     let manifest: Manifest = toml::from_str(&raw).context("corrupt compliance-pack.toml")?;
     let mut report = VerifyReport::default();
 
@@ -330,7 +330,7 @@ pub fn run(args: crate::cli::PackArgs, created: &str) -> Result<()> {
     }
 }
 
-/// The sha256 of a file's bytes — the content address used throughout the pack.
+/// The sha256 of a file's bytes - the content address used throughout the pack.
 #[allow(dead_code)]
 pub fn file_hash(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;

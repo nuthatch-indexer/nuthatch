@@ -7,10 +7,10 @@ Symptom → what to look at (`/metrics`, Prometheus) → remedy. All `/metrics` 
 
 - **Most common cause:** high `--concurrency` against a *single* RPC endpoint. Many concurrent requests
   to one host can stall the whole runtime. Remedy: `--concurrency 1` for one endpoint, or configure
-  multiple `rpc_urls` (then 8–16 is fine).
+  multiple `rpc_urls` (then 8-16 is fine).
 - Watch `nuthatch_rows_decoded_total` / `nuthatch_last_block` climb. On a TTY, `dev` shows a live progress
   line with events/sec + ETA; if it's frozen, it's the concurrency stall above.
-- A *sparse* contract over millions of blocks looks slow because each window is near-empty — widen it:
+- A *sparse* contract over millions of blocks looks slow because each window is near-empty - widen it:
   `--window 50000`.
 
 ## "block N alone exceeds the provider's getLogs result cap"
@@ -20,23 +20,23 @@ use a provider with a higher/no result cap. This fails loudly rather than loopin
 
 ## Tip lag (falling behind the chain head)
 
-- Check `nuthatch_tip_height` vs `nuthatch_last_block` — the gap is `nuthatch_tip_lag_blocks`. `nuthatch_sealed_through` trails
+- Check `nuthatch_tip_height` vs `nuthatch_last_block` - the gap is `nuthatch_tip_lag_blocks`. `nuthatch_sealed_through` trails
   further (past finality, by design).
 - Causes: slow/rate-limited RPC (add endpoints or your own node), or a dense contract on a fast chain.
   The adaptive getLogs window self-tunes; a persistent gap means RPC throughput, not nuthatch.
 
 ## Reorgs
 
-- Reorgs only ever touch the **hot store** — sealed segments are immutable. You should never see sealed
+- Reorgs only ever touch the **hot store** - sealed segments are immutable. You should never see sealed
   data change. `nuthatch_reorgs_total` counts detections; the hot store rolls back and IVM views retract
   automatically, converging to canonical state.
-- If you think you need to rewrite sealed Parquet to "fix" a reorg, the approach is wrong — the hot
+- If you think you need to rewrite sealed Parquet to "fix" a reorg, the approach is wrong - the hot
   store already handles it.
 
 ## `/sql` returns 503 or times out
 
 - **503 "server busy":** the analytical gate is saturated (default 2 concurrent). It's node
-  self-protection — retry, don't raise the cap.
+  self-protection - retry, don't raise the cap.
 - **30 s timeout:** the query is too heavy. Add a `WHERE`/`LIMIT`, aggregate with `GROUP BY`, or run
   `explain` first to validate cheaply. Not a reason to remove the guard.
 - **Binder/parse errors** come back with a fix hint (unknown table → nearest real table; `from`/`to` →
@@ -52,7 +52,7 @@ use a provider with a higher/no result cap. This fails loudly rather than loopin
 ## "semantic.toml drift" warnings at startup
 
 `semantic.toml` describes a table/column the decode registry doesn't have (a stale edit, or the ABI
-changed). Fix the file, or regenerate the derived parts — the footguns are always recomputed; only the
+changed). Fix the file, or regenerate the derived parts - the footguns are always recomputed; only the
 authored descriptions are yours to maintain.
 
 ## ABI won't resolve at `init`

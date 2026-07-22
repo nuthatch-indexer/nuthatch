@@ -2,7 +2,7 @@
 //!
 //! Replaces the hardcoded `Transfer` path. Given each contract's resolved ABI, we build one
 //! immutable registry mapping topic0 → decoders (filtered by emitting address), and decode any log
-//! into a typed row keyed to a per-(alias, event) table. No LLM ever sits here — it is deterministic
+//! into a typed row keyed to a per-(alias, event) table. No LLM ever sits here - it is deterministic
 //! Rust, and the registry's content hash is recorded so re-execution is verifiable.
 
 use alloy_dyn_abi::{DynSolValue, EventExt};
@@ -123,7 +123,7 @@ pub enum Value {
     Word16([u8; 16]),
     Word32([u8; 32]),
     /// Signed big integers (int65..=128 and int129..=256), kept distinct from the unsigned `Word*` so
-    /// they render as *signed* decimals — negatives are two's-complement bytes, not a huge positive.
+    /// they render as *signed* decimals - negatives are two's-complement bytes, not a huge positive.
     IWord16([u8; 16]),
     IWord32([u8; 32]),
     Bool(bool),
@@ -140,7 +140,7 @@ impl Value {
             Value::Address(a) => json!(format!("0x{}", hex::encode(a))),
             Value::U64(n) => json!(n),
             Value::I64(n) => json!(n),
-            // Big integers as their full decimal string — always queryable, and `SUM(c_dec)` works
+            // Big integers as their full decimal string - always queryable, and `SUM(c_dec)` works
             // (the derived `_dec` view column TRY_CASTs to DECIMAL(38,0), NULL past 38 digits). Signed
             // types render as *signed* decimals (int256 amounts, e.g. a Uniswap swap's negative leg).
             Value::Word16(b) => json!(u128::from_be_bytes(*b).to_string()),
@@ -184,7 +184,7 @@ pub struct ColumnSchema {
 }
 
 /// The implicit columns every table carries (before the event's own params). `_seq` is a single
-/// monotonic per-row ordering key, derived deterministically from (block, log_index) — not a mutable
+/// monotonic per-row ordering key, derived deterministically from (block, log_index) - not a mutable
 /// insertion counter, so it stays re-executable and reorg-stable per the determinism rule.
 fn implicit_columns() -> Vec<ColumnSchema> {
     [
@@ -263,7 +263,7 @@ impl EventDecoder {
     }
 
     /// If this decoder is ERC-20/721 `Transfer(address, address, uint)`-shaped, the (from, to, value)
-    /// column *names* — which vary by token (USDC: from/to/value; WETH: src/dst/wad). Mirrors
+    /// column *names* - which vary by token (USDC: from/to/value; WETH: src/dst/wad). Mirrors
     /// `DecodedRow::is_erc20_transfer` at the schema level so the balance-view rebuild reads the same
     /// columns the live path feeds positionally.
     pub fn transfer_columns(&self) -> Option<(&str, &str, &str)> {
@@ -300,8 +300,8 @@ pub struct DecodedRow {
 
 impl DecodedRow {
     /// A single monotonic ordering key for this row within its table, derived deterministically from
-    /// (block, log_index): `block << 20 | log_index`. Deterministic (re-executable) by construction —
-    /// no mutable insertion counter — and total/stable since log_index is unique within a block.
+    /// (block, log_index): `block << 20 | log_index`. Deterministic (re-executable) by construction -
+    /// no mutable insertion counter - and total/stable since log_index is unique within a block.
     pub fn seq(&self) -> u64 {
         (self.block_number << 20) | (self.log_index & 0xF_FFFF)
     }
@@ -322,7 +322,7 @@ impl DecodedRow {
         Json::Object(obj)
     }
 
-    /// True if this row looks like an ERC-20/721 `Transfer(address, address, uint)` — the shape the
+    /// True if this row looks like an ERC-20/721 `Transfer(address, address, uint)` - the shape the
     /// hardcoded balance view + transfer sealing understand.
     pub fn is_erc20_transfer(&self) -> bool {
         self.table.ends_with("__transfer")
@@ -384,9 +384,9 @@ pub struct TemplateSpec {
 
 /// The immutable per-nest decode registry.
 pub struct DecodeRegistry {
-    /// Contract decoders — matched by (topic0, emitting address ∈ the contract's fixed address).
+    /// Contract decoders - matched by (topic0, emitting address ∈ the contract's fixed address).
     by_topic0: HashMap<B256, Vec<EventDecoder>>,
-    /// Template decoders (RFC-0009) — matched by (topic0, template name) against the runtime child
+    /// Template decoders (RFC-0009) - matched by (topic0, template name) against the runtime child
     /// registry. Address-agnostic: one set of tables shared across every discovered child.
     templates_by_topic0: HashMap<B256, Vec<EventDecoder>>,
     hash: [u8; 32],
@@ -438,7 +438,7 @@ impl DecodeRegistry {
         let mut skipped_anonymous = 0usize;
 
         for c in &contracts {
-            // A typo in an allowlist would silently index nothing at scale — reject it loudly.
+            // A typo in an allowlist would silently index nothing at scale - reject it loudly.
             if !c.events.is_empty() {
                 let known: std::collections::HashSet<&str> =
                     c.abi.events().map(|e| e.name.as_str()).collect();
@@ -462,7 +462,7 @@ impl DecodeRegistry {
                 register_events(&mut by_topic0, &c.alias, c.address, &c.abi, &c.events);
         }
 
-        // Template decoders share the same machinery; their contract address is unused (ZERO) — they
+        // Template decoders share the same machinery; their contract address is unused (ZERO) - they
         // are matched by template name against the runtime child registry, not by address.
         let mut templates_by_topic0: HashMap<B256, Vec<EventDecoder>> = HashMap::new();
         for t in &templates {
@@ -494,7 +494,7 @@ impl DecodeRegistry {
         self.skipped_anonymous
     }
 
-    /// All topic0s to request in a combined `eth_getLogs` filter — contract *and* template events,
+    /// All topic0s to request in a combined `eth_getLogs` filter - contract *and* template events,
     /// so a factory nest's topic0-only tip fetch (RFC-0009) captures children's logs too.
     pub fn topic0s(&self) -> Vec<B256> {
         let mut set: Vec<B256> = self
@@ -538,7 +538,7 @@ impl DecodeRegistry {
         v
     }
 
-    /// A serializable schema of every table — the single source of truth for `/tables`, the MCP
+    /// A serializable schema of every table - the single source of truth for `/tables`, the MCP
     /// `schema`/`tables` tools, `llms.txt`, and the nest's `schema.json`.
     pub fn schema(&self) -> Vec<TableSchema> {
         self.tables()
@@ -653,7 +653,7 @@ fn value_from_dynsol(dv: &DynSolValue, col: &Column) -> Value {
             if *bits <= 64 {
                 // A conformant uint≤64 fits u64; a maliciously-crafted log with dirty high bits above
                 // the declared width would panic `to::<u64>()` and take down the ingestion task (COR-11).
-                // Saturate instead — no panic, and a well-formed value is unaffected.
+                // Saturate instead - no panic, and a well-formed value is unaffected.
                 Value::U64(u.saturating_to::<u64>())
             } else if *bits <= 128 {
                 Value::Word16(u.to_be_bytes::<32>()[16..].try_into().unwrap())
@@ -994,7 +994,7 @@ mod tests {
         );
     }
 
-    /// The allowlist changes the registry's content hash — the data model is content-addressed, so a
+    /// The allowlist changes the registry's content hash - the data model is content-addressed, so a
     /// filtered nest is a different (smaller) model, not the same one.
     #[test]
     fn event_allowlist_changes_the_registry_hash() {
@@ -1005,7 +1005,7 @@ mod tests {
     }
 
     /// A typo in the allowlist (an event the ABI doesn't define) is a loud build error, never a silent
-    /// "indexes nothing" — the whole point at GraphToken scale.
+    /// "indexes nothing" - the whole point at GraphToken scale.
     #[test]
     fn unknown_allowlisted_event_is_a_build_error() {
         let err = match DecodeRegistry::build(vec![spec_events("t", USDC, ERC20, &["Transferr"])]) {
@@ -1093,7 +1093,7 @@ mod tests {
         );
     }
 
-    /// Golden: an indexed dynamic type (`string indexed`) — the topic holds keccak(value), not the
+    /// Golden: an indexed dynamic type (`string indexed`) - the topic holds keccak(value), not the
     /// value, so it's stored as a 32-byte hash under a `_hash`-suffixed column.
     #[test]
     fn decodes_indexed_string_as_hash() {

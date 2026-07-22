@@ -27,13 +27,13 @@ use tokio::sync::Semaphore;
 
 /// How many analytical (DuckDB) queries may run at once across `/sql` and cold `/table` reads. Each
 /// DuckDB query is already capped at 512 MB / 2 threads (see `analytics`), so this bounds the whole
-/// analytical surface's worst-case footprint — the real DoS multiplier is *concurrency*, not any one
+/// analytical surface's worst-case footprint - the real DoS multiplier is *concurrency*, not any one
 /// query. Kept small to stay well inside the embedded RAM budget; this is node self-protection, not
 /// per-caller rate-limiting (that needs identity and belongs in a gateway).
 pub const SQL_MAX_CONCURRENCY: usize = 2;
 /// Wall-clock deadline for a single analytical query; a runaway (e.g. cartesian) is interrupted.
 const SQL_TIMEOUT: Duration = Duration::from_secs(30);
-/// Cap on rows materialised from one analytical query — bounds the Rust-side result buffer, which
+/// Cap on rows materialised from one analytical query - bounds the Rust-side result buffer, which
 /// lives outside DuckDB's own memory limit. Beyond this the result is truncated and flagged.
 const SQL_MAX_ROWS: usize = 50_000;
 /// Reject absurdly long query strings before they reach the planner.
@@ -46,24 +46,24 @@ pub struct AppState {
     pub chain: String,
     pub dir: PathBuf,
     pub balances: BalanceView,
-    /// Direct counterparty-exposure to the labeled set (RFC-0008 C1) — served at `/exposure/{addr}`.
+    /// Direct counterparty-exposure to the labeled set (RFC-0008 C1) - served at `/exposure/{addr}`.
     pub exposure: ExposureView,
-    /// Windowed per-address velocity view (RFC-0008 C3) — served at `/flags?kind=velocity`.
+    /// Windowed per-address velocity view (RFC-0008 C3) - served at `/flags?kind=velocity`.
     pub velocity: VelocityView,
-    /// Single-transfer threshold in base units, if configured (RFC-0008 C3) — for `/`'s flag summary.
+    /// Single-transfer threshold in base units, if configured (RFC-0008 C3) - for `/`'s flag summary.
     pub threshold: Option<i128>,
-    /// Velocity flag threshold in base units, if configured — the cutoff `/flags?kind=velocity` uses.
+    /// Velocity flag threshold in base units, if configured - the cutoff `/flags?kind=velocity` uses.
     pub velocity_threshold: Option<i128>,
     /// Whether the built-in admin UI (`/_admin/`) is served (RFC-0010 Part A).
     pub admin_enabled: bool,
     /// When the bind is off-localhost, the token a request must present (`?token=…`) to reach the admin
-    /// UI (SEC-5). `None` on a localhost bind (open) — the env var merely *enabling* the route off-
+    /// UI (SEC-5). `None` on a localhost bind (open) - the env var merely *enabling* the route off-
     /// localhost, without checking it per request, was security theater.
     pub admin_token: Option<String>,
     /// Static nest metadata for the admin UI's Nest tab (`/nest`): contracts, templates, factories,
     /// webhooks, registry hash. Computed once at startup.
     pub nest_info: Arc<serde_json::Value>,
-    /// The nest's table schemas (from the decode registry) — the source of truth for `/tables`.
+    /// The nest's table schemas (from the decode registry) - the source of truth for `/tables`.
     pub tables: Arc<Vec<TableSchema>>,
     /// Admission control for the analytical (DuckDB) surface: bounds how many `/sql` and cold
     /// `/table` queries run at once so a burst can't multiply DuckDB's per-query footprint past the
@@ -92,7 +92,7 @@ impl SharedNest {
         self.0.store(Arc::new(state));
     }
 
-    /// The current backing (a cheap `Arc` clone) — what serving resolves per request.
+    /// The current backing (a cheap `Arc` clone) - what serving resolves per request.
     pub fn current(&self) -> Arc<AppState> {
         self.0.load_full()
     }
@@ -106,9 +106,9 @@ impl axum::extract::FromRef<SharedNest> for AppState {
     }
 }
 
-/// Build a nest's router — every per-nest route plus the request-count layer, bound to a swappable
+/// Build a nest's router - every per-nest route plus the request-count layer, bound to a swappable
 /// [`SharedNest`]. Split out of [`run`] so a roost (RFC-0012) can mount many of these under
-/// `/<nest>/…` prefixes; a solo `dev` serves exactly one at the root. Identical routes either way — a
+/// `/<nest>/…` prefixes; a solo `dev` serves exactly one at the root. Identical routes either way - a
 /// nest can't tell it's co-hosted, nor that its backing can be hot-swapped underneath it.
 pub fn router(backing: SharedNest) -> Router {
     Router::new()
@@ -140,15 +140,15 @@ pub async fn run(listen: &str, state: AppState) -> Result<()> {
     run_shared(listen, SharedNest::new(state)).await
 }
 
-/// Serve a caller-held [`SharedNest`] — the variant a hot upgrade uses so it can keep the handle and
+/// Serve a caller-held [`SharedNest`] - the variant a hot upgrade uses so it can keep the handle and
 /// atomically flip the backing (RFC-0020 slice 2b) while serving stays up on the same listener.
 pub async fn run_shared(listen: &str, shared: SharedNest) -> Result<()> {
     bind_and_serve(listen, router(shared)).await
 }
 
 /// Serve **two versions** of a nest on distinct endpoints behind one listener (RFC-0020 slice 3, the
-/// breaking path). The OLD version stays at its existing **root** path — unchanged, so current
-/// consumers keep working — but every response now carries a `Deprecation: true` header and a `Link`
+/// breaking path). The OLD version stays at its existing **root** path - unchanged, so current
+/// consumers keep working - but every response now carries a `Deprecation: true` header and a `Link`
 /// to its successor; the NEW version is served under `new_prefix` (e.g. `/next`). Both index
 /// concurrently and neither flips: downstream migrate from the old endpoint to the new on their own
 /// clock, then the operator sunsets the old. The deprecation signal is standards-shaped (RFC 8594).
@@ -198,7 +198,7 @@ pub async fn run_roost(
     let roster = Arc::new(roster);
     let mut app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        // `GET /nests` — the roster (name, chain, registry hash, table count) across mounted nests.
+        // `GET /nests` - the roster (name, chain, registry hash, table count) across mounted nests.
         .route(
             "/nests",
             get(move || {
@@ -214,18 +214,18 @@ pub async fn run_roost(
     bind_and_serve(listen, app).await
 }
 
-/// Bind `listen` and serve `app` until a shutdown signal — the shared tail of [`run`]/[`run_roost`].
+/// Bind `listen` and serve `app` until a shutdown signal - the shared tail of [`run`]/[`run_roost`].
 async fn bind_and_serve(listen: &str, app: Router) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .with_context(|| format!("cannot bind {listen}"))?;
     tracing::info!("API live on http://{listen}  (try GET /  and  /metrics)");
     // A loud one-liner when bound off-localhost: the guards bound *how much*, but *who* is the
-    // operator's gateway's job — never expose this straight to the internet without one.
+    // operator's gateway's job - never expose this straight to the internet without one.
     if !is_localhost(listen) {
         tracing::warn!(
             "listening on {listen} (not localhost): the /sql surface is guarded (timeout + row cap \
-             + {SQL_MAX_CONCURRENCY} concurrent) but has NO authentication — put a gateway in front \
+             + {SQL_MAX_CONCURRENCY} concurrent) but has NO authentication - put a gateway in front \
              before exposing it publicly. See docs/operators.md."
         );
     }
@@ -239,10 +239,10 @@ async fn bind_and_serve(listen: &str, app: Router) -> Result<()> {
     Ok(())
 }
 
-/// The built-in admin UI (RFC-0010 Part A) — a single self-contained page, embedded in the binary.
+/// The built-in admin UI (RFC-0010 Part A) - a single self-contained page, embedded in the binary.
 const ADMIN_HTML: &str = include_str!("admin.html");
 
-/// `GET /_admin/` — serve the admin UI when enabled, else 404 (it's off, or the bind is public with
+/// `GET /_admin/` - serve the admin UI when enabled, else 404 (it's off, or the bind is public with
 /// no token). The page is read-only and talks only to this same-origin API; no external requests.
 #[derive(Deserialize)]
 struct AdminQuery {
@@ -272,7 +272,7 @@ async fn admin_index(State(s): State<AppState>, Query(q): Query<AdminQuery>) -> 
         .into_response()
 }
 
-/// `GET /nest` — static nest metadata for the admin UI's Nest tab (RFC-0010 Part A).
+/// `GET /nest` - static nest metadata for the admin UI's Nest tab (RFC-0010 Part A).
 async fn nest(State(s): State<AppState>) -> impl IntoResponse {
     Json((*s.nest_info).clone())
 }
@@ -283,7 +283,7 @@ pub fn is_localhost(listen: &str) -> bool {
     matches!(host, "127.0.0.1" | "::1" | "localhost" | "[::1]")
 }
 
-/// Resolves when the process is asked to stop — SIGTERM (systemd/Docker) or Ctrl-C.
+/// Resolves when the process is asked to stop - SIGTERM (systemd/Docker) or Ctrl-C.
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -312,7 +312,7 @@ async fn count_request(
     next.run(req).await
 }
 
-/// `GET /metrics` — Prometheus text exposition (RFC-0005 §6).
+/// `GET /metrics` - Prometheus text exposition (RFC-0005 §6).
 async fn metrics_handler() -> impl IntoResponse {
     (
         [(
@@ -323,18 +323,18 @@ async fn metrics_handler() -> impl IntoResponse {
     )
 }
 
-/// No successful source poll within this many seconds ⇒ stalled. The tip loop polls every ~2–3 s even
+/// No successful source poll within this many seconds ⇒ stalled. The tip loop polls every ~2-3 s even
 /// when caught up, so a minute-plus of silence means every RPC endpoint is unreachable, not idleness.
 const READINESS_STALL_SECS: u64 = 90;
 
 /// Stalled = polled successfully at least once (`last_poll != 0`) but not within `threshold` seconds.
-/// A never-polled node (`last_poll == 0`) is *starting up*, not stalled — it gets grace.
+/// A never-polled node (`last_poll == 0`) is *starting up*, not stalled - it gets grace.
 fn poll_stalled(last_poll: u64, now: u64, threshold: u64) -> bool {
     last_poll != 0 && now.saturating_sub(last_poll) > threshold
 }
 
-/// Readiness for a supervisor (k8s-style). `/health` is liveness — the process is up and serving, and
-/// stays a plain `200 "ok"`. `/ready` answers "is it *healthy*" — still reaching the chain: **200** with
+/// Readiness for a supervisor (k8s-style). `/health` is liveness - the process is up and serving, and
+/// stays a plain `200 "ok"`. `/ready` answers "is it *healthy*" - still reaching the chain: **200** with
 /// a status body when fresh, **503** when stalled (no successful poll within [`READINESS_STALL_SECS`],
 /// i.e. every RPC endpoint is down). A just-started node that has never polled is *not* stalled (grace).
 async fn ready() -> impl IntoResponse {
@@ -363,7 +363,7 @@ async fn ready() -> impl IntoResponse {
     (code, Json(body)).into_response()
 }
 
-/// The live status payload — nest identity, tip/sealed watermarks, and the IVM view counts. Built once
+/// The live status payload - nest identity, tip/sealed watermarks, and the IVM view counts. Built once
 /// here and served two ways: as the `GET /` JSON body, and as each frame of the `/_admin/events` SSE
 /// stream, so the polled and pushed surfaces can never disagree.
 fn summary_value(s: &AppState) -> Value {
@@ -402,13 +402,13 @@ async fn summary(State(s): State<AppState>) -> impl IntoResponse {
 }
 
 /// How often the `/_admin/events` SSE stream pushes a fresh status frame. Matches the 2 s cadence the
-/// admin UI used to poll at, so the live view feels identical — just server-pushed, not client-pulled.
+/// admin UI used to poll at, so the live view feels identical - just server-pushed, not client-pulled.
 const SSE_INTERVAL: Duration = Duration::from_secs(2);
 
-/// `GET /_admin/events` — a Server-Sent Events stream of the status summary, pushed every
+/// `GET /_admin/events` - a Server-Sent Events stream of the status summary, pushed every
 /// [`SSE_INTERVAL`], so the admin UI updates live without polling (RFC-0010 Part A). Gated exactly like
 /// the admin page: 404 when the admin UI is disabled, and off-localhost it requires a valid `?token=`.
-/// Each frame is byte-identical to `GET /` (both call [`summary_value`]). Purely a serving-layer read —
+/// Each frame is byte-identical to `GET /` (both call [`summary_value`]). Purely a serving-layer read -
 /// nothing here touches the ingest/decode data path.
 async fn admin_events(State(s): State<AppState>, Query(q): Query<AdminQuery>) -> impl IntoResponse {
     if !s.admin_enabled {
@@ -424,7 +424,7 @@ async fn admin_events(State(s): State<AppState>, Query(q): Query<AdminQuery>) ->
         }
     }
     // `unfold` carries the state and a `first` flag: emit immediately, then once per interval. Cloning
-    // `AppState` per frame is cheap — its fields are `Arc`/handle types, not owned data.
+    // `AppState` per frame is cheap - its fields are `Arc`/handle types, not owned data.
     let stream = stream::unfold((s, true), |(s, first)| async move {
         if !first {
             tokio::time::sleep(SSE_INTERVAL).await;
@@ -452,7 +452,7 @@ struct TableQuery {
 
 /// The enriched schema document (RFC-0016 §2): the composition of registry **structure**, the
 /// authored **meaning** from `semantic.toml`, the derived **footguns**, and live **coverage** (the
-/// hot/cold seam as numbers). Assembled per call from this running nest — the MCP `schema` tool
+/// hot/cold seam as numbers). Assembled per call from this running nest - the MCP `schema` tool
 /// relays it, so an agent reads *this* nest's data model, not a static string. Plain text.
 async fn schema_doc(State(s): State<AppState>) -> impl IntoResponse {
     let sem = crate::semantic::load(&s.dir).ok().flatten();
@@ -509,7 +509,7 @@ async fn table(
     // Fill from cold (sealed segments) if the hot store didn't satisfy the limit. This runs under
     // the same analytical admission gate as `/sql`; if it's saturated we serve the hot rows we
     // already have rather than pile more scan-heavy work on. Cold is an enrichment of the hot result,
-    // so best-effort (`try_acquire`) is the right degradation — a point-read-ish endpoint shouldn't
+    // so best-effort (`try_acquire`) is the right degradation - a point-read-ish endpoint shouldn't
     // 503 just because the analytical surface is busy.
     if items.len() < limit {
         if let Ok(permit) = Arc::clone(&s.sql_gate).try_acquire_owned() {
@@ -614,7 +614,7 @@ struct SqlQuery {
 /// Read-only analytical SQL over the sealed segments; one view per `{alias}__{event}` table.
 ///
 /// Self-protecting, so a public `/sql` isn't a DoS vector: bounded concurrency (503 when the
-/// analytical surface is saturated — a growing backlog is itself the attack), a per-query wall-clock
+/// analytical surface is saturated - a growing backlog is itself the attack), a per-query wall-clock
 /// budget (a runaway is interrupted), a max query length, and a row cap (bounds the result buffer).
 /// What's deliberately *absent* is authn / per-caller quotas: those need caller identity a sovereign
 /// node doesn't have, so gating *who* may query and *how much* is a gateway's job, not the node's.
@@ -667,7 +667,7 @@ async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoR
     })
     .await;
     match result {
-        // Provenance stamp (RFC-0016 §4): an agent can cite its answer against content-addressed data —
+        // Provenance stamp (RFC-0016 §4): an agent can cite its answer against content-addressed data -
         // as of which block, what's sealed, and the registry it decoded with.
         Ok(Ok(out)) => Json(json!({
             "count": out.rows.len(),
@@ -683,11 +683,11 @@ async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoR
         }))
         .into_response(),
         Ok(Err(e)) => {
-            // A guard rejection (timeout / interrupt) or a bad query — counted as a rejection.
+            // A guard rejection (timeout / interrupt) or a bad query - counted as a rejection.
             METRICS.inc_sql_rejected();
             // Errors as prompts (RFC-0016 §3): classify the failure against the schema and append an
             // actionable hint so an agent (or the REPL user) self-corrects in one round-trip. The raw
-            // engine message is preserved but path-scrubbed (SEC review) — DuckDB embeds absolute
+            // engine message is preserved but path-scrubbed (SEC review) - DuckDB embeds absolute
             // segment paths, which would leak the on-disk layout; the useful table/column detail stays.
             let raw = sanitize_sql_error(&format!("{e:#}"), &s.dir);
             let msg = match crate::sql_errors::enrich(&raw, &q.q, &s.tables) {
@@ -700,7 +700,7 @@ async fn sql(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl IntoR
     }
 }
 
-/// `GET /explain?q=…` — validate a query without executing it (RFC-0016 §3): bind it (catching
+/// `GET /explain?q=…` - validate a query without executing it (RFC-0016 §3): bind it (catching
 /// unknown tables/columns/type errors, with the same enriched hints as `/sql`) but scan nothing, by
 /// wrapping it as `SELECT * FROM (<q>) LIMIT 0`. An agent checks a query's shape before spending a
 /// concurrency slot on the real thing. Returns `{valid:true}` or the enriched error.
@@ -769,7 +769,7 @@ async fn explain(State(s): State<AppState>, Query(q): Query<SqlQuery>) -> impl I
 /// Top balances from the IVM view, descending. Balances are in i64 token base units.
 async fn balances(State(s): State<AppState>, Query(q): Query<EntitiesQuery>) -> impl IntoResponse {
     let limit = q.limit.unwrap_or(100).min(1000);
-    // Balances are i128 base units, serialised as decimal strings — JSON numbers can't carry i128
+    // Balances are i128 base units, serialised as decimal strings - JSON numbers can't carry i128
     // losslessly, and a client parsing a huge balance as an f64 would silently corrupt it.
     let items: Vec<Value> = s
         .balances
@@ -906,7 +906,7 @@ fn error(msg: String) -> axum::response::Response {
         .into_response()
 }
 
-/// Constant-time string equality for the admin token — no early return on the first differing byte, so
+/// Constant-time string equality for the admin token - no early return on the first differing byte, so
 /// an attacker can't time-recover the secret. The length check leaks only the length, which is fixed
 /// for a random token.
 fn ct_eq(a: &str, b: &str) -> bool {
@@ -927,7 +927,7 @@ fn ct_eq(a: &str, b: &str) -> bool {
 /// layout. We keep the message and replace only the dir prefix with `<nest>`.
 fn sanitize_sql_error(raw: &str, dir: &std::path::Path) -> String {
     let mut out = raw.to_string();
-    // Both the canonical and as-configured forms — the error could carry either.
+    // Both the canonical and as-configured forms - the error could carry either.
     for p in [dir.canonicalize().ok(), Some(dir.to_path_buf())]
         .into_iter()
         .flatten()
@@ -981,7 +981,7 @@ mod tests {
         assert!(out.contains("No files found"));
     }
 
-    /// A minimal but real `AppState` — enough to drive the analytical handlers directly (no HTTP
+    /// A minimal but real `AppState` - enough to drive the analytical handlers directly (no HTTP
     /// harness). `permits` seeds the admission gate so a test can saturate it.
     fn test_state(dir: &std::path::Path, permits: usize) -> AppState {
         AppState {
@@ -1003,7 +1003,7 @@ mod tests {
     }
 
     /// The RFC-0020 hot-swap mechanism: re-pointing a `SharedNest` atomically changes what serving
-    /// resolves — both `current()` and the per-request `FromRef` a handler goes through — with no
+    /// resolves - both `current()` and the per-request `FromRef` a handler goes through - with no
     /// rebind. This is what lets a compatible upgrade flip an endpoint's backing underneath live
     /// traffic (slice 2b drives the flip; this proves the mechanism).
     #[tokio::test]
@@ -1016,7 +1016,7 @@ mod tests {
         assert_eq!(shared.current().address, "0xv1");
         assert_eq!(AppState::from_ref(&shared).address, "0xv1");
 
-        // Flip to a new backing version — same handle, next request sees v2.
+        // Flip to a new backing version - same handle, next request sees v2.
         let d2 = tempfile::tempdir().unwrap();
         let mut v2 = test_state(d2.path(), 1);
         v2.address = "0xv2".into();
@@ -1030,7 +1030,7 @@ mod tests {
     async fn sql_returns_503_when_gate_saturated() {
         let tmp = tempfile::tempdir().unwrap();
         let state = test_state(tmp.path(), 1);
-        // Hold the only permit — the gate is now saturated for the duration of the call.
+        // Hold the only permit - the gate is now saturated for the duration of the call.
         let held = Arc::clone(&state.sql_gate).try_acquire_owned().unwrap();
         let resp = sql(
             State(state.clone()),
@@ -1063,7 +1063,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
-    /// A well-formed query passes the gate and runs (200) — the guard doesn't block legitimate use.
+    /// A well-formed query passes the gate and runs (200) - the guard doesn't block legitimate use.
     #[tokio::test]
     async fn sql_serves_a_normal_query() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1111,7 +1111,7 @@ mod tests {
     #[tokio::test]
     async fn admin_token_enforced_off_localhost() {
         // SEC-5: with a required token set (off-localhost), the route must actually CHECK it per
-        // request — not merely be enabled by the env var's presence.
+        // request - not merely be enabled by the env var's presence.
         let tmp = tempfile::tempdir().unwrap();
         let mut state = test_state(tmp.path(), SQL_MAX_CONCURRENCY);
         state.admin_token = Some("s3cret".into());
@@ -1156,7 +1156,7 @@ mod tests {
             !ADMIN_HTML.contains("http://") && !ADMIN_HTML.contains("https://"),
             "admin UI makes no external requests (same-origin only)"
         );
-        // The status view is server-pushed (SSE) with a polling fallback — not poll-only.
+        // The status view is server-pushed (SSE) with a polling fallback - not poll-only.
         assert!(ADMIN_HTML.contains("EventSource"), "admin UI uses SSE");
         assert!(
             ADMIN_HTML.contains("_admin/events"),

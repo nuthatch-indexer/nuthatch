@@ -1,9 +1,9 @@
-//! RFC-0017 §S1 — the drift gate for the builder skill. A skill that lies about flag names is worse
+//! RFC-0017 §S1 - the drift gate for the builder skill. A skill that lies about flag names is worse
 //! than no skill (the same reason stale semantics are worse than none, RFC-0016 §2), so CI enforces
 //! two invariants:
 //!   1. the committed `cli-reference.md` is byte-identical to what the binary generates now, and
 //!   2. every `--flag` mentioned in the *authored* skill files is a real flag (present in the
-//!      reference) — no hallucinated flags.
+//!      reference) - no hallucinated flags.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -19,7 +19,7 @@ fn committed_cli_reference_is_not_stale() {
     let fresh = nuthatch::skill::generate_cli_reference();
     assert_eq!(
         committed, fresh,
-        "cli-reference.md is out of date — run `nuthatch skill-refs` and commit the result"
+        "cli-reference.md is out of date - run `nuthatch skill-refs` and commit the result"
     );
 }
 

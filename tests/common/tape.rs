@@ -1,7 +1,7 @@
-//! `TapeSource` — a scripted, mutable chain the test drives, plus the fixtures/helpers around it.
+//! `TapeSource` - a scripted, mutable chain the test drives, plus the fixtures/helpers around it.
 //!
 //! Why this exists: the crate's other test doubles all answer `block_hash -> None`, which makes
-//! `detect_reorg` a no-op — so reorgs are untestable through them. `TapeSource` answers `block_hash`
+//! `detect_reorg` a no-op - so reorgs are untestable through them. `TapeSource` answers `block_hash`
 //! with the *current canonical* hash (`Some`), supplies non-zero timestamps (a zero-timestamp window
 //! is refused and retried forever), and exposes `finalized()` as the sealing trigger the test controls
 //! precisely. That's the whole point: it lets an integration test drive the real `spawn_nest` /
@@ -24,7 +24,7 @@ use nuthatch::source::Source;
 pub const TRANSFER_TOPIC0: &str =
     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-/// The example USDC address (Arbitrum One) — reused so tests exercise real checksummed addresses.
+/// The example USDC address (Arbitrum One) - reused so tests exercise real checksummed addresses.
 pub const USDC: &str = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 /// The example ARB address (Arbitrum One).
 pub const ARB: &str = "0x912CE59144191C1204E64559FE8253a0e49E6548";
@@ -53,7 +53,7 @@ pub struct BlockFixture {
 }
 
 /// Build an ERC-20 `Transfer` log. Topics are `[topic0, from(32B), to(32B)]`; `data` is the 32-byte
-/// big-endian value — exactly the on-wire shape the decode registry parses.
+/// big-endian value - exactly the on-wire shape the decode registry parses.
 pub fn transfer_log(
     address: &str,
     block: u64,
@@ -73,7 +73,7 @@ pub fn transfer_log(
         data: format!("0x{value:064x}"),
         block_number: block,
         block_hash: block_hash.to_string(),
-        // Deterministic from (block, log_index) — no wall clock.
+        // Deterministic from (block, log_index) - no wall clock.
         tx_hash: format!("0x{:064x}", (block << 20) | log_index),
         log_index,
     }
@@ -111,7 +111,7 @@ pub fn transfers_block(
 /// topic0 of Uniswap-V2 `Sync(uint112 reserve0, uint112 reserve1)` (keccak of the canonical signature).
 pub const SYNC_TOPIC0: &str = "0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1";
 
-/// A Uniswap-V2 `Sync` log — no indexed params; `data` is the two reserves ABI-encoded (two 32B words).
+/// A Uniswap-V2 `Sync` log - no indexed params; `data` is the two reserves ABI-encoded (two 32B words).
 pub fn sync_log(
     address: &str,
     block: u64,
@@ -173,7 +173,7 @@ struct Tape {
 
 /// A scripted chain with interior mutability. Test-facing mutators (`advance_tip_to`,
 /// `advance_finalized_to`, `reorg`, `insert_block`) drive it; the [`Source`] impl is what the indexer
-/// sees. A non-zero timestamp per block is a hard requirement — `process_window` refuses to commit a
+/// sees. A non-zero timestamp per block is a hard requirement - `process_window` refuses to commit a
 /// zero-timestamp window and would retry forever.
 pub struct TapeSource {
     inner: Mutex<Tape>,
@@ -210,7 +210,7 @@ impl TapeSource {
         self.inner.lock().unwrap().tip = n;
     }
 
-    /// Set the `finalized` block — the sealing trigger. `seal_ceiling` takes the FinalizedTag branch on
+    /// Set the `finalized` block - the sealing trigger. `seal_ceiling` takes the FinalizedTag branch on
     /// an L2 chain (arbitrum-one/base), so this is exactly how far the test lets sealing advance.
     pub fn advance_finalized_to(&self, n: u64) {
         self.inner.lock().unwrap().finalized = n;
@@ -301,7 +301,7 @@ impl Source for TapeSource {
 }
 
 // ---------------------------------------------------------------------------
-// Nest scaffolding — `init`'s OUTPUT without `init`'s network dependency.
+// Nest scaffolding - `init`'s OUTPUT without `init`'s network dependency.
 // ---------------------------------------------------------------------------
 
 /// Write a real nest into `dir`: a `nuthatch.toml` (arbitrum-one → FinalizedTag finality, so
@@ -368,7 +368,7 @@ pub fn transfer_table(name: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Polling — bounded waits on observable state (never a fixed sleep driving the loop).
+// Polling - bounded waits on observable state (never a fixed sleep driving the loop).
 // ---------------------------------------------------------------------------
 
 /// Poll `cond` every 25 ms until it holds or `timeout` elapses. Returns whether it held. Used to

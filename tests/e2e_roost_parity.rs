@@ -1,7 +1,7 @@
 //! Roost-vs-solo parity (RFC-0012's open acceptance item): over the SAME tape + range, two nests run
 //! solo (`spawn_nest` each) must produce per-nest sealed segments byte-identical to the same two nests
 //! run under one shared cursor (`spawn_roost`), and identical query output. The shared cursor over-
-//! fetches the union and demuxes by address — this proves that demux is exact.
+//! fetches the union and demuxes by address - this proves that demux is exact.
 
 mod common;
 
@@ -13,7 +13,7 @@ use nuthatch::{analytics, indexer, seal};
 
 use common::tape::*;
 
-/// A block carrying one USDC transfer (log 0) and one ARB transfer (log 1) — so both nests have rows
+/// A block carrying one USDC transfer (log 0) and one ARB transfer (log 1) - so both nests have rows
 /// in every block and the roost's union-fetch-then-demux is genuinely exercised.
 fn dual_block(b: u64) -> BlockFixture {
     let hash = block_hash(b, 0);

@@ -1,9 +1,9 @@
 //! Factory patterns and the dynamic child registry (RFC-0009, step 1).
 //!
 //! A *factory* watches a contract's event (`PoolCreated`) and indexes the child contract it announces
-//! under a *template* ABI — the dynamic-data-sources capability, without which Uniswap-class protocols
+//! under a *template* ABI - the dynamic-data-sources capability, without which Uniswap-class protocols
 //! are unindexable. This module is the foundation: the validated rule set ([`FactorySet`]) and the
-//! discovered-child registry ([`ChildRegistry`]). Both are pure and deterministic — the registry state
+//! discovered-child registry ([`ChildRegistry`]). Both are pure and deterministic - the registry state
 //! at block B is a fold over factory events ≤ B, so it reproduces and its content hash is stable. The
 //! ingestion regimes (tip, sequential/pipelined backfill, ExEx) that *consume* this land in later
 //! steps; here we build the state they read and prove its reorg + determinism properties.
@@ -40,7 +40,7 @@ struct FactoryRule {
 
 /// The validated set of factory rules for a nest. Built from config with reference checks; the
 /// ABI-level checks (the event exists, `child_param` is an address parameter) are enforced when the
-/// decode registry gains template decoders (a later step) — a rule here is structurally sound.
+/// decode registry gains template decoders (a later step) - a rule here is structurally sound.
 #[derive(Debug, Default, Clone)]
 pub struct FactorySet {
     /// announcing table (`{watch}__{event_snake}`) → rule.
@@ -64,7 +64,7 @@ impl FactorySet {
         for t in &config.templates {
             if contract_aliases.contains(t.name.as_str()) {
                 bail!(
-                    "template '{}' collides with a contract alias — table namespaces would clash",
+                    "template '{}' collides with a contract alias - table namespaces would clash",
                     t.name
                 );
             }
@@ -107,7 +107,7 @@ impl FactorySet {
         }
 
         // Resolve template depths: a template watched by a factory whose source has depth d gets
-        // depth d+1. Iterate to a fixpoint (chains are short — the ceiling is 3); a template can be
+        // depth d+1. Iterate to a fixpoint (chains are short - the ceiling is 3); a template can be
         // produced by at most the declared factories, so this terminates.
         for _ in 0..3 {
             for f in &config.factories {
@@ -164,12 +164,12 @@ impl FactorySet {
         &self.template_names
     }
 
-    /// The announcing table names (`{watch}__{event}`) — the tables to fold on a restart rebuild.
+    /// The announcing table names (`{watch}__{event}`) - the tables to fold on a restart rebuild.
     pub fn factory_tables(&self) -> Vec<String> {
         self.rules.keys().cloned().collect()
     }
 
-    /// `(template, announcing_table, child_param)` for every rule — the sources the analytics layer
+    /// `(template, announcing_table, child_param)` for every rule - the sources the analytics layer
     /// unions into each `{template}__children` view (RFC-0009 §Serving).
     pub fn view_sources(&self) -> Vec<(String, String, String)> {
         self.rules
@@ -213,7 +213,7 @@ impl FactorySet {
         })
     }
 
-    /// If `row` is a factory-announcement event, the child contract it discovers — else `None`. A
+    /// If `row` is a factory-announcement event, the child contract it discovers - else `None`. A
     /// pure function of the decoded row and the rule set (the fold step the registry is built from).
     pub fn discover(&self, row: &DecodedRow) -> Option<ChildEntry> {
         let rule = self.rules.get(&row.table)?;
@@ -258,7 +258,7 @@ impl ChildRegistry {
     }
 
     /// Record a discovered child. Returns true (and bumps `version`) if it was newly added; a repeat
-    /// discovery of the same address is idempotent — the earliest discovery wins and nothing changes.
+    /// discovery of the same address is idempotent - the earliest discovery wins and nothing changes.
     pub fn insert(&mut self, entry: ChildEntry) -> bool {
         if self.children.contains_key(&entry.address) {
             return false;
@@ -295,14 +295,14 @@ impl ChildRegistry {
             .collect()
     }
 
-    /// All discovered children (sorted by address) — for the `{template}__children` view.
+    /// All discovered children (sorted by address) - for the `{template}__children` view.
     pub fn entries(&self) -> impl Iterator<Item = &ChildEntry> {
         self.children.values()
     }
 
     /// Reorg: drop every child discovered strictly above `block` (the announcing factory event was
     /// rolled back). Bumps `version` if anything changed. Returns how many were removed. The child's
-    /// own event rows are covered by the hot store's block-range rollback — this handles the registry.
+    /// own event rows are covered by the hot store's block-range rollback - this handles the registry.
     pub fn rollback_to(&mut self, block: u64) -> u64 {
         let doomed: Vec<String> = self
             .children
@@ -332,7 +332,7 @@ impl ChildRegistry {
         self.children.is_empty()
     }
 
-    /// A content hash of the registry state — the `registry_snapshot` written into each sealed
+    /// A content hash of the registry state - the `registry_snapshot` written into each sealed
     /// segment's manifest entry (a later step) so a segment records exactly which discovered set
     /// produced it. Deterministic: a fold over the same factory events yields the same hash,
     /// independent of `version` (which counts changes, not state).
@@ -358,7 +358,7 @@ mod tests {
     use proptest::prelude::*;
 
     /// Deterministic, unique child address for a pool discovered on `branch` at `(block, i)`. Distinct
-    /// branches never collide; the same (branch, block, i) always yields the same address — so a fold
+    /// branches never collide; the same (branch, block, i) always yields the same address - so a fold
     /// over the same factory events reproduces the same registry.
     fn child_addr(branch: u8, block: u64, i: u64) -> String {
         let key: u128 = ((branch as u128) << 100) | ((block as u128) << 20) | i as u128;
@@ -383,7 +383,7 @@ mod tests {
         #![proptest_config(ProptestConfig::with_cases(96))]
         /// RFC-0009 step 4: the child registry converges under reorg. Discovering pools along a
         /// prefix chain, reorging at a fork point, then applying an alternate branch yields exactly
-        /// the registry state (content hash) of building the winning chain directly — the same
+        /// the registry state (content hash) of building the winning chain directly - the same
         /// convergence property the hot store has, now for the discovered set.
         #[test]
         fn child_registry_reorg_converges(
@@ -402,7 +402,7 @@ mod tests {
                 discover_pools(&mut reorged, 1, fork + 1 + j as u64, n);
             }
 
-            // Canonical registry: prefix (A) up to the fork, then branch (B) — built directly.
+            // Canonical registry: prefix (A) up to the fork, then branch (B) - built directly.
             let mut canonical = ChildRegistry::new();
             for (b, &n) in prefix.iter().enumerate() {
                 if (b as u64) <= fork {
@@ -507,7 +507,7 @@ template = "pool"
 
         assert!(reg.insert(fs.discover(&pool_created_row(10, 0, a)).unwrap()));
         assert_eq!(reg.version(), 1);
-        // Re-discovering the same child is idempotent — no version bump.
+        // Re-discovering the same child is idempotent - no version bump.
         assert!(!reg.insert(fs.discover(&pool_created_row(11, 0, a)).unwrap()));
         assert_eq!(reg.version(), 1);
         assert!(reg.insert(fs.discover(&pool_created_row(12, 0, b)).unwrap()));
@@ -532,7 +532,7 @@ template = "pool"
         assert!(reorged.contains(a) && !reorged.contains(b));
 
         // A registry built canonically (only the surviving discovery) has the identical content hash
-        // — reorg convergence: registry state at B is a pure fold over factory events ≤ B.
+        // - reorg convergence: registry state at B is a pure fold over factory events ≤ B.
         let mut canonical = ChildRegistry::new();
         canonical.insert(fs.discover(&pool_created_row(10, 0, a)).unwrap());
         assert_eq!(reorged.hash(), canonical.hash());

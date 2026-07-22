@@ -1,9 +1,9 @@
-//! `screen` — a pure, batched sanctions-screening component (RFC-0008 C2).
+//! `screen` - a pure, batched sanctions-screening component (RFC-0008 C2).
 //!
 //! Given a batch of transfers and a sanctioned-address set (both Arrow IPC), it emits one hit per
 //! transfer side that touches the set: if `from` is sanctioned → a hit on the sender side, if `to`
 //! is sanctioned → a hit on the recipient side. Zero capabilities: it cannot call a screening API,
-//! read the clock, or touch the filesystem — the set it screens against is an *input*, not a lookup.
+//! read the clock, or touch the filesystem - the set it screens against is an *input*, not a lookup.
 //! So a hit is reproducible from (list bytes, transfer bytes, component hash) alone: that is the
 //! whole audit story. The host stamps the snapshot/component hashes; the component only sees data.
 

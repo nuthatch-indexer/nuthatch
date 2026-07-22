@@ -1,8 +1,8 @@
 //! Host side of the sanctions-screening stage (RFC-0008 C2).
 //!
 //! Loads the pure `screen` component (`wasm32-wasip2`, exporting `nuthatch:transform/screen`), grants
-//! it ZERO capabilities (base WASI only), and calls `run` with two Arrow IPC batches — the transfers
-//! and the sanctioned-address set — getting the hits back as a third. Because both the set and the
+//! it ZERO capabilities (base WASI only), and calls `run` with two Arrow IPC batches - the transfers
+//! and the sanctioned-address set - getting the hits back as a third. Because both the set and the
 //! transfers are *inputs*, and the component imports nothing but base WASI, a hit is reproducible from
 //! `(list-snapshot bytes, transfer bytes, component hash)` alone. The host stamps each hit with the
 //! snapshot hash and the component's own content hash; the component never sees either, so the audit
@@ -28,7 +28,7 @@ wasmtime::component::bindgen!({
 });
 
 /// A nest-local override path for the screening component. If a nest ships its own
-/// `components/screen.wasm`, that is used (and content-hashed) in preference to the embedded default —
+/// `components/screen.wasm`, that is used (and content-hashed) in preference to the embedded default -
 /// so an operator can pin a specific reviewed component. Otherwise the embedded one is used.
 pub const SCREEN_WASM: &str = "components/screen.wasm";
 
@@ -79,7 +79,7 @@ pub struct ScreenRuntime {
     engine: Engine,
     component: Component,
     linker: Linker<HostState>,
-    /// sha256 of the component bytes — the reproducibility anchor recorded on each annotation.
+    /// sha256 of the component bytes - the reproducibility anchor recorded on each annotation.
     component_hash: String,
 }
 
@@ -91,7 +91,7 @@ impl ScreenRuntime {
         Self::from_bytes(&bytes)
     }
 
-    /// Load the embedded pure screening component (the default — always available in the binary).
+    /// Load the embedded pure screening component (the default - always available in the binary).
     pub fn embedded() -> Result<Self> {
         Self::from_bytes(EMBEDDED_SCREEN)
     }
@@ -103,7 +103,7 @@ impl ScreenRuntime {
         config.wasm_component_model(true);
         let engine = Engine::new(&config).map_err(|e| anyhow!("wasmtime engine: {e}"))?;
 
-        // Base WASI only — the "zero capabilities" grant. A component importing anything else fails
+        // Base WASI only - the "zero capabilities" grant. A component importing anything else fails
         // to instantiate, loudly, at load time.
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
@@ -119,7 +119,7 @@ impl ScreenRuntime {
         })
     }
 
-    /// The component's content hash — the `source` recorded on annotations it produces.
+    /// The component's content hash - the `source` recorded on annotations it produces.
     pub fn component_hash(&self) -> &str {
         &self.component_hash
     }
@@ -147,7 +147,7 @@ impl ScreenRuntime {
 }
 
 /// The transfers schema the screening interface speaks. `value` is text (base units) so an i128 value
-/// crosses the boundary without loss — screening never does arithmetic on it, only carries it.
+/// crosses the boundary without loss - screening never does arithmetic on it, only carries it.
 fn transfers_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
         Field::new("block_number", DataType::UInt64, false),
@@ -264,7 +264,7 @@ pub struct TransferRow {
 }
 
 /// Screen a batch of transfers against one loaded list snapshot, returning `(annotation_key,
-/// annotation_json)` per hit — ready to store. The heavy lifting (set membership) happens in the pure
+/// annotation_json)` per hit - ready to store. The heavy lifting (set membership) happens in the pure
 /// component; the host only builds the batches, maps hits back to their tx hash, and stamps the
 /// snapshot/component hashes. Empty in, empty out (no component call when there's nothing to screen).
 pub fn screen_batch(
@@ -311,7 +311,7 @@ pub fn screen_batch(
 /// The live screening stage: the loaded pure component plus the list snapshots configured in
 /// `[screening]`. Held by the indexer and run over each window's transfers. When no lists are
 /// configured (or the component isn't staged), `from_config` returns `None` and screening is simply
-/// absent — the deterministic core is unchanged (RFC-0008 rule 1: it must run with effectful stages
+/// absent - the deterministic core is unchanged (RFC-0008 rule 1: it must run with effectful stages
 /// off, and this pure stage is likewise fully optional).
 pub struct LiveScreener {
     runtime: ScreenRuntime,
@@ -360,13 +360,13 @@ impl LiveScreener {
         out
     }
 
-    /// The staged component's content hash — recorded for the audit trail / `pack verify` later.
+    /// The staged component's content hash - recorded for the audit trail / `pack verify` later.
     pub fn component_hash(&self) -> &str {
         self.runtime.component_hash()
     }
 }
 
-/// Read sealed transfers in `[from, to]` from the analytical (DuckDB) surface, as [`TransferRow`]s —
+/// Read sealed transfers in `[from, to]` from the analytical (DuckDB) surface, as [`TransferRow`]s -
 /// the backfill screening input. `transfer_tables` gives each transfer table with its (from, to,
 /// value) column names (registry-derived; they vary by token), so the query is never user text.
 pub fn read_sealed_transfers(
@@ -382,7 +382,7 @@ pub fn read_sealed_transfers(
              CAST(\"{val_col}\" AS VARCHAR) AS v FROM \"{table}\" \
              WHERE block_number BETWEEN {from} AND {to} ORDER BY block_number, log_index"
         );
-        // Best-effort per table: a table with no sealed segment yet has no view — skip it.
+        // Best-effort per table: a table with no sealed segment yet has no view - skip it.
         let result = match crate::analytics::query(dir, &sql) {
             Ok(r) => r,
             Err(e) => {
@@ -434,7 +434,7 @@ pub fn transfer_tables(
 /// `nuthatch screen --list <hash> --from --to` (RFC-0008 C2): screen the *sealed* transfers in a
 /// range against a list snapshot with the pure component, and seal the resulting `sanction_hit`
 /// annotations to their own Parquet table. This is the audit-grade path: it re-runs over immutable
-/// segments, so `(list hash, block range, component hash)` reproduces byte-identical hits — the
+/// segments, so `(list hash, block range, component hash)` reproduces byte-identical hits - the
 /// "prove it" command. Idempotent (segment sealing is content-addressed).
 pub fn backfill(args: crate::cli::ScreenArgs) -> Result<()> {
     let dir = std::path::PathBuf::from(&args.dir);
@@ -555,7 +555,7 @@ mod tests {
 
     /// The C2 replay gate: screening the **live** transfers and screening the same transfers read
     /// back from **sealed Parquet** produce identical annotations (keys + content). This is the audit
-    /// guarantee — the backfill `nuthatch screen` command reproduces exactly what the live stage
+    /// guarantee - the backfill `nuthatch screen` command reproduces exactly what the live stage
     /// recorded, over immutable segments. Uses a value > i64::MAX to prove the text path is loss-free.
     #[test]
     fn live_and_backfill_screening_agree() {
@@ -635,7 +635,7 @@ mod tests {
     }
 
     /// A transfer between two sanctioned addresses yields two hits (both sides), deterministically
-    /// ordered from-before-to — the ordering the annotation keys rely on being stable.
+    /// ordered from-before-to - the ordering the annotation keys rely on being stable.
     #[test]
     fn both_sides_sanctioned_yields_two_hits() {
         let Some(rt) = staged_component() else { return };

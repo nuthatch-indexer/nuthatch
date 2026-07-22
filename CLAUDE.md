@@ -1,4 +1,4 @@
-# Nuthatch — CLAUDE.md
+# Nuthatch - CLAUDE.md
 
 Nuthatch is a self-hosted-first, AI-native blockchain indexer. One Rust binary, one command,
 live indexed API in under two minutes. No mandatory third-party data dependency, ever.
@@ -12,10 +12,10 @@ non-negotiables below, stop and flag it instead of proceeding.
 1. **Single static binary** is the primary deliverable. Embedded mode must run with zero
    external services: no Postgres, no Docker, no IPFS. `curl | sh` → `nuthatch init 0xAddr
    --chain mainnet` → `nuthatch dev` → live API. Target: <2 minutes to first indexed query.
-2. **Footprint budget: ≤2 GB RAM per active-chain cursor** — one chain's tip-following +
+2. **Footprint budget: ≤2 GB RAM per active-chain cursor** - one chain's tip-following +
    serving in embedded mode, whether that cursor hosts one nest or several. A single-chain
    roost is one cursor (≤2 GB); a multichain roost's total is Σ cursors (RFC-0021). The budget
-   is per-cursor and shared across the nests on that cursor — density is RAM-bounded, not free.
+   is per-cursor and shared across the nests on that cursor - density is RAM-bounded, not free.
    Treat this as a CI-enforced budget (per cursor), not an aspiration. If a design decision
    threatens it, surface the tradeoff before implementing.
 3. **No phone-home.** No telemetry, no mandatory API tokens, no gated data services. AI
@@ -24,7 +24,7 @@ non-negotiables below, stop and flag it instead of proceeding.
    feeding stored state must be deterministic and re-executable. LLMs generate code and tests;
    LLM output never sits in the runtime data path.
 5. **AGPL-3.0** for the core. Do not vendor or port code from AGPL projects we don't own
-   (notably SQD's worker-rs) — read for ideas only. Safe dependencies: reth (MIT/Apache),
+   (notably SQD's worker-rs) - read for ideas only. Safe dependencies: reth (MIT/Apache),
    Cryo (permissive), Feldera/DBSP (MIT OR Apache-2.0), DataFusion/Arrow/DuckDB (Apache-2.0).
    Do NOT add Materialize (BSL) or any Envio/HyperSync dependency.
 
@@ -43,25 +43,25 @@ behind a trait; no `#[cfg]` forks of business logic.
 
 **Multi-nest co-tenancy (a *roost*):** one runtime may host N nests an operator chose to
 co-locate, across **one or more chains**, running **one isolated cursor per distinct chain**
-(RFC-0021) — each cursor with its own hot DB, finality view, and reorg boundary. Cooperating
-tenants an operator picked — not paying strangers (that's the hosted-SaaS path, out of scope).
+(RFC-0021) - each cursor with its own hot DB, finality view, and reorg boundary. Cooperating
+tenants an operator picked - not paying strangers (that's the hosted-SaaS path, out of scope).
 Strict per-nest **and per-cursor** isolation of storage, reorg, and blast radius: one nest's
 bad view or runaway factory, or one chain's stall or reorg, must not harm another. The
 single-cursor law holds **per chain**: a cursor is always single-chain, single-writer, one
-observable failure boundary — never multiplex two chains behind one cursor. Multichain in one
+observable failure boundary - never multiplex two chains behind one cursor. Multichain in one
 runtime is a **capability, not a mandate**; one-chain-per-roost stays valid and is the default.
-A second chain means a second cursor — in the same runtime (a multichain roost) or on another
-worker (the distributed pool, RFC-0022) — but never a second chain behind one cursor. See
+A second chain means a second cursor - in the same runtime (a multichain roost) or on another
+worker (the distributed pool, RFC-0022) - but never a second chain behind one cursor. See
 RFC-0012, RFC-0021.
 
-**Reorg strategy:** reorgs only ever touch the mutable hot store — and only that of the
+**Reorg strategy:** reorgs only ever touch the mutable hot store - and only that of the
 affected chain's cursor, isolated from other cursors in the same roost. Segments are sealed to
 Parquet strictly past finality, so the columnar layer is append-only and immutable. If a
-change requires mutating sealed segments, the design is wrong — go back.
+change requires mutating sealed segments, the design is wrong - go back.
 
 **Entity derivation:** two authoring modes.
 - Declarative (default): entities as incremental views over decoded events, maintained by
-  DBSP (Feldera crates). This is the differentiator — reorgs become retractions, backfills
+  DBSP (Feldera crates). This is the differentiator - reorgs become retractions, backfills
   become batch runs of the same circuit.
 - Imperative (escape hatch): WASM component handlers, per the transform layer below.
 
@@ -78,12 +78,12 @@ Liminal is the prototype for Nuthatch's transform runtime. Study `liminal-host/`
 - **Purity by construction:** a component granted zero capabilities is deterministic by
   definition. Enforce the rule in the host: only zero-capability components may feed entity
   derivation / stored state. Effectful components (HTTP enrichers etc.) produce annotations
-  only, never canonical entities. Purity must be checkable from the composition manifest —
+  only, never canonical entities. Purity must be checkable from the composition manifest -
   no code inspection required.
 - Single cursor, single process, one observable failure boundary. Never introduce a second
   cursor or a reconciliation layer.
 - Host owns orchestration, retries, and state; components are stateless pure stages.
-- Optional sinks warn-and-skip when unconfigured (liminal's `--database-url` pattern) — apply
+- Optional sinks warn-and-skip when unconfigured (liminal's `--database-url` pattern) - apply
   this graceful-degradation pattern to every optional integration.
 - Examples-as-documentation: every capability ships with a runnable example pipeline, in the
   style of liminal's `examples/uni-v3-swaps`.
@@ -92,8 +92,8 @@ Liminal is the prototype for Nuthatch's transform runtime. Study `liminal-host/`
 
 **Change from liminal (its known gaps for this workload):**
 - **Batch the boundary.** Liminal's per-event component calls won't survive backfill targets
-  (≥10K events/sec floor, aim 30K). WIT interfaces take batches — lists of events or
-  serialized Arrow IPC buffers — never one event per call. Arrow is the interchange format
+  (≥10K events/sec floor, aim 30K). WIT interfaces take batches - lists of events or
+  serialized Arrow IPC buffers - never one event per call. Arrow is the interchange format
   everywhere; don't invent bespoke serialization.
 - **Stateless components as a hard contract:** components are pure functions
   `batch of blocks → batch of facts`. All state lives host-side. Components never see reorgs
@@ -138,13 +138,13 @@ Liminal is the prototype for Nuthatch's transform runtime. Study `liminal-host/`
 
 Do not start slice N+1 while slice N has failing tests or an unmet budget.
 
-## Out of scope — do not build, do not suggest
+## Out of scope - do not build, do not suggest
 
 - Hosted service, billing, metering, **hosted-SaaS multi-tenancy** (per-tenant authz/quotas,
-  isolation between mutually-untrusting paying customers — that's the become-a-data-service-
+  isolation between mutually-untrusting paying customers - that's the become-a-data-service-
   company path, and the gateway's job regardless). Note: *multi-nest co-tenancy* (a roost) and
   *distributed **self-hosted** scaled mode* (one operator's writer pool + query-FE tier +
-  control-plane over cooperating nests, RFC-0022) are both **in scope** — see Architecture. The
+  control-plane over cooperating nests, RFC-0022) are both **in scope** - see Architecture. The
   line is per-tenant billing/authz between untrusting **paying** customers: that stays out and
   is the gateway's job.
 - Token, staking, decentralized network features (a possible future Graph Horizon data

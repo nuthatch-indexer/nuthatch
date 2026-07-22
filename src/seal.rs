@@ -1,6 +1,6 @@
 //! Per-table sealing (RFC-0001 step 4): once a block range is final, each table's rows in that
 //! range are written to their own content-addressed Parquet segment, catalogued per table in the
-//! manifest. The columnar cold layer is append-only — it never sees a reorg, because reorgs only
+//! manifest. The columnar cold layer is append-only - it never sees a reorg, because reorgs only
 //! ever touch the mutable hot store (see store::rollback_to).
 //!
 //! All tables in a nest ingest from the same block stream and seal together per finalized range, so
@@ -65,7 +65,7 @@ pub fn seal_range(
 }
 
 /// Like [`seal_range`], but records `registry_snapshot` (the discovered-child registry's content hash)
-/// on each segment's manifest entry — the factory paths (RFC-0009) pass it so a segment records which
+/// on each segment's manifest entry - the factory paths (RFC-0009) pass it so a segment records which
 /// discovered set produced it. A static nest passes `None` (via `seal_range`).
 pub fn seal_range_with_snapshot(
     dir: &Path,
@@ -103,8 +103,8 @@ pub fn seal_range_with_snapshot(
         let file = format!("{table}-{hash}.parquet");
         let segments = manifest.tables.entry(table).or_default();
         // Content-addressed idempotency: an identical segment (same table + hash) is already
-        // catalogued, so re-sealing the same rows — e.g. re-running `nuthatch screen` over a range to
-        // re-audit — is a no-op rather than a double-listed (double-counted) segment.
+        // catalogued, so re-sealing the same rows - e.g. re-running `nuthatch screen` over a range to
+        // re-audit - is a no-op rather than a double-listed (double-counted) segment.
         if segments.iter().any(|s| s.hash == hash) {
             continue;
         }
@@ -126,7 +126,7 @@ pub fn seal_range_with_snapshot(
 }
 
 /// Build an Arrow batch from a table's JSON rows. `block_number`/`log_index` are UInt64; every other
-/// column is Utf8 (values already carry their canonical text form — hex, decimal, or string).
+/// column is Utf8 (values already carry their canonical text form - hex, decimal, or string).
 fn rows_to_batch(rows: &[Value]) -> Result<RecordBatch> {
     let mut columns: BTreeSet<String> = BTreeSet::new();
     for r in rows {
@@ -188,14 +188,14 @@ pub fn load_manifest(dir: &Path) -> Result<Manifest> {
 
 /// Startup integrity pass: verify every manifest segment's file exists and its bytes hash to the
 /// recorded content address. A file that's missing, unreadable, or hash-mismatched is corrupt or
-/// tampered with — quarantine it (move to a sibling `quarantine/` dir so `define_views` skips it) and
+/// tampered with - quarantine it (move to a sibling `quarantine/` dir so `define_views` skips it) and
 /// log loudly, then continue. A corrupt segment must *reduce* a table's cold data, never crash-loop the
 /// node. Sealed data is immutable and content-addressed, so a hash mismatch is unambiguous corruption.
-/// Returns the number of segments quarantined. Best-effort — never fatal (an IO error just logs).
+/// Returns the number of segments quarantined. Best-effort - never fatal (an IO error just logs).
 pub fn verify_and_quarantine(dir: &Path) -> Result<usize> {
     let manifest = load_manifest(dir)?;
     let seg_dir = dir.join(SEGMENTS_DIR);
-    // Sibling of `segments/`, deliberately *outside* it — nothing globs or SQL-reads the quarantine.
+    // Sibling of `segments/`, deliberately *outside* it - nothing globs or SQL-reads the quarantine.
     let quarantine = dir.join("quarantine");
     let mut quarantined = 0usize;
 
@@ -205,7 +205,7 @@ pub fn verify_and_quarantine(dir: &Path) -> Result<usize> {
             let reason = match std::fs::read(&path) {
                 Ok(bytes) if hex::encode(Sha256::digest(&bytes)) == s.hash => continue, // intact
                 Ok(_) => "hash mismatch (corrupt or tampered)",
-                // Already gone from disk — nothing to move; `define_views` skips it. Not counted.
+                // Already gone from disk - nothing to move; `define_views` skips it. Not counted.
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(_) => "unreadable",
             };
@@ -214,7 +214,7 @@ pub fn verify_and_quarantine(dir: &Path) -> Result<usize> {
             match std::fs::rename(&path, &dest) {
                 Ok(()) => {
                     tracing::error!(
-                        "quarantined segment {} for table {table} ({reason}) → {} — cold data for this \
+                        "quarantined segment {} for table {table} ({reason}) → {} - cold data for this \
                          table is reduced; re-seal the range to restore it",
                         s.file,
                         dest.display()
@@ -230,7 +230,7 @@ pub fn verify_and_quarantine(dir: &Path) -> Result<usize> {
     }
     if quarantined > 0 {
         tracing::error!(
-            "startup integrity: quarantined {quarantined} corrupt segment(s) — data is reduced, node \
+            "startup integrity: quarantined {quarantined} corrupt segment(s) - data is reduced, node \
              continues; investigate disk health and re-seal the affected ranges"
         );
     }
@@ -239,14 +239,14 @@ pub fn verify_and_quarantine(dir: &Path) -> Result<usize> {
 
 fn save_manifest(dir: &Path, manifest: &Manifest) -> Result<()> {
     let raw = serde_json::to_string_pretty(manifest)?;
-    // The manifest is the segment catalogue — the crown jewels of a `kill -9`-survivable single binary
+    // The manifest is the segment catalogue - the crown jewels of a `kill -9`-survivable single binary
     // (a half-written `manifest.json` orphans every otherwise-fine `.parquet` and fails all cold reads,
     // deadlock-review finding M8). Write a sibling temp file then rename it over the target: `rename`
     // is atomic on the same filesystem, so a reader/crash sees either the old manifest or the new one,
     // never a torn one.
     let path = manifest_path(dir);
     let tmp = path.with_extension("json.tmp");
-    // COR-9: fsync the temp file's *bytes* before the rename, and the directory *entry* after — so the
+    // COR-9: fsync the temp file's *bytes* before the rename, and the directory *entry* after - so the
     // atomic rename survives power loss, not just process death. Without the fsyncs a `rename` can be
     // reordered before the data hits disk, exposing a torn/empty manifest that orphans the segments.
     {
@@ -364,7 +364,7 @@ mod tests {
     /// RFC-0004 §1 path-equivalence: rows sealed *directly* (the seal-direct backfill path) and the
     /// same rows sealed *after a redb round-trip* (the hot-then-seal path) yield byte-identical
     /// segments. `seal_range` is the one shared writer, so the two backfill paths are provably the
-    /// same bytes — the determinism claim the optimisation rests on.
+    /// same bytes - the determinism claim the optimisation rests on.
     #[test]
     fn seal_direct_matches_seal_via_hot_store() {
         use crate::store::Store;
@@ -375,11 +375,11 @@ mod tests {
             transfer(102, 0, "9"),
         ];
 
-        // Path A — direct: seal the decoded rows as-is.
+        // Path A - direct: seal the decoded rows as-is.
         let da = tempfile::tempdir().unwrap();
         seal_range(da.path(), &rows, 100, 102).unwrap();
 
-        // Path B — via hot store: write to redb, read the range back, then seal.
+        // Path B - via hot store: write to redb, read the range back, then seal.
         let db = tempfile::tempdir().unwrap();
         let store = Store::open(&db.path().join("hot.redb")).unwrap();
         for r in &rows {

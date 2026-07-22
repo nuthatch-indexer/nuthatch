@@ -1,11 +1,11 @@
 //! A single self-updating progress line for the one long wait on nuthatch's happy path: the
 //! from-deployment backfill. It answers the three questions a user staring at a cold start actually
-//! has — how far, how fast, how much longer — and ends on a crisp "caught up to tip".
+//! has - how far, how fast, how much longer - and ends on a crisp "caught up to tip".
 //!
 //! Two output modes, chosen by whether stderr is a terminal:
 //! - **TTY:** one carriage-returned line, redrawn ~8×/s. No scrollback spam.
 //! - **piped / systemd:** a throttled `tracing::info!` every ~15 s, so a journal gets a sane
-//!   heartbeat instead of either silence or a flood — and never a stray carriage return in a file.
+//!   heartbeat instead of either silence or a flood - and never a stray carriage return in a file.
 //!
 //! The reporter is pure presentation: it holds no lock the indexer needs and never touches stored
 //! state, so it can't perturb the deterministic core (non-negotiable 4). Timing uses `Instant`, so
@@ -28,10 +28,10 @@ pub struct Backfill {
     drew_line: bool,
 }
 
-/// Redraw cadence on a TTY — fast enough to feel live, slow enough not to spend the backfill
+/// Redraw cadence on a TTY - fast enough to feel live, slow enough not to spend the backfill
 /// drawing.
 const TTY_INTERVAL: Duration = Duration::from_millis(120);
-/// Log cadence when not a TTY — a heartbeat, not a flood.
+/// Log cadence when not a TTY - a heartbeat, not a flood.
 const LOG_INTERVAL: Duration = Duration::from_secs(15);
 
 impl Backfill {
@@ -65,7 +65,7 @@ impl Backfill {
             self.render_tty(block_reached);
         } else {
             tracing::info!(
-                "{} {:.1}% — block {} of {}, {} events, {} ev/s",
+                "{} {:.1}% - block {} of {}, {} events, {} ev/s",
                 self.label,
                 self.pct(block_reached),
                 block_reached,
@@ -85,13 +85,13 @@ impl Backfill {
         let eps = (self.events as f64 / secs) as u64;
         if caught_up {
             tracing::info!(
-                "✓ caught up to tip at block {block_reached} — {} events in {}, {eps} ev/s; now following",
+                "✓ caught up to tip at block {block_reached} - {} events in {}, {eps} ev/s; now following",
                 self.events,
                 fmt_dur(secs),
             );
         } else {
             tracing::info!(
-                "✓ {} done — {} events over blocks {}..={block_reached} in {}, {eps} ev/s",
+                "✓ {} done - {} events over blocks {}..={block_reached} in {}, {eps} ev/s",
                 self.label,
                 self.events,
                 self.from,
@@ -137,7 +137,7 @@ impl Backfill {
         self.events as f64 / self.start.elapsed().as_secs_f64().max(0.001)
     }
 
-    /// ETA from *block* rate, not event rate — it stays meaningful even when events are sparse (a
+    /// ETA from *block* rate, not event rate - it stays meaningful even when events are sparse (a
     /// wide-window backfill over millions of near-empty blocks still shows honest time-remaining).
     fn eta(&self, block_reached: u64) -> String {
         let span = self.to.saturating_sub(self.from).max(1);
@@ -145,7 +145,7 @@ impl Backfill {
         let secs = self.start.elapsed().as_secs_f64().max(0.001);
         let blocks_per_s = done as f64 / secs;
         if blocks_per_s <= 0.0 {
-            return "—".into();
+            return "-".into();
         }
         fmt_dur(span.saturating_sub(done) as f64 / blocks_per_s)
     }
@@ -191,7 +191,7 @@ mod tests {
     fn eta_is_dash_before_any_progress() {
         let b = Backfill::new("backfilling", 0, 1000);
         // No blocks done yet → no rate → no estimate.
-        assert_eq!(b.eta(0), "—");
+        assert_eq!(b.eta(0), "-");
     }
 
     #[test]

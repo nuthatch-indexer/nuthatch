@@ -1,5 +1,5 @@
-//! `nuthatch init` — resolve each contract's ABI and scaffold a nest (RFC-0001: N contracts).
-//! `nuthatch add` — resolve one more contract's ABI and grow an existing nest, no re-init.
+//! `nuthatch init` - resolve each contract's ABI and scaffold a nest (RFC-0001: N contracts).
+//! `nuthatch add` - resolve one more contract's ABI and grow an existing nest, no re-init.
 
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ pub async fn init(args: InitArgs) -> Result<()> {
     }
     // Chain identity: honour an explicit `--chain`, otherwise detect it. The first-run friction we
     // most want to delete is making the user know (and correctly spell) which chain their contract
-    // is on — so when they don't say, we go and find out.
+    // is on - so when they don't say, we go and find out.
     let chain = match &args.chain {
         Some(name) => chains::lookup(name).with_context(|| {
             format!("unknown chain '{name}' (try: mainnet, arbitrum-one, base)")
@@ -122,11 +122,11 @@ pub async fn init(args: InitArgs) -> Result<()> {
     Ok(())
 }
 
-/// `nuthatch add 0xAnother` — grow an existing nest with more contracts without re-`init`. This is
+/// `nuthatch add 0xAnother` - grow an existing nest with more contracts without re-`init`. This is
 /// the natural "one or many contracts" flow (RFC-0001): the chain, RPC endpoints, and screening
 /// config are already settled by `init`, so `add` only resolves each new contract's ABI, vendors it,
 /// appends it to `nuthatch.toml`, and regenerates the derived artifacts (schema.json + the AI
-/// surface). The next `dev` backfills the new contract from its own deployment block — the existing
+/// surface). The next `dev` backfills the new contract from its own deployment block - the existing
 /// contracts resume from their stored cursor, untouched.
 pub async fn add(args: AddArgs) -> Result<()> {
     let dir = PathBuf::from(&args.dir);
@@ -136,11 +136,11 @@ pub async fn add(args: AddArgs) -> Result<()> {
             dir.display()
         )
     })?;
-    // The chain is the nest's, already chosen at init — never re-detected. Adding a contract that
-    // lives on a different chain is a different nest (one cursor, one chain — non-negotiable).
+    // The chain is the nest's, already chosen at init - never re-detected. Adding a contract that
+    // lives on a different chain is a different nest (one cursor, one chain - non-negotiable).
     let chain = chains::lookup(&config.nest.chain).with_context(|| {
         format!(
-            "nest declares unknown chain '{}' — cannot resolve ABIs",
+            "nest declares unknown chain '{}' - cannot resolve ABIs",
             config.nest.chain
         )
     })?;
@@ -220,9 +220,9 @@ pub async fn add(args: AddArgs) -> Result<()> {
     Ok(())
 }
 
-/// `nuthatch schema` — regenerate the derived artifacts (`schema.json`, `llms.txt`, `semantic.toml`
+/// `nuthatch schema` - regenerate the derived artifacts (`schema.json`, `llms.txt`, `semantic.toml`
 /// footguns) from the current `nuthatch.toml`. The manual counterpart to what `init`/`add` do
-/// automatically: run it after hand-editing the config — notably adding a factory `[[templates]]` /
+/// automatically: run it after hand-editing the config - notably adding a factory `[[templates]]` /
 /// `[[factories]]`, which introduces the `{template}__{event}` tables and their `*_dec` columns that
 /// the auto path never saw. Idempotent: authored views and semantic descriptions are preserved.
 pub fn regen(args: crate::cli::SchemaArgs) -> Result<()> {
@@ -230,11 +230,11 @@ pub fn regen(args: crate::cli::SchemaArgs) -> Result<()> {
     let config = Config::load(&dir)
         .with_context(|| format!("no nest at '{}' (need a nuthatch.toml)", dir.display()))?;
     let n = write_nest_artifacts(&dir, &config.nest.chain, &config)?;
-    println!("✓ regenerated schema.json + AI surface from nuthatch.toml — {n} table(s)");
+    println!("✓ regenerated schema.json + AI surface from nuthatch.toml - {n} table(s)");
     Ok(())
 }
 
-/// Build the registry from the vendored ABIs and (re)write the derived artifacts — `schema.json` and
+/// Build the registry from the vendored ABIs and (re)write the derived artifacts - `schema.json` and
 /// the AI surface (`llms.txt` + the scaffolded skill). One source of truth: `init` and `add` both
 /// call this so the artifacts never drift from `nuthatch.toml`. Returns the table count.
 fn write_nest_artifacts(dir: &Path, chain_name: &str, config: &Config) -> Result<usize> {
@@ -251,11 +251,11 @@ fn write_nest_artifacts(dir: &Path, chain_name: &str, config: &Config) -> Result
     scaffold_ai_surface(dir, chain_name, &config.contracts, &schema)?;
 
     // The logic layer (RFC-0018 §1): scaffold `views/` with a commented, ready-to-uncomment starter so
-    // the authored-derivations layer is *discoverable* the moment you `init` — the happy path is
+    // the authored-derivations layer is *discoverable* the moment you `init` - the happy path is
     // unchanged (a directory of comments; the commented starter is a no-op that validates clean).
     scaffold_views(dir, &schema)?;
 
-    // The governed semantic layer (RFC-0016): generate `semantic.toml` from the registry — ABI-seeded
+    // The governed semantic layer (RFC-0016): generate `semantic.toml` from the registry - ABI-seeded
     // descriptions + derived footguns. On `add`, merge onto the existing file so authored descriptions
     // survive while the footguns are refreshed (init has no existing file, so it just writes fresh).
     let generated = crate::semantic::generate(&schema, &config.nest.name, chain_name);
@@ -275,16 +275,16 @@ fn write_nest_artifacts(dir: &Path, chain_name: &str, config: &Config) -> Result
 fn scaffold_views(dir: &Path, schema: &[crate::registry::TableSchema]) -> Result<()> {
     let views = dir.join("views");
     if views.exists() {
-        return Ok(()); // author already has a views/ — never clobber it
+        return Ok(()); // author already has a views/ - never clobber it
     }
     std::fs::create_dir_all(&views)
         .with_context(|| format!("cannot create {}", views.display()))?;
 
     std::fs::write(
         views.join("README.md"),
-        "# views/ — this nest's authored logic (RFC-0018 §1)\n\n\
+        "# views/ - this nest's authored logic (RFC-0018 §1)\n\n\
          Drop `*.sql` files here, each a `CREATE VIEW …` over your nest's tables (the live tip ∪ sealed\n\
-         history, one surface — recomputed per query, never materialised). Query a view by name with\n\
+         history, one surface - recomputed per query, never materialised). Query a view by name with\n\
          `nuthatch sql` or the MCP `sql` tool. Files load in sorted filename order (`10-…`, `20-…`), so\n\
          a later view can build on an earlier one. Describe what a view *means* in `semantic.toml` under\n\
          `[view.<name>]` so an agent sees it. A broken/drifted view fails `nuthatch check` loudly.\n",
@@ -297,14 +297,14 @@ fn scaffold_views(dir: &Path, schema: &[crate::registry::TableSchema]) -> Result
         .map(|t| (t.table.as_str(), t.alias.as_str()))
         .unwrap_or(("your__event", "your"));
     let starter = format!(
-        "-- views/10-example.sql — an authored derivation this nest computes. Uncomment to enable.\n\
+        "-- views/10-example.sql - an authored derivation this nest computes. Uncomment to enable.\n\
          --\n\
          -- Read-only SQL over your nest's tables (tip ∪ sealed history), recomputed per query. Query it\n\
          -- by name via `nuthatch sql` or the MCP; describe it in semantic.toml `[view.<name>]`.\n\
          --\n\
          -- Footguns (see the builder skill's views.md):\n\
          --   • reserved-word columns like \"from\"/\"to\" must be double-quoted\n\
-         --   • big-int columns are exact text — use the `<col>_dec` companion for SUM/AVG/compare\n\
+         --   • big-int columns are exact text - use the `<col>_dec` companion for SUM/AVG/compare\n\
          --\n\
          -- Example over this nest's `{table}` table:\n\
          --\n\
@@ -358,7 +358,7 @@ fn add_aliases(existing: &[Contract], provided: &[String], n: usize) -> Result<V
     Ok(out)
 }
 
-/// Initialise a nest from a published one — a git URL or a local directory — instead of resolving
+/// Initialise a nest from a published one - a git URL or a local directory - instead of resolving
 /// from addresses. The nest is self-contained (ABIs vendored, `nuthatch.toml` committed), so this
 /// clones/copies it and validates it: the toml parses at a supported schema version and the decode
 /// registry builds from the vendored ABIs. Publishing a nest is `git push`; consuming it is this.
@@ -390,7 +390,7 @@ fn init_from(source: &str, dir_arg: &str) -> Result<()> {
         copy_dir(&src, &target)?;
     }
 
-    // Validate: it must be a real nest — toml at a supported schema version, ABIs present + decodable.
+    // Validate: it must be a real nest - toml at a supported schema version, ABIs present + decodable.
     let config = Config::load(&target)
         .with_context(|| format!("'{}' is not a valid nuthatch nest", target.display()))?;
     let registry = crate::registry::DecodeRegistry::from_nest(&target, &config)
@@ -400,7 +400,7 @@ fn init_from(source: &str, dir_arg: &str) -> Result<()> {
         .context("nest declares invalid factory/template rules")?;
 
     println!(
-        "✓ nest '{}' ready — {} on {}, {} contract(s), {} table(s), {} anonymous event(s) skipped",
+        "✓ nest '{}' ready - {} on {}, {} contract(s), {} table(s), {} anonymous event(s) skipped",
         config.nest.name,
         source_basename(source),
         config.nest.chain,
@@ -410,7 +410,7 @@ fn init_from(source: &str, dir_arg: &str) -> Result<()> {
     );
     if !factories.is_empty() {
         println!(
-            "  factories: {} template(s), {} rule(s) — children discovered at runtime (RFC-0009)",
+            "  factories: {} template(s), {} rule(s) - children discovered at runtime (RFC-0009)",
             config.templates.len(),
             config.factories.len(),
         );
@@ -446,7 +446,7 @@ fn clone_repo(url: &str, target: &Path) -> Result<()> {
         .args(["clone", "--depth", "1", url])
         .arg(target)
         .status()
-        .context("failed to run `git` — is it installed and on PATH?")?;
+        .context("failed to run `git` - is it installed and on PATH?")?;
     if !status.success() {
         bail!("git clone of '{url}' failed");
     }
@@ -474,7 +474,7 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Well-known proxy implementation storage slots, tried in order — each holds the implementation
+/// Well-known proxy implementation storage slots, tried in order - each holds the implementation
 /// address *directly*:
 /// - EIP-1967: keccak256("eip1967.proxy.implementation") − 1
 /// - EIP-1822 (UUPS "Proxiable"): keccak256("PROXIABLE")
@@ -487,17 +487,17 @@ const PROXY_IMPL_SLOTS: &[&str] = &[
 
 /// EIP-1967 beacon slot: keccak256("eip1967.proxy.beacon") − 1. A *beacon* proxy stores a beacon
 /// address here (not the implementation); the implementation comes from calling `implementation()` on
-/// that beacon — a common shape for factory-deployed proxies that share one upgradeable logic contract.
+/// that beacon - a common shape for factory-deployed proxies that share one upgradeable logic contract.
 const PROXY_BEACON_SLOT: &str =
     "0xa3f0ad74e5423aebfd80d3ef4346578335a9a72aeaee59ff6cb3582b35133d50";
 
-/// Selector for `implementation()` — `keccak256("implementation()")[..4]`. Both a beacon and an
+/// Selector for `implementation()` - `keccak256("implementation()")[..4]`. Both a beacon and an
 /// EIP-897 delegate proxy expose the implementation this way.
 const IMPLEMENTATION_SELECTOR: &str = "0x5c60da1b";
 
 /// Resolve the ABI to index events with. For a proxy (e.g. USDC), events emit from the proxy address
 /// but use the *implementation's* event definitions, so resolve the implementation's ABI. Falls back
-/// to the address's own ABI if it isn't a proxy or the implementation can't resolve. Init-time only —
+/// to the address's own ABI if it isn't a proxy or the implementation can't resolve. Init-time only -
 /// the resolved ABI is vendored and frozen, so the deterministic decode path never depends on a live
 /// proxy read.
 async fn resolve_abi(rpc: &RpcClient, chain_id: u64, address: &str) -> Result<serde_json::Value> {
@@ -522,7 +522,7 @@ async fn resolve_implementation(rpc: &RpcClient, address: &str) -> Option<String
             }
         }
     }
-    // Beacon proxy: the implementation is one hop further — the proxy points at a beacon, and the
+    // Beacon proxy: the implementation is one hop further - the proxy points at a beacon, and the
     // beacon answers `implementation()`. Both the stored word and the call return are 32-byte,
     // left-padded addresses, so `impl_from_slot` decodes either.
     if let Ok(word) = rpc.get_storage_at(address, PROXY_BEACON_SLOT).await {
@@ -557,7 +557,7 @@ fn resolve_aliases(provided: &[String], n: usize) -> Result<Vec<String>> {
     }
     if provided.len() != n {
         bail!(
-            "{} aliases for {n} address(es) — provide one alias per address or none",
+            "{} aliases for {n} address(es) - provide one alias per address or none",
             provided.len()
         );
     }
@@ -584,7 +584,7 @@ fn nest_name(dir: &Path) -> String {
 }
 
 /// Binary-search the deployment block: smallest block where the contract has code.
-/// ~log2(tip) ≈ 25 `eth_getCode` calls. Best-effort — the caller tolerates failure.
+/// ~log2(tip) ≈ 25 `eth_getCode` calls. Best-effort - the caller tolerates failure.
 async fn detect_deploy_block(rpc: &RpcClient, address: &str, tip: u64) -> Result<u64> {
     if is_empty_code(&rpc.get_code(address, tip).await?) {
         bail!("no code at tip");
@@ -607,7 +607,7 @@ fn is_empty_code(code: &str) -> bool {
 
 /// Detect which registered chain a contract lives on by probing `eth_getCode` on each chain's
 /// default endpoints in parallel. We probe the *first* address (a nest's contracts are expected to
-/// share a chain — one cursor, one chain, per the non-negotiables) and pick, in registry order, the
+/// share a chain - one cursor, one chain, per the non-negotiables) and pick, in registry order, the
 /// first chain with bytecode there. Best-effort per chain: an unreachable endpoint reads as "not
 /// here", never a hard failure, so one flaky RPC can't veto detection.
 async fn detect_chain(addresses: &[String]) -> Result<&'static chains::Chain> {
@@ -642,7 +642,7 @@ async fn detect_chain(addresses: &[String]) -> Result<&'static chains::Chain> {
         [first, rest @ ..] => {
             let others: Vec<&str> = rest.iter().map(|c| c.name).collect();
             println!(
-                "  ✓ found on {} (also deployed on {} — pass --chain to pick another)",
+                "  ✓ found on {} (also deployed on {} - pass --chain to pick another)",
                 first.name,
                 others.join(", ")
             );
@@ -665,7 +665,7 @@ fn scaffold_ai_surface(
         .iter()
         .map(|t| {
             let cols: Vec<String> = t.columns.iter().map(|c| c.name.clone()).collect();
-            format!("- `{}` — {} ({})\n", t.table, t.event, cols.join(", "))
+            format!("- `{}` - {} ({})\n", t.table, t.event, cols.join(", "))
         })
         .collect();
     let llms = format!(
@@ -695,14 +695,14 @@ fn scaffold_ai_surface(
     let skill = format!(
         "---\n\
          name: nuthatch\n\
-         description: Query this self-hosted nuthatch nest on {chain} — decoded events, balances, \
+         description: Query this self-hosted nuthatch nest on {chain} - decoded events, balances, \
          and read-only SQL. Use when asked about on-chain activity for these contracts.\n\
          ---\n\
          \n\
          # Querying the nuthatch nest\n\
          \n\
          Contracts indexed on {chain}:\n{list}\n\
-         Data is local — never call an external API for it.\n\
+         Data is local - never call an external API for it.\n\
          \n\
          ## Preferred: MCP\n\
          If a `nuthatch` MCP server is configured, use its tools. Call `schema` first to learn the\n\

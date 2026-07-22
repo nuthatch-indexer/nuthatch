@@ -40,7 +40,7 @@ nuthatch dev --seal-direct --concurrency 8
 ```
 
 Keep `--concurrency` at 1 against a single public endpoint (high concurrency to one host can stall the
-runtime); use 8–16 only when you have multiple `rpc_urls` or your own node. For a *sparse* contract over
+runtime); use 8-16 only when you have multiple `rpc_urls` or your own node. For a *sparse* contract over
 a long range, widen the getLogs window: `--window 50000`.
 
 ## Factories / dynamic contracts
@@ -58,7 +58,7 @@ factory events).
 
 ## Publish and consume a nest (the deploy unit)
 
-A nest is a self-contained, content-addressed deploy unit — ABIs vendored, config + semantics pinned.
+A nest is a self-contained, content-addressed deploy unit - ABIs vendored, config + semantics pinned.
 
 ```sh
 nuthatch nest bundle .                     # → a <name>-<hash>.bundle file; prints the content-address
@@ -67,7 +67,7 @@ nuthatch nest load ./my-nest.bundle        # verifies every file hash + re-deriv
 nuthatch nest load https://host/my-nest.bundle --expect <hash>
 ```
 
-`load` fails loudly if the inputs don't reproduce the manifest's registry hash — same inputs + same
+`load` fails loudly if the inputs don't reproduce the manifest's registry hash - same inputs + same
 generator → same decode, verifiably. `semantic.toml` travels in the bundle and is hash-checked too.
 
 You can also `init --from <git-url|dir>` to start from a published nest instead of an address.
@@ -75,7 +75,7 @@ You can also `init --from <git-url|dir>` to start from a published nest instead 
 ## Run many nests in one process (a roost)
 
 A *roost* hosts several nests **on the same chain** behind one API, sharing one cursor and one getLogs
-per window — N nests for roughly one nest's RPC cost. Create a `roost.toml` (see config-reference) and:
+per window - N nests for roughly one nest's RPC cost. Create a `roost.toml` (see config-reference) and:
 
 ```sh
 nuthatch roost dev --dir .            # serves /nests + each nest under /<name>/…
@@ -98,7 +98,7 @@ compact results with a provenance stamp. Fully offline; nothing phones home.
 
 ## Run it in production
 
-`dev` is the serve command. Put it under systemd or Docker and a reverse proxy — copy-paste recipes are
+`dev` is the serve command. Put it under systemd or Docker and a reverse proxy - copy-paste recipes are
 in [`docs/operators.md`](https://github.com/nuthatch-indexer/nuthatch/blob/main/docs/operators.md).
 Off-localhost, set `NUTHATCH_ADMIN_TOKEN` and bind behind a gateway (the `/sql` guards bound *how much*,
-never *who* — auth is the operator's layer).
+never *who* - auth is the operator's layer).

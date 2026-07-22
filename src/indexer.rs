@@ -1,4 +1,4 @@
-//! `nuthatch dev` — the loop that makes it alive. Poll logs → decode → store, and serve the API
+//! `nuthatch dev` - the loop that makes it alive. Poll logs → decode → store, and serve the API
 //! concurrently. One process, one cursor, one failure boundary (per the standing brief).
 
 use anyhow::{Context, Result};
@@ -34,9 +34,9 @@ const START_BLOCK_KEY: &str = "start_block";
 /// Cold-start origin when a nest declares neither `start_block`s nor an explicit `--backfill`.
 const DEFAULT_BACKFILL: u64 = 5_000;
 
-/// `nuthatch dev` — the RPC front-end. Builds an RPC `Source` from the nest's `rpc_urls` and runs
+/// `nuthatch dev` - the RPC front-end. Builds an RPC `Source` from the nest's `rpc_urls` and runs
 /// the shared pipeline. The colocated-reth front-end (`nuthatch-node`, RFC-0003) builds an ExEx
-/// `Source` instead and calls [`run`] directly — same core, different tip source.
+/// `Source` instead and calls [`run`] directly - same core, different tip source.
 pub async fn dev(args: DevArgs) -> Result<()> {
     let dir = PathBuf::from(&args.dir);
     let config = Config::load(&dir)?;
@@ -71,7 +71,7 @@ pub async fn dev(args: DevArgs) -> Result<()> {
 }
 
 /// Interpret a finished background task's join result: a clean `Ok(())`, an indexing/serving error, or
-/// a panic/cancellation — labelled for the operator (deadlock-review C1: a dead task must surface, never
+/// a panic/cancellation - labelled for the operator (deadlock-review C1: a dead task must surface, never
 /// be served over).
 fn join_task(what: &str, joined: Result<Result<()>, tokio::task::JoinError>) -> Result<()> {
     match joined {
@@ -86,7 +86,7 @@ const UPGRADE_POLL: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// `nuthatch nest upgrade` (RFC-0020 slice 2b): hot-upgrade a running nest to a **compatible** new
 /// version with zero downtime. Classify old→new; a *breaking* change is refused (it needs a new
-/// endpoint — slice 3 — not a hot swap). For a compatible change: serve the OLD version immediately,
+/// endpoint - slice 3 - not a hot swap). For a compatible change: serve the OLD version immediately,
 /// index the NEW version concurrently against the same chain, and atomically flip the endpoint to it
 /// once caught up, then retire the old indexer. Two hot stores run during the overlap (the density cost
 /// accepted for decode-changed generality). The consumer's endpoint never changes.
@@ -110,12 +110,12 @@ pub async fn upgrade(
     if breaking {
         tracing::info!(
             breaking = verdict.breaking_changes().count(),
-            "breaking update — serving the new version on a new endpoint alongside the deprecated old"
+            "breaking update - serving the new version on a new endpoint alongside the deprecated old"
         );
     } else {
         tracing::info!(
             additive = verdict.additive_changes().count(),
-            "compatible update — hot-upgrading with zero downtime"
+            "compatible update - hot-upgrading with zero downtime"
         );
     }
     // The new version is served under `/<new_endpoint>` in the breaking case; normalized to one leading
@@ -125,7 +125,7 @@ pub async fn upgrade(
         new_endpoint.trim_start_matches('/').trim_end_matches('/')
     );
 
-    // Slice 4 — for a compatible update whose decode is unchanged, mount the old version's sealed
+    // Slice 4 - for a compatible update whose decode is unchanged, mount the old version's sealed
     // segments into the new nest so it resumes *past* that range instead of re-indexing history (the
     // true no-re-index optimization). A changed decode falls back to a normal index. Done before either
     // indexer opens the stores (redb is single-writer).
@@ -137,11 +137,11 @@ pub async fn upgrade(
             } => tracing::info!(
                 sealed_through,
                 segments,
-                "reusing the old version's sealed segments — the new version resumes past block \
+                "reusing the old version's sealed segments - the new version resumes past block \
                  {sealed_through} instead of re-indexing history"
             ),
             crate::lifecycle::ReuseOutcome::NotReusable(why) => {
-                tracing::info!("segment reuse skipped: {why} — the new version will index history")
+                tracing::info!("segment reuse skipped: {why} - the new version will index history")
             }
         }
     }
@@ -190,7 +190,7 @@ pub async fn upgrade(
     let new_alert = new_rt.alert_worker;
 
     let result = if breaking {
-        // Slice 3 — serve BOTH on distinct endpoints, no flip: old stays at root (deprecated), new
+        // Slice 3 - serve BOTH on distinct endpoints, no flip: old stays at root (deprecated), new
         // under `new_prefix`. Both persist; the operator sunsets the old when downstream have migrated.
         let new_shared = serve::SharedNest::new(new_state);
         let mut serve_task = {
@@ -207,7 +207,7 @@ pub async fn upgrade(
         serve_task.abort();
         r
     } else {
-        // Slice 2b — serve old, index new, atomically flip once caught up, retire old.
+        // Slice 2b - serve old, index new, atomically flip once caught up, retire old.
         let mut serve_task = {
             let shared = old_shared.clone();
             tokio::spawn(async move { serve::run_shared(&listen, shared).await })
@@ -221,17 +221,17 @@ pub async fn upgrade(
                     .await
             })
         };
-        // Phase 1 — old + new both live. Any task dying fails loudly (C1). The flip completing → phase 2.
+        // Phase 1 - old + new both live. Any task dying fails loudly (C1). The flip completing → phase 2.
         let r = tokio::select! {
             r = &mut serve_task => join_task("serving", r),
             j = &mut ingest_old => join_task("old indexing", j),
             j = &mut ingest_new => join_task("new indexing", j),
             f = &mut flip_task => match f {
                 Ok(Ok(())) => {
-                    tracing::info!("hot-upgrade flip complete — retiring the old version's indexer");
+                    tracing::info!("hot-upgrade flip complete - retiring the old version's indexer");
                     // The old indexer is now intentionally retired; its cancellation is NOT a failure.
                     ingest_old.abort();
-                    // Phase 2 — only the new version + serving remain.
+                    // Phase 2 - only the new version + serving remain.
                     tokio::select! {
                         r = &mut serve_task => join_task("serving", r),
                         j = &mut ingest_new => join_task("new indexing", j),
@@ -260,7 +260,7 @@ pub async fn upgrade(
 /// A single nest's contribution to a running process: its serve state plus the background tasks that
 /// keep it fed (the ingestion loop, and an optional alert/webhook delivery worker). Built by
 /// [`spawn_nest`]; consumed either by [`run`] (one nest, served at the root) or by the roost
-/// (RFC-0012 — many nests, each served under a `/<name>/…` prefix behind one listener).
+/// (RFC-0012 - many nests, each served under a `/<name>/…` prefix behind one listener).
 pub struct NestRuntime {
     pub state: serve::AppState,
     /// The ingestion loop task. Its `Result` is `Ok` only on a clean shutdown; an error or panic here
@@ -289,7 +289,7 @@ pub async fn await_catchup_and_flip(
             tracing::info!(
                 ?old_head,
                 ?new_head,
-                "new version caught up — hot-swapping the served backing (RFC-0020)"
+                "new version caught up - hot-swapping the served backing (RFC-0020)"
             );
             shared.swap(new_state);
             return Ok(());
@@ -298,7 +298,7 @@ pub async fn await_catchup_and_flip(
     }
 }
 
-/// Run the indexing pipeline against any `Source` and serve the API — the source-agnostic entry both
+/// Run the indexing pipeline against any `Source` and serve the API - the source-agnostic entry both
 /// front-ends share. Decode → hot store → seal → IVM → serve is identical regardless of whether tips
 /// arrive by RPC polling or in-process from a reth ExEx.
 #[allow(clippy::too_many_arguments)]
@@ -336,7 +336,7 @@ pub async fn run(
     .await?;
 
     // The indexer and the API share a fate. If indexing dies (an error or a panic) the process must
-    // not keep serving stale data as if healthy — a silent failure (deadlock-review finding C1). Select
+    // not keep serving stale data as if healthy - a silent failure (deadlock-review finding C1). Select
     // over both: whichever ends first decides the exit, and an indexing error/panic propagates out.
     let result = tokio::select! {
         r = serve::run(&listen, state) => r,
@@ -367,7 +367,7 @@ pub fn admin_enabled(no_admin: bool, listen: &str) -> bool {
 }
 
 /// The token an admin-UI request must present, given the bind (SEC-5). `None` on a localhost bind (the
-/// UI is open there); `Some(token)` off-localhost (the request must carry `?token=…`) — actually
+/// UI is open there); `Some(token)` off-localhost (the request must carry `?token=…`) - actually
 /// checking it per request, rather than the env var merely *enabling* the route.
 pub fn admin_required_token(admin_enabled: bool, listen: &str) -> Option<String> {
     if admin_enabled && !serve::is_localhost(listen) {
@@ -378,7 +378,7 @@ pub fn admin_required_token(admin_enabled: bool, listen: &str) -> Option<String>
 }
 
 /// Build one nest's runtime: open its store, build its decode registry + IVM views, spawn its
-/// ingestion loop and delivery worker, and assemble its serve state — everything *except* binding a
+/// ingestion loop and delivery worker, and assemble its serve state - everything *except* binding a
 /// listener. The serving decision (root vs a `/<name>/…` prefix, one nest vs many) belongs to the
 /// caller. Per-nest isolation (own store, own segments, own views) is the CLAUDE.md non-negotiable a
 /// roost preserves by calling this once per nest.
@@ -419,14 +419,14 @@ pub async fn spawn_nest(
     })
 }
 
-/// Case-insensitive membership: is `addr` in `addresses`? The demux + dedup primitive — a provider may
+/// Case-insensitive membership: is `addr` in `addresses`? The demux + dedup primitive - a provider may
 /// return checksummed addresses while our filter list is lowercase hex, so never compare raw.
 fn addr_in(addresses: &[String], addr: &str) -> bool {
     addresses.iter().any(|a| a.eq_ignore_ascii_case(addr))
 }
 
 /// The roost demux decision (RFC-0012 §2). A **static** nest (non-empty `addresses`) owns a log by
-/// emitting address; a **factory** nest (empty `addresses` — topic0-only) owns it by topic0, so it
+/// emitting address; a **factory** nest (empty `addresses` - topic0-only) owns it by topic0, so it
 /// catches its factory-creation events and its runtime-discovered children regardless of their address.
 /// Pure so it's testable without a `NestIngest`.
 fn log_owned(addresses: &[String], topic0s: &[String], log: &crate::rpc::Log) -> bool {
@@ -438,14 +438,14 @@ fn log_owned(addresses: &[String], topic0s: &[String], log: &crate::rpc::Log) ->
 }
 
 /// The union `getLogs` filter across all mounted nests: the case-insensitively-deduped concatenation of
-/// every nest's address list and topic0 list. One fetch feeds them all (RFC-0012 §2 — the density win:
+/// every nest's address list and topic0 list. One fetch feeds them all (RFC-0012 §2 - the density win:
 /// N nests cost one nest's worth of RPC chatter, not N). Takes the raw `(addresses, topic0s)` of each
 /// nest so it's testable without constructing a `NestIngest`.
 ///
 /// **Factory nests force topic0-only (RFC-0012 slice 2b).** A factory nest has an empty address filter
 /// (children are discovered at runtime, so it must see all addresses matching its topics). An empty
 /// address list in `getLogs` means "any address", so if *any* mounted nest is a factory the whole union
-/// fetch drops its address filter and goes topic0-only — the factory nest then sees every candidate,
+/// fetch drops its address filter and goes topic0-only - the factory nest then sees every candidate,
 /// and static co-tenants over-fetch but demux back to exactly their own logs (`NestIngest::owns`),
 /// keeping per-nest output byte-identical to solo.
 fn union_filter<'a>(
@@ -479,11 +479,11 @@ fn union_filter<'a>(
 
 /// The shared cursor (RFC-0012 slice 2a): one poll drives every mounted nest. One `source.tip()`, one
 /// union `getLogs` per window, then each returned log is demuxed to the nest(s) that own it and run
-/// through the SAME [`NestIngest::process_window`] a solo `dev` uses — so per-nest tables are
+/// through the SAME [`NestIngest::process_window`] a solo `dev` uses - so per-nest tables are
 /// byte-identical to running that nest alone. Backfill stays per-nest (each `prepare`s its own history
 /// first); the cursor only couples nests at the tip. Reorg is detected ONCE at the shared boundary and
 /// fanned out to every nest (slice 3). Factory nests are supported (slice 2b): if any is mounted the
-/// union fetch goes topic0-only and each nest demuxes by `owns` — address for static, topic0 for factory.
+/// union fetch goes topic0-only and each nest demuxes by `owns` - address for static, topic0 for factory.
 async fn roost_index_loop(
     source: Arc<dyn Source>,
     mut nests: Vec<NestIngest>,
@@ -496,7 +496,7 @@ async fn roost_index_loop(
         return Ok(());
     }
     // Phase 0, per nest: each nest backfills its own history to near-tip independently (tip-only
-    // coupling — the shared cursor never entangles backfill windows). Each returns its own start cursor.
+    // coupling - the shared cursor never entangles backfill windows). Each returns its own start cursor.
     let mut nexts: Vec<u64> = Vec::with_capacity(nests.len());
     for nest in &mut nests {
         let next = nest
@@ -524,7 +524,7 @@ async fn roost_index_loop(
 
         // Shared reorg detection + fan-out (RFC-0012 slice 3). A reorg is a chain event every nest at
         // the tip is exposed to identically, and all caught-up nests checkpoint the same boundaries with
-        // the same hashes — so detect ONCE, at the most-caught-up nest's boundary, then fan the rollback
+        // the same hashes - so detect ONCE, at the most-caught-up nest's boundary, then fan the rollback
         // out to every nest. This is one detection (a handful of block-hash calls) instead of N, and one
         // observable reorg boundary. `rollback_reorg` is a no-op for any nest already at/below the fork
         // (a still-backfilling nest below finality can't be affected), so fanning to all is safe.
@@ -567,7 +567,7 @@ async fn roost_index_loop(
                 // Fan-out: hand each nest exactly the logs it owns within its own un-processed range,
                 // through the same per-window path a solo nest runs. A nest already past this window is
                 // skipped; a nest with zero owned logs still advances + checkpoints + seals (identical
-                // to solo — a window with no matching logs still moves the cursor).
+                // to solo - a window with no matching logs still moves the cursor).
                 for (i, nest) in nests.iter_mut().enumerate() {
                     if nexts[i] > to {
                         continue;
@@ -580,7 +580,7 @@ async fn roost_index_loop(
                     // `Some(_)` → committed, advance this nest past the window. `None` → timestamps were
                     // unavailable, so leave its cursor put: `global_next` (the min) stays here, the next
                     // iteration re-fetches, and this nest retries while nests that did advance simply
-                    // process the forward remainder — never re-processing.
+                    // process the forward remainder - never re-processing.
                     if nest
                         .process_window(source.as_ref(), &nest_logs, nexts[i], to, tip)
                         .await?
@@ -659,7 +659,7 @@ pub async fn spawn_roost(
 
 /// Build one nest's runtime state *without* starting the tip loop: open its store, build its decode
 /// registry + IVM views, run the warm-restart rebuilds, and assemble both the [`NestIngest`] the
-/// ingestion loop drives and the [`serve::AppState`] the API serves — the two sharing the same view
+/// ingestion loop drives and the [`serve::AppState`] the API serves - the two sharing the same view
 /// handles (the API must see the same views the loop feeds). Also spawns the optional alert/webhook
 /// delivery worker, and returns the effective `eth_getLogs` window. Spawning the ingestion loop is
 /// the caller's job ([`spawn_nest`] today; a roost driver tomorrow, RFC-0012). Per-nest isolation
@@ -687,7 +687,7 @@ async fn build_nest(
 
     // Startup integrity pass (0.5.x hardening): quarantine any sealed segment whose bytes no longer
     // hash to their content address (disk corruption / tampering) before the view rebuild below scans
-    // them. A corrupt segment reduces a table's cold data, loudly — it never crash-loops the node.
+    // them. A corrupt segment reduces a table's cold data, loudly - it never crash-loops the node.
     if let Err(e) = seal::verify_and_quarantine(&dir) {
         tracing::warn!("segment integrity check failed (continuing): {e:#}");
     }
@@ -702,7 +702,7 @@ async fn build_nest(
             labels.len()
         );
     }
-    // The exposure view joins transfers against the labeled set — with no labels it can only ever be
+    // The exposure view joins transfers against the labeled set - with no labels it can only ever be
     // empty, so don't spend a DBSP circuit + dedicated thread on it (deadlock-review finding L10).
     let exposure = ExposureView::start(!labels.is_empty())?;
     // Optional live sanctions screening (RFC-0008 C2). Absent unless the nest configures
@@ -718,7 +718,7 @@ async fn build_nest(
     // (rebuilt on restart like balances/exposure).
     let threshold = config.flags.threshold_amount();
     let velocity_cfg = config.flags.velocity();
-    // Only fed when a velocity flag is configured — skip its circuit + thread otherwise (L10).
+    // Only fed when a velocity flag is configured - skip its circuit + thread otherwise (L10).
     let velocity = VelocityView::start(velocity_cfg.is_some())?;
     if threshold.is_some() || velocity_cfg.is_some() {
         tracing::info!("flags enabled: threshold={threshold:?}, velocity={velocity_cfg:?}");
@@ -743,7 +743,7 @@ async fn build_nest(
     }
 
     // Factory rules (RFC-0009): validated at load. A factory nest discovers child contracts at
-    // runtime, so the tip loop fetches topic0-only (empty address filter) — a child created and
+    // runtime, so the tip loop fetches topic0-only (empty address filter) - a child created and
     // traded in the same block is then already in hand, no extra RPC.
     let factory = {
         let fs = FactorySet::build(config)?;
@@ -751,7 +751,7 @@ async fn build_nest(
             None
         } else {
             tracing::info!(
-                "factory nest: {} template(s), {} rule(s) — topic0-only tip fetch, children discovered at runtime",
+                "factory nest: {} template(s), {} rule(s) - topic0-only tip fetch, children discovered at runtime",
                 config.templates.len(),
                 config.factories.len()
             );
@@ -797,18 +797,18 @@ async fn build_nest(
     );
 
     // Governed semantic layer (RFC-0016): if `semantic.toml` describes a table/column the registry
-    // doesn't have, the semantics are stale — worse than none. Warn loudly at startup.
+    // doesn't have, the semantics are stale - worse than none. Warn loudly at startup.
     if let Ok(Some(sem)) = crate::semantic::load(&dir) {
         for w in crate::semantic::drift(&registry.schema(), &sem) {
             tracing::warn!("semantic.toml drift: {w}");
         }
     }
-    // Authored views (RFC-0018 §1): a broken/drifted view no longer vanishes silently — it's a loud
+    // Authored views (RFC-0018 §1): a broken/drifted view no longer vanishes silently - it's a loud
     // startup warning (with a fuzzy-matched fix hint), and a `nuthatch check` failure. The view still
     // loads fault-isolated (a bad one never disables its siblings or the query surface).
     for issue in crate::analytics::validate_nest_views(&dir, &registry.schema()) {
         match &issue.hint {
-            Some(h) => tracing::warn!("view {} failed to load: {} — {h}", issue.file, issue.error),
+            Some(h) => tracing::warn!("view {} failed to load: {} - {h}", issue.file, issue.error),
             None => tracing::warn!("view {} failed to load: {}", issue.file, issue.error),
         }
     }
@@ -817,7 +817,7 @@ async fn build_nest(
     // deployment); otherwise a cold start falls back to the `--backfill` tip offset.
     let start_block = config.contracts.iter().filter_map(|c| c.start_block).min();
 
-    // Optional alert sinks (RFC-0008 C5) + user webhooks (RFC-0010 Part B) — two producers, one
+    // Optional alert sinks (RFC-0008 C5) + user webhooks (RFC-0010 Part B) - two producers, one
     // shared delivery engine. The worker drains the durable outbox on its own task, decoupled from
     // indexing, so a slow/dead endpoint never blocks the loop.
     let router = Arc::new(alerts::AlertRouter::new(config.alerts.clone()));
@@ -839,7 +839,7 @@ async fn build_nest(
     // Group the per-nest state the loop owns and mutates into one struct, so a roost can drive many
     // nests from one cursor (RFC-0012). `source` stays shared and borrowed, not owned; `children`
     // starts empty (it is rebuilt/grown by `prepare`). The view handles are cloned here and shared
-    // with the `AppState` below — the API must see the same views the loop feeds.
+    // with the `AppState` below - the API must see the same views the loop feeds.
     let nest = NestIngest {
         dir: dir.clone(),
         store: store.clone(),
@@ -901,22 +901,22 @@ async fn build_nest(
     Ok((nest, app_state, alert_worker, window))
 }
 
-/// Batch size (rows) at which `backfill_direct` flushes a sealed segment — bounds RSS during a
+/// Batch size (rows) at which `backfill_direct` flushes a sealed segment - bounds RSS during a
 /// from-history backfill regardless of how long the range is.
 const SEAL_DIRECT_BATCH: usize = 20_000;
 
 /// Above this many discovered children, the factory backfill flips from an address-list filter to a
-/// topic0-only fetch with local registry-lookup filtering (RFC-0009 §4) — providers cap address-list
+/// topic0-only fetch with local registry-lookup filtering (RFC-0009 §4) - providers cap address-list
 /// size, and a huge list is slower than fetching by topic0 and discarding non-children locally.
 const FACTORY_FLIP_THRESHOLD: usize = 500;
 
 /// Stream a *finalized* block range straight to sealed Parquet, bypassing the hot store entirely
 /// (RFC-0004 §1): decode → buffered rows → content-addressed segments. No redb write, no read-back,
-/// no prune — the churn a from-history backfill otherwise pays for every historical row. Rows carry
+/// no prune - the churn a from-history backfill otherwise pays for every historical row. Rows carry
 /// the same implicit columns (incl. `block_timestamp`) as the hot path and are sealed via the *same*
 /// [`seal::seal_range`], so a given range yields byte-identical segments regardless of path (the
 /// determinism guarantee, asserted in seal's path-equivalence test). The bounded buffer caps RSS by
-/// construction. Only valid for ranges already past finality — there is no reorg risk to roll back.
+/// construction. Only valid for ranges already past finality - there is no reorg risk to roll back.
 /// Returns the number of rows sealed.
 #[allow(clippy::too_many_arguments)]
 pub async fn backfill_direct(
@@ -934,7 +934,7 @@ pub async fn backfill_direct(
     let mut next = from;
     let mut total = 0u64;
     // Adaptively size the getLogs range around the target response budget (RFC-0004 §2), starting
-    // from the chain's default window — so dense and sparse ranges self-tune and provider result
+    // from the chain's default window - so dense and sparse ranges self-tune and provider result
     // caps are handled by shrink-and-retry rather than a hard failure.
     let mut chunker = AdaptiveWindow::for_window(window);
     while next <= to {
@@ -990,11 +990,11 @@ pub async fn backfill_direct(
     Ok(total)
 }
 
-/// The error context when a single block's logs exceed a provider's `getLogs` result cap — it can't be
+/// The error context when a single block's logs exceed a provider's `getLogs` result cap - it can't be
 /// split or shrunk further, so the backfill/tip loop stops loudly instead of retrying forever (H3).
 fn single_block_over_cap(block: u64) -> String {
     format!(
-        "block {block} alone exceeds the provider's getLogs result cap — use a provider with a \
+        "block {block} alone exceeds the provider's getLogs result cap - use a provider with a \
          higher/no cap"
     )
 }
@@ -1037,7 +1037,7 @@ const BACKFILL_RETRY_BASE: std::time::Duration = std::time::Duration::from_milli
 
 /// Retry a transient RPC operation with capped exponential backoff. A single attempt already fails
 /// over across endpoints ([`RpcClient::call`]); this covers the case where *every* endpoint is briefly
-/// unavailable at once — a shared rate-limit or a provider blip (e.g. a 403 from one host while the
+/// unavailable at once - a shared rate-limit or a provider blip (e.g. a 403 from one host while the
 /// others throttle under concurrency). Without it a single such window aborts the whole seal-direct
 /// backfill; with it the window waits and retries, matching the tip loop's resilience. `base` is
 /// parameterised so tests can pass `Duration::ZERO`.
@@ -1074,7 +1074,7 @@ where
 /// error straight through** so the caller's own window-shrink logic handles it. The factory backfill
 /// needs this because its cap strategy is an outer shrink (not the pipelined path's internal split):
 /// "too many results" ⇒ shrink the window, "endpoint down" ⇒ back off and retry. Without it a single
-/// transient RPC blip (a 521, an all-endpoints rate-limit) aborts a long factory backfill mid-run —
+/// transient RPC blip (a 521, an all-endpoints rate-limit) aborts a long factory backfill mid-run -
 /// exactly what building the Uniswap-v3 nest surfaced.
 async fn logs_with_retry(
     source: &dyn Source,
@@ -1087,7 +1087,7 @@ async fn logs_with_retry(
     loop {
         match source.logs(addresses, topic0s, from, to).await {
             Ok(l) => return Ok(l),
-            // A result cap is not transient — hand it back so the caller shrinks the window.
+            // A result cap is not transient - hand it back so the caller shrinks the window.
             Err(e) if chunker::is_result_too_large(&e) => return Err(e),
             Err(e) if attempt >= BACKFILL_RETRY_ATTEMPTS => {
                 return Err(e).with_context(|| {
@@ -1108,7 +1108,7 @@ async fn logs_with_retry(
 
 /// Concurrent-fetch variant of [`backfill_direct`]: up to `concurrency` window fetches are in flight
 /// at once (overlapping the RPC round-trip latency that dominates once the storage path is cheap),
-/// while results are consumed strictly **in block order** — so the buffered rows, the batch
+/// while results are consumed strictly **in block order** - so the buffered rows, the batch
 /// boundaries, and therefore the sealed segments are identical to the sequential path. `buffered`
 /// preserves input order, which is what makes concurrency safe for content-addressed sealing.
 #[allow(clippy::too_many_arguments)]
@@ -1122,11 +1122,11 @@ pub async fn backfill_direct_pipelined(
     to: u64,
     window: u64,
     concurrency: usize,
-    // Called after each segment seals, with the highest block now durably sealed — the caller
+    // Called after each segment seals, with the highest block now durably sealed - the caller
     // persists it as a resume watermark so a mid-backfill failure resumes here instead of restarting
     // from `from` (which would re-fetch, and on an adaptive path re-seal, already-sealed ranges).
     mut on_seal: impl FnMut(u64) -> Result<()>,
-    // Called per completed window with (block reached, rows decoded) — drives the live progress line
+    // Called per completed window with (block reached, rows decoded) - drives the live progress line
     // (RFC-0015 slice 3). Fires every window, so a sparse range still shows honest block-position
     // movement between the (rare) seals. Pure presentation; must not touch stored state.
     mut on_progress: impl FnMut(u64, u64),
@@ -1142,7 +1142,7 @@ pub async fn backfill_direct_pipelined(
     }
 
     // Each window future fetches logs + timestamps and returns its decoded rows as JSON. Borrows
-    // (`source`, `registry`, filters) are shared across the concurrent futures — fine, they run on
+    // (`source`, `registry`, filters) are shared across the concurrent futures - fine, they run on
     // one task; `buffered` yields them back in window order.
     let mut stream = futures::stream::iter(windows)
         .map(|(w_from, w_to)| async move {
@@ -1215,7 +1215,7 @@ pub async fn backfill_direct_pipelined(
 /// with the current address filter (base contracts + children discovered so far) and updates the
 /// child registry from the factory events it decodes; pass 2 (a fixpoint loop, for nested factories
 /// within one chunk) re-fetches the same range for *only* the newly discovered children. All logs are
-/// then decoded together with the full registry, stamped, sorted by `(block, log_index)`, and sealed —
+/// then decoded together with the full registry, stamped, sorted by `(block, log_index)`, and sealed -
 /// so the segments are deterministic and (step 3a) will match the pipelined path byte-for-byte. Uses
 /// the efficient address filter, not the tip loop's topic0-only fetch. Grows `children`.
 #[allow(clippy::too_many_arguments)]
@@ -1230,7 +1230,7 @@ pub async fn backfill_direct_factory(
     to: u64,
     window: u64,
     force_topic0: bool,
-    // Resume watermark callback — see [`backfill_direct_pipelined`]. The factory path uses an adaptive
+    // Resume watermark callback - see [`backfill_direct_pipelined`]. The factory path uses an adaptive
     // window (non-deterministic boundaries), so resuming from the last sealed block instead of `from`
     // is what prevents a re-run from re-sealing overlapping ranges under new hashes (duplicate data).
     mut on_seal: impl FnMut(u64) -> Result<()>,
@@ -1375,7 +1375,7 @@ pub async fn backfill_direct_factory(
 
 /// All the per-nest state the tip-following loop owns and mutates, extracted from `index_loop`'s
 /// argument list so a later change can drive many nests from one cursor (RFC-0012). This is a pure
-/// mechanical grouping — the loop's behaviour is unchanged. The `Source` is deliberately NOT a field:
+/// mechanical grouping - the loop's behaviour is unchanged. The `Source` is deliberately NOT a field:
 /// it is shared (`Arc<dyn Source>`) and stays borrowed into the two methods below.
 struct NestIngest {
     dir: PathBuf,
@@ -1420,7 +1420,7 @@ impl NestIngest {
     ) -> Result<u64> {
         // User webhooks (RFC-0010 Part B): initialise each subscription's cursor before any sealing, so a
         // `since = "registration"` webhook starts at the tip and a `--seal-direct` backfill doesn't fire
-        // its history. Best-effort — a tip lookup failure just defers registration to the first live tip.
+        // its history. Best-effort - a tip lookup failure just defers registration to the first live tip.
         if !self.webhooks.is_empty() {
             if let Ok(tip) = source.tip().await {
                 if let Err(e) = crate::webhooks::init_cursors(&self.store, &self.webhooks, tip) {
@@ -1430,7 +1430,7 @@ impl NestIngest {
         }
 
         // The discovered-child registry (RFC-0009). Empty for a static nest; for a factory nest it is
-        // rebuilt from stored factory events on a warm restart (a pure fold — determinism preserved) and
+        // rebuilt from stored factory events on a warm restart (a pure fold - determinism preserved) and
         // grown inline as the loop decodes new factory events.
         if let Some(fs) = self.factory.as_deref() {
             if self.store.get_meta(LAST_BLOCK_KEY)?.is_some() {
@@ -1446,7 +1446,7 @@ impl NestIngest {
         // Phase 0 (cold start, `--seal-direct`): fast-seal the finalized history straight to Parquet,
         // bypassing the hot store, then rebuild the IVM view from those segments. The tip-following loop
         // below picks up from where this left off and handles the near-tip (un-finalized) window the
-        // normal way. Nothing here can reorg — it is all strictly past finality.
+        // normal way. Nothing here can reorg - it is all strictly past finality.
         if seal_direct && self.store.get_meta(LAST_BLOCK_KEY)?.is_none() {
             let tip = source.tip().await?;
             let origin = cold_start_block(self.start_block, backfill, tip);
@@ -1457,7 +1457,7 @@ impl NestIngest {
             let finalized_through = seal_ceiling(self.finality, tip, finalized_tag);
             // Resume a partial backfill instead of restarting from `origin`. A mid-backfill failure (a
             // transient RPC error) leaves `SEALED_THROUGH` at the last durably-sealed block but `LAST_BLOCK`
-            // unset, so we re-enter here; resuming from the watermark re-fetches nothing already sealed —
+            // unset, so we re-enter here; resuming from the watermark re-fetches nothing already sealed -
             // which on the adaptive factory path also avoids re-sealing overlapping ranges under fresh
             // content hashes (duplicate, permanently double-counted segments). A fresh start has no
             // watermark and resumes from `origin`.
@@ -1600,28 +1600,28 @@ impl NestIngest {
     }
 
     /// Does this log belong to this nest? Two demux modes, mirroring the two nest kinds:
-    /// - **Static nest** (non-empty address filter): by emitting address — the roost fetches the union
+    /// - **Static nest** (non-empty address filter): by emitting address - the roost fetches the union
     ///   of every nest's addresses and each log routes to the nest(s) whose set contains it.
-    /// - **Factory nest** (empty address filter — topic0-only, children discovered at runtime, RFC-0009):
-    ///   by **topic0** — a child contract has an arbitrary address but its events carry a *template*
+    /// - **Factory nest** (empty address filter - topic0-only, children discovered at runtime, RFC-0009):
+    ///   by **topic0** - a child contract has an arbitrary address but its events carry a *template*
     ///   topic0 in this nest's set, so topic0 routing catches children (and factory-creation events)
     ///   regardless of address; `process_window`'s inline discovery then adopts them.
     ///
     /// Case-insensitive throughout (a provider may return checksummed hex while our filter is lowercase).
-    /// Decode is the safety net either way — an over-routed log only yields rows this nest's registry
+    /// Decode is the safety net either way - an over-routed log only yields rows this nest's registry
     /// (or discovered children) actually know, so per-nest output stays byte-identical to solo.
     fn owns(&self, log: &crate::rpc::Log) -> bool {
         log_owned(&self.addresses, &self.topic0s, log)
     }
 
-    /// Detect and handle a reorg against the last committed block. Returns `Ok(Some(next))` — the
-    /// block the caller should continue from — when a reorg was handled, `Ok(None)` when the chain
+    /// Detect and handle a reorg against the last committed block. Returns `Ok(Some(next))` - the
+    /// block the caller should continue from - when a reorg was handled, `Ok(None)` when the chain
     /// stayed canonical (or there is nothing to check yet), and propagates the finality-violation
     /// `bail!` unchanged.
     async fn handle_reorg(&mut self, source: &dyn Source, next: u64) -> Result<Option<u64>> {
         // Reorg check: has the last block we committed against stayed canonical? If not, the
         // mutable hot store rolls back to the deepest surviving checkpoint (the only place a
-        // reorg ever lands — sealed segments, once they exist, are strictly past finality).
+        // reorg ever lands - sealed segments, once they exist, are strictly past finality).
         if next == 0 {
             return Ok(None);
         }
@@ -1642,11 +1642,11 @@ impl NestIngest {
     /// block). Detection is the *caller's* job: a solo nest detects on its own cursor (`handle_reorg`);
     /// a roost detects **once** at the shared boundary and fans this out to every nest (slice 3). A
     /// nest already at or below `ancestor` (e.g. a still-backfilling nest in a roost while the tip
-    /// reorgs) is a no-op — nothing above `ancestor` to undo, and its cursor must NOT be bumped up to
+    /// reorgs) is a no-op - nothing above `ancestor` to undo, and its cursor must NOT be bumped up to
     /// `ancestor` (that would claim blocks it never indexed). Propagates the finality-violation bail.
     fn rollback_reorg(&mut self, ancestor: u64) -> Result<()> {
         // Retract the rolled-back transfers from the IVM view *before* dropping them from the hot
-        // store — a reorg is just the same facts re-fed with weight −1.
+        // store - a reorg is just the same facts re-fed with weight −1.
         let last_indexed = self
             .store
             .get_meta(LAST_BLOCK_KEY)?
@@ -1669,7 +1669,7 @@ impl NestIngest {
         if ancestor < sealed_through {
             anyhow::bail!(
                 "reorg to block {ancestor} is below the sealed/finalized watermark \
-                 {sealed_through} — a finality violation this indexer cannot repair; \
+                 {sealed_through} - a finality violation this indexer cannot repair; \
                  halting. Raise the chain's finality depth."
             );
         }
@@ -1692,7 +1692,7 @@ impl NestIngest {
                 tracing::warn!("reorg: dropped {dropped} discovered child contract(s)");
             }
         }
-        // Fire a `flag_retracted` alert for every rolled-back annotation a sink watches — a consumer
+        // Fire a `flag_retracted` alert for every rolled-back annotation a sink watches - a consumer
         // that acted on a flag learns the chain took it back (RFC-0008 C5).
         if !self.router.is_empty() {
             for j in &doomed {
@@ -1718,7 +1718,7 @@ impl NestIngest {
 
     /// Decode, store, IVM-feed, screen, checkpoint, seal and deliver webhooks for one fetched window
     /// `[next, to]` (with `tip` the current chain tip, used for the finality ceiling). Returns
-    /// `Ok(Some(stored))` — the row count, caller advances the cursor — or `Ok(None)` when block
+    /// `Ok(Some(stored))` - the row count, caller advances the cursor - or `Ok(None)` when block
     /// timestamps were unavailable and the window must be retried WITHOUT advancing (the cursor stays
     /// put so a freshly-finalized window never seals `block_timestamp = 0`, deadlock-review H4).
     async fn process_window(
@@ -1738,11 +1738,11 @@ impl NestIngest {
         let timestamps = match source.block_timestamps(&blocks).await {
             Ok(t) => t,
             Err(e) => {
-                // Don't store this window with zeroed timestamps — once it finalizes it would
+                // Don't store this window with zeroed timestamps - once it finalizes it would
                 // seal `block_timestamp = 0` permanently (deadlock-review finding H4). The
                 // cursor hasn't advanced, so skip and re-fetch the same window next poll.
                 tracing::warn!(
-                    "block timestamps unavailable for {next}..={to}: {e:#} — retrying window"
+                    "block timestamps unavailable for {next}..={to}: {e:#} - retrying window"
                 );
                 sleep_secs(2).await;
                 return Ok(None);
@@ -1849,7 +1849,7 @@ impl NestIngest {
             }
         }
         // Fetch the window boundary's canonical hash for future reorg detection, then commit the whole
-        // window — rows + annotations + the checkpoint + the `last_block` watermark — in one atomic txn.
+        // window - rows + annotations + the checkpoint + the `last_block` watermark - in one atomic txn.
         let checkpoint = match source.block_hash(to).await {
             Ok(Some(hash)) => Some((to, hash)),
             _ => None,
@@ -1863,7 +1863,7 @@ impl NestIngest {
         self.metrics.add_rows_decoded(stored as u64);
         if stored > 0 {
             // Per-window detail is debug: the live progress line (RFC-0015 slice 3) is the
-            // user-facing narrative during catch-up, and this fires once per window — pure spam at
+            // user-facing narrative during catch-up, and this fires once per window - pure spam at
             // info over a long backfill. `count()` is only paid when debug is on.
             tracing::debug!(
                 "blocks {next}..={to}: +{stored} rows (total {})",
@@ -1891,7 +1891,7 @@ impl NestIngest {
         ) {
             tracing::warn!("sealing failed: {e:#}");
         }
-        // Deliver user webhooks for whatever just sealed (RFC-0010 Part B) — enqueue only,
+        // Deliver user webhooks for whatever just sealed (RFC-0010 Part B) - enqueue only,
         // the background worker POSTs; a slow endpoint never blocks the loop.
         if !self.webhooks.is_empty() {
             if let Err(e) = crate::webhooks::deliver_sealed(
@@ -1924,10 +1924,10 @@ async fn index_loop(
     // Live catch-up feedback (RFC-0015 slice 3): a single progress line while the hot loop chases
     // the tip for the *first* time, ending on a crisp "caught up". `None` until there's actually a
     // backlog to report; `caught_up` latches after the first catch-up so steady-state tip-following
-    // stays quiet — the "caught up" line fires exactly once, not on every new block.
+    // stays quiet - the "caught up" line fires exactly once, not on every new block.
     let mut progress: Option<crate::progress::Backfill> = None;
     let mut caught_up = false;
-    // Consecutive failed polls — drives the escalating stall log (a transient blip vs a real outage).
+    // Consecutive failed polls - drives the escalating stall log (a transient blip vs a real outage).
     let mut poll_failures = 0u32;
     loop {
         let tip = match source.tip().await {
@@ -1975,7 +1975,7 @@ async fn index_loop(
                     .process_window(source.as_ref(), &logs, next, to, tip)
                     .await?
                 {
-                    // Window processed and committed — advance the cursor past it.
+                    // Window processed and committed - advance the cursor past it.
                     Some(_stored) => {
                         next = to + 1;
                         if let Some(p) = progress.as_mut() {
@@ -1990,7 +1990,7 @@ async fn index_loop(
                 if next >= to {
                     return Err(e).with_context(|| single_block_over_cap(next)); // H3: can't shrink a block
                 }
-                // Provider capped the response — shrink and retry the same range immediately.
+                // Provider capped the response - shrink and retry the same range immediately.
                 chunker.too_large();
                 tracing::debug!("range {next}..={to} too large; shrinking and retrying");
             }
@@ -2007,7 +2007,7 @@ async fn index_loop(
 async fn detect_reorg(source: &dyn Source, store: &Store, last: u64) -> Result<Option<u64>> {
     // Usually `last` itself, but if that boundary's hash couldn't be stored (a transient block_hash
     // failure at checkpoint time), fall back to the newest checkpoint we *do* have at/below `last`, so
-    // a reorg is still verified against a real checkpoint instead of giving up entirely — the previous
+    // a reorg is still verified against a real checkpoint instead of giving up entirely - the previous
     // "no hash here → nothing to verify" was a reorg blind spot (deadlock-review finding M7).
     let (checkpoint, stored) = match store.get_block_hash(last)? {
         Some(h) => (last, h),
@@ -2040,13 +2040,13 @@ async fn detect_reorg(source: &dyn Source, store: &Store, last: u64) -> Result<O
     Ok(Some(0))
 }
 
-/// Where a cold start begins backfilling. An explicit `--backfill N` always wins — "index the last N
+/// Where a cold start begins backfilling. An explicit `--backfill N` always wins - "index the last N
 /// blocks", overriding a vendored deploy block (this is what keeps the recent-history use working on
 /// a nest that declares start blocks). Otherwise, the nest's earliest vendored `start_block` gives
 /// full history from deployment; failing that, a default recent window. Pure, so it's unit-testable.
 /// The seal-direct backfill concurrency that's safe for the configured endpoints. A *single* RPC host
 /// can't absorb a high-concurrency backfill: many concurrent requests to one host stall the whole
-/// tokio runtime — a lost wakeup that parks every worker and never fires, so even the per-request
+/// tokio runtime - a lost wakeup that parks every worker and never fires, so even the per-request
 /// timeout can't rescue it, and the backfill hangs forever (reproduced at `--concurrency 8` to one
 /// host; multiple hosts spread the load over separate connections and never hit it). So a single
 /// endpoint is capped to sequential; two or more keep the requested parallelism. The caller logs the
@@ -2061,8 +2061,8 @@ pub fn safe_backfill_concurrency(endpoint_count: usize, requested: usize) -> usi
 
 /// Where a seal-direct backfill starts: one past the last durably-sealed block if a prior run left a
 /// watermark (resume a partial backfill), else the computed `origin` (a fresh start). Resuming is what
-/// keeps a mid-backfill failure from re-fetching — and, on the adaptive factory path, re-sealing under
-/// fresh content hashes — ranges already sealed (deadlock-review finding C1).
+/// keeps a mid-backfill failure from re-fetching - and, on the adaptive factory path, re-sealing under
+/// fresh content hashes - ranges already sealed (deadlock-review finding C1).
 fn resume_from_watermark(sealed_through: Option<u64>, origin: u64) -> u64 {
     match sealed_through {
         Some(s) => s.saturating_add(1),
@@ -2130,12 +2130,12 @@ fn maybe_seal(
 
     let entities = store.entities_in_range(from, ceiling)?;
     // Every table in the range seals together (per-table segments), so once sealing succeeds the
-    // whole range is safe to prune from the hot store — the watermark stays global.
+    // whole range is safe to prune from the hot store - the watermark stays global.
     match seal::seal_range_with_snapshot(dir, &entities, from, ceiling, registry_snapshot)? {
         Some(summary) => {
             // COR-1: prune the sealed rows from hot AND advance the watermark in one atomic txn, AFTER
             // the segment is durable. The watermark advancing is what makes the range "cold", so it must
-            // happen with the prune, never before it — else a crash between the two would leave the range
+            // happen with the prune, never before it - else a crash between the two would leave the range
             // permanently in both layers (double-counted forever). `seal_range` is idempotent, so a crash
             // before this line just re-seals on restart.
             let pruned = store.prune_and_set_meta(
@@ -2155,7 +2155,7 @@ fn maybe_seal(
             );
         }
         None => {
-            // Finalized range with no transfers — just advance the watermark.
+            // Finalized range with no transfers - just advance the watermark.
             store.set_meta(SEALED_THROUGH_KEY, &ceiling.to_string())?;
             metrics.set_sealed_through(ceiling);
             tracing::debug!(
@@ -2193,8 +2193,8 @@ fn retraction_batch(entity_json: &[String]) -> views::WeightedBatch {
 }
 
 /// Build a weight −1 exposure retraction batch from rolled-back transfer rows (reorg). Reads each
-/// table's (from, to, value) column names from the registry — they vary by token (USDC from/to/value,
-/// WETH src/dst/wad) — then re-derives the same exposure deltas the live path fed, with weight −1, so
+/// table's (from, to, value) column names from the registry - they vary by token (USDC from/to/value,
+/// WETH src/dst/wad) - then re-derives the same exposure deltas the live path fed, with weight −1, so
 /// a reorged flag/exposure retracts exactly like a balance.
 fn exposure_retraction_batch(
     entity_json: &[String],
@@ -2276,10 +2276,10 @@ fn velocity_retraction_batch(
 }
 
 /// Rebuild the in-memory IVM balance view from stored facts on a warm restart. The view is derived
-/// state, not durable state — so rather than persist it (and risk drift from the canonical store),
+/// state, not durable state - so rather than persist it (and risk drift from the canonical store),
 /// we reconstruct it from the facts that *are* durable, using the same circuit that maintains it
 /// live. Cold (sealed, immutable) segments are folded to one net-per-address row directly in DuckDB
-/// — no need to replay millions of transfers — and only the small un-sealed hot tail is replayed
+/// - no need to replay millions of transfers - and only the small un-sealed hot tail is replayed
 /// transfer-by-transfer. Hot and cold are disjoint (sealed rows are pruned from hot), so nothing is
 /// double-counted; the result is identical to a view grown from genesis.
 fn rebuild_balances(
@@ -2288,7 +2288,7 @@ fn rebuild_balances(
     registry: &DecodeRegistry,
     balances: &BalanceView,
 ) -> Result<()> {
-    // Each transfer table with its (from, to, value) column names — which vary by token (USDC:
+    // Each transfer table with its (from, to, value) column names - which vary by token (USDC:
     // from/to/value; WETH: src/dst/wad), so we read them from the registry, never hardcode them.
     let transfer_tables: Vec<(String, String, String, String)> = registry
         .tables()
@@ -2305,7 +2305,7 @@ fn rebuild_balances(
     let mut batch: views::WeightedBatch = Vec::new();
 
     // Cold seed: net balance per address, summed in DuckDB (HUGEINT = i128). A table with no sealed
-    // segment yet has no view — that just means it has nothing cold to seed, so skip on error.
+    // segment yet has no view - that just means it has nothing cold to seed, so skip on error.
     let mut cold_addrs = 0usize;
     for (table, from_col, to_col, val_col) in &transfer_tables {
         match crate::analytics::net_balances(dir, table, from_col, to_col, val_col) {
@@ -2353,7 +2353,7 @@ fn rebuild_balances(
 /// cold (sealed) segments are folded to pre-summed (key, amount, count) aggregates directly in DuckDB
 /// (joined against the `labels` view) and seeded; only the un-sealed hot tail is replayed transfer by
 /// transfer. Hot and cold are disjoint (sealed rows are pruned), so nothing is double-counted. With no
-/// labels imported this is a no-op — there is nothing to be exposed *to*.
+/// labels imported this is a no-op - there is nothing to be exposed *to*.
 fn rebuild_exposure(
     dir: &std::path::Path,
     store: &Store,
@@ -2492,8 +2492,8 @@ fn rebuild_velocity(
     Ok(())
 }
 
-/// Decode a window's logs in chain order (block, log_index), routing each to a contract decoder or —
-/// for a factory nest — a discovered child's template decoder, and discovering new children inline so
+/// Decode a window's logs in chain order (block, log_index), routing each to a contract decoder or -
+/// for a factory nest - a discovered child's template decoder, and discovering new children inline so
 /// same-window child activity decodes (RFC-0009). Each row is stamped with its block timestamp before
 /// discovery so a child's `discovered_timestamp` is exact. Pure aside from growing `children`.
 fn decode_window(
@@ -2515,7 +2515,7 @@ fn decode_window(
         let decoded = match registry.decode(log) {
             Ok(Some(r)) => Some(r),
             Ok(None) => {
-                // Not a contract event — route to a discovered child's template decoder, if any.
+                // Not a contract event - route to a discovered child's template decoder, if any.
                 factory.and_then(|_| {
                     let addr = log.address.to_ascii_lowercase();
                     children
@@ -2550,7 +2550,7 @@ fn decode_window(
 }
 
 /// Rebuild the discovered-child registry on a warm restart by folding the stored factory events
-/// (RFC-0009). Cold (sealed) and hot factory-event rows are read as JSON and re-discovered — a pure
+/// (RFC-0009). Cold (sealed) and hot factory-event rows are read as JSON and re-discovered - a pure
 /// fold, so the reconstructed registry is identical to the one grown live. Best-effort per table.
 fn rebuild_children(
     dir: &std::path::Path,
@@ -2603,15 +2603,15 @@ async fn sleep_secs(s: u64) {
 
 /// Log a failed tip poll with escalating severity and return the incremented consecutive-failure count
 /// (the loop resets it to 0 on the next success). A warn on the first failure (a transient blip), then
-/// a loud error every ~60 s of sustained failure — every RPC endpoint is unreachable and indexing has
+/// a loud error every ~60 s of sustained failure - every RPC endpoint is unreachable and indexing has
 /// stalled. Paired with `METRICS.mark_poll_ok()` on success, this is the honest stall signal a
-/// supervisor (and the `/ready` endpoint) reads. Retries never drop blocks — the same window re-fetches.
+/// supervisor (and the `/ready` endpoint) reads. Retries never drop blocks - the same window re-fetches.
 fn escalate_stall(failures: u32, e: &anyhow::Error) -> u32 {
     let n = failures + 1;
     match n {
         1 => tracing::warn!("tip lookup failed: {e:#}; retrying"),
         n if n % 20 == 0 => tracing::error!(
-            "all RPC endpoints unreachable for ~{}s ({n} polls) — indexing STALLED; it resumes \
+            "all RPC endpoints unreachable for ~{}s ({n} polls) - indexing STALLED; it resumes \
              automatically when an endpoint recovers",
             n * 3
         ),
@@ -2620,7 +2620,7 @@ fn escalate_stall(failures: u32, e: &anyhow::Error) -> u32 {
     n
 }
 
-/// Reduce a webhook URL to `scheme://host[:port]` for display on the unauthenticated `/nest` surface —
+/// Reduce a webhook URL to `scheme://host[:port]` for display on the unauthenticated `/nest` surface -
 /// dropping the path/query/userinfo where webhook secrets live (SEC review: `/nest` URL leak). A
 /// best-effort string parse (no url dep); a malformed URL degrades to a bare "configured".
 fn webhook_host(url: &str) -> String {
@@ -2676,7 +2676,7 @@ mod tests {
 
     #[test]
     fn webhook_host_drops_the_secret_bearing_path() {
-        // A Slack-style webhook (secret in the path) reduces to scheme+host — the secret is gone.
+        // A Slack-style webhook (secret in the path) reduces to scheme+host - the secret is gone.
         assert_eq!(
             webhook_host("https://hooks.slack.com/services/T00/B00/XXXXsecretXXXX"),
             "https://hooks.slack.com"
@@ -2786,7 +2786,7 @@ mod tests {
 
     /// RFC-0009 step 3 gate: the sequential two-pass backfill discovers a child in a chunk (pass 1's
     /// factory event) and re-fetches the chunk for that child (pass 2), so the child's *historical*
-    /// activity is sealed — even though it wasn't in pass 1's address filter.
+    /// activity is sealed - even though it wasn't in pass 1's address filter.
     #[tokio::test]
     async fn factory_backfill_two_pass_seals_child_activity() {
         use crate::registry::{ContractSpec, DecodeRegistry, TemplateSpec};
@@ -2847,7 +2847,7 @@ template="pool"
         .unwrap();
         let fs = FactorySet::build(&config).unwrap();
 
-        // Pool created at block 10; its Swap at block 15 — both in the backfill range, but the Swap
+        // Pool created at block 10; its Swap at block 15 - both in the backfill range, but the Swap
         // is only reachable in pass 2 (the pool isn't in pass 1's contract-only filter).
         let source = FilteringSource {
             logs: vec![
@@ -2919,7 +2919,7 @@ template="pool"
         assert_eq!(row[0]["address"], serde_json::Value::from(pool_addr));
     }
 
-    /// RFC-0009 step 3a: the factory backfill is **deterministic** — the same range over the same
+    /// RFC-0009 step 3a: the factory backfill is **deterministic** - the same range over the same
     /// chain history seals byte-identical segments (identical content-address hashes). This is the
     /// reproducibility property content-addressing needs, and the equivalence a pipelined variant
     /// would have to preserve; factory backfill runs sequentially, so this is the guarantee that
@@ -3003,7 +3003,7 @@ template="pool"
             tx_hash: "0xt".into(),
             log_index: li,
         };
-        // Two pools, interleaved swaps across several blocks — a non-trivial discovered set.
+        // Two pools, interleaved swaps across several blocks - a non-trivial discovered set.
         let logs = vec![
             created(10, 0, pool_a),
             swap(11, 0, pool_a, 100),
@@ -3064,7 +3064,7 @@ template="pool"
         );
     }
 
-    /// RFC-0009 step 2 gate: a child created and active in the *same* window is decoded — the
+    /// RFC-0009 step 2 gate: a child created and active in the *same* window is decoded - the
     /// factory's `PoolCreated` (log 0) discovers the pool, so the pool's `Swap` (log 1) routes to the
     /// template decoder in one in-order pass, no extra RPC. Verifies both rows and the child registry.
     #[test]
@@ -3133,7 +3133,7 @@ template = "pool"
         .unwrap();
         let fs = FactorySet::build(&config).unwrap();
 
-        // PoolCreated(pool) at log 0, then the pool's Swap(500) at log 1 — same block.
+        // PoolCreated(pool) at log 0, then the pool's Swap(500) at log 1 - same block.
         let logs = vec![
             Log {
                 address: factory_addr.into(),
@@ -3187,7 +3187,7 @@ template = "pool"
             42_449_585
         );
         assert_eq!(cold_start_block(Some(999), None, 500), 500); // clamp to tip
-                                                                 // Explicit --backfill always wins — recent-history mode, even with a start_block present.
+                                                                 // Explicit --backfill always wins - recent-history mode, even with a start_block present.
         assert_eq!(
             cold_start_block(Some(42_449_585), Some(200), 484_000_000),
             483_999_800
@@ -3204,7 +3204,7 @@ template = "pool"
         assert_eq!(effective_window(None, 2_000), 2_000);
         // A positive override wins (sparse-contract long backfill).
         assert_eq!(effective_window(Some(50_000), 2_000), 50_000);
-        // A zero override is ignored — a zero-block window can't make progress.
+        // A zero override is ignored - a zero-block window can't make progress.
         assert_eq!(effective_window(Some(0), 2_000), 2_000);
     }
 
@@ -3348,7 +3348,7 @@ template = "pool"
     }
 
     /// RFC-0012 slice 3: one shared reorg fans out to every nest. A caught-up nest rolls back to the
-    /// fork; a still-backfilling nest below the fork is spared and — crucially — its cursor is NOT
+    /// fork; a still-backfilling nest below the fork is spared and - crucially - its cursor is NOT
     /// bumped up to the ancestor (that would claim blocks it never indexed).
     #[tokio::test]
     async fn roost_reorg_fans_out_and_spares_behind_nests() {
@@ -3367,7 +3367,7 @@ template = "pool"
         caught_up.rollback_reorg(50).unwrap();
         behind.rollback_reorg(50).unwrap();
 
-        // Caught-up nest: rolled back to 50 — nothing above survives, cursor at 50.
+        // Caught-up nest: rolled back to 50 - nothing above survives, cursor at 50.
         assert!(caught_up
             .store
             .entities_in_range(51, 1_000)
@@ -3410,7 +3410,7 @@ template = "pool"
     #[test]
     fn owns_demux_reproduces_the_solo_address_filter() {
         // The core byte-identity claim of slice 2a: routing the union fetch through `owns` hands a nest
-        // exactly the logs a solo, address-filtered fetch would have — no more, no less. So its decode
+        // exactly the logs a solo, address-filtered fetch would have - no more, no less. So its decode
         // input is identical, and therefore its stored output is too.
         let mut a = transfer_log(10, 0);
         a.address = "0xAAA0000000000000000000000000000000000000".into();
@@ -3439,7 +3439,7 @@ template = "pool"
             .any(|(addr, _, _)| addr.eq_ignore_ascii_case(&b.address)));
     }
 
-    // A Source backed by canned logs — lets us drive both backfill paths deterministically, offline.
+    // A Source backed by canned logs - lets us drive both backfill paths deterministically, offline.
     struct MockSource {
         logs: Vec<crate::rpc::Log>,
     }
@@ -3491,7 +3491,7 @@ template = "pool"
     }
 
     /// RFC-0004 §3: the pipelined (concurrent-fetch) backfill produces **byte-identical** segments to
-    /// the sequential path — concurrency overlaps latency without changing the output.
+    /// the sequential path - concurrency overlaps latency without changing the output.
     #[tokio::test]
     async fn pipelined_backfill_matches_sequential() {
         use crate::registry::{ContractSpec, DecodeRegistry};

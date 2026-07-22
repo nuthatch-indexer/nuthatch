@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# try-nuthatch.sh — install & smoke-test the Nuthatch indexer, capturing every
+# try-nuthatch.sh - install & smoke-test the Nuthatch indexer, capturing every
 # failure mode so it can be diagnosed afterwards.
 #
 # Nuthatch (https://github.com/nuthatch-indexer/nuthatch) is a self-hosted-first,
 # AI-native EVM blockchain indexer in one Rust binary. This script installs it,
-# scaffolds the smallest possible nest (a single contract — USDC on mainnet),
+# scaffolds the smallest possible nest (a single contract - USDC on mainnet),
 # runs `nuthatch dev` just long enough to prove the local API answers, then shuts
 # it down. Everything is teed to a log for post-mortem.
 #
@@ -53,7 +53,7 @@ say "Checking platform"
 ARCH="$(uname -m)"
 OS="$(uname -s)"
 if [[ "$OS" == "Darwin" && "$ARCH" != "arm64" ]]; then
-  warn "macOS on '$ARCH', not arm64 — there's no prebuilt binary for Intel Macs."
+  warn "macOS on '$ARCH', not arm64 - there's no prebuilt binary for Intel Macs."
   warn "The installer will error; build from source instead: cargo install nuthatch (Rust 1.95+)."
 else
   ok "$OS / $ARCH"
@@ -65,7 +65,7 @@ if command -v nuthatch >/dev/null 2>&1; then
 else
   say "Installing via the official one-liner"
   run bash -c 'curl -fsSL https://nuthatch-indexer.com/install.sh | sh' \
-    || die "installer failed — see $LOG (network? release asset missing? checksum mismatch?)"
+    || die "installer failed - see $LOG (network? release asset missing? checksum mismatch?)"
 fi
 
 # ---- 2. PATH resolution -----------------------------------------------------
@@ -83,7 +83,7 @@ ok "Using binary: $BIN"
 
 # ---- 3. macOS Gatekeeper / quarantine ---------------------------------------
 if [[ "$OS" == "Darwin" ]] && xattr "$BIN" 2>/dev/null | grep -q 'com.apple.quarantine'; then
-  warn "Binary is quarantined by Gatekeeper — clearing the flag."
+  warn "Binary is quarantined by Gatekeeper - clearing the flag."
   run xattr -d com.apple.quarantine "$BIN"
 fi
 
@@ -94,8 +94,8 @@ run nuthatch --version || warn "'--version' failed; the binary may be blocked or
 say "Scaffolding a single-contract nest in $WORKDIR"
 cd "$WORKDIR" || die "cannot cd into $WORKDIR"
 run nuthatch init "$CONTRACT" --chain "$CHAIN" \
-  || die "'nuthatch init' failed — ABI resolution (Sourcify/Etherscan) or RPC reachability?"
-[[ -f nuthatch.toml ]] && ok "nuthatch.toml created" || warn "no nuthatch.toml — init may not have completed."
+  || die "'nuthatch init' failed - ABI resolution (Sourcify/Etherscan) or RPC reachability?"
+[[ -f nuthatch.toml ]] && ok "nuthatch.toml created" || warn "no nuthatch.toml - init may not have completed."
 
 # ---- 6. run `dev` in the background, wait for the API -----------------------
 say "Starting 'nuthatch dev' (backgrounded; logging to $DEV_LOG)"
@@ -105,7 +105,7 @@ ok "dev PID = $DEV_PID"
 
 cleanup() {
   if [[ "${KEEP_RUNNING:-0}" == "1" ]]; then
-    warn "KEEP_RUNNING=1 — leaving dev running (PID $DEV_PID). Kill it with: kill $DEV_PID"
+    warn "KEEP_RUNNING=1 - leaving dev running (PID $DEV_PID). Kill it with: kill $DEV_PID"
   elif kill -0 "$DEV_PID" 2>/dev/null; then
     say "Stopping dev (PID $DEV_PID)"
     kill "$DEV_PID" 2>/dev/null
@@ -120,7 +120,7 @@ for ((i=1; i<=DEV_BOOT_TIMEOUT; i++)); do
   if ! kill -0 "$DEV_PID" 2>/dev/null; then
     warn "dev process exited early. Last lines of $DEV_LOG:"
     tail -n 30 "$DEV_LOG" | tee -a "$LOG" | sed 's/^/    /'
-    die "'nuthatch dev' crashed on boot — see above (bad RPC? port 8288 in use? redb error?)."
+    die "'nuthatch dev' crashed on boot - see above (bad RPC? port 8288 in use? redb error?)."
   fi
   if curl -fsS "$API/tables" >/dev/null 2>&1; then
     BOOTED=1; ok "API answered after ${i}s"; break
@@ -142,6 +142,6 @@ say "Done."
 ok "Full transcript: $LOG"
 ok "dev server log:  $DEV_LOG"
 if grep -qiE 'error|panic|fatal|failed' "$DEV_LOG" 2>/dev/null; then
-  warn "The dev log contains error-ish lines — worth a read:"
+  warn "The dev log contains error-ish lines - worth a read:"
   grep -inE 'error|panic|fatal|failed' "$DEV_LOG" | head -n 20 | sed 's/^/    /'
 fi

@@ -1,12 +1,12 @@
-//! The ingestion `Source` — the seam between "where blocks come from" and everything downstream.
+//! The ingestion `Source` - the seam between "where blocks come from" and everything downstream.
 //!
 //! Decode, hot store, sealing, IVM, and serving are all oblivious to whether a block arrived by
 //! RPC polling or was handed to us in-process by a colocated reth node. That obliviousness is the
 //! whole point of this trait: adding ExEx tip-ingestion is a new `Source` impl, never a fork of the
-//! indexing logic (per the standing brief — no `#[cfg]` forks of business logic).
+//! indexing logic (per the standing brief - no `#[cfg]` forks of business logic).
 //!
 //! - `RpcSource` (always available): polls a JSON-RPC endpoint. Works today, no node required.
-//! - `ExExSource` (feature = "exex"): the "no third-party" sovereignty upgrade — native-block-time
+//! - `ExExSource` (feature = "exex"): the "no third-party" sovereignty upgrade - native-block-time
 //!   tip latency from a colocated reth node. Stubbed here with the design written up; see
 //!   `docs/exex-design.md`.
 
@@ -26,7 +26,7 @@ pub trait Source: Send + Sync {
     async fn block_hash(&self, number: u64) -> Result<Option<String>>;
 
     /// The source's `finalized` block number, if it exposes one (L1-aware on an L2). `None` means
-    /// "no finalized signal available" — the caller falls back to a depth-based finality policy.
+    /// "no finalized signal available" - the caller falls back to a depth-based finality policy.
     async fn finalized(&self) -> Result<Option<u64>> {
         Ok(None)
     }
@@ -54,7 +54,7 @@ impl Source for RpcClient {
     }
 
     async fn block_hash(&self, number: u64) -> Result<Option<String>> {
-        // Disambiguate from this trait method — call the inherent one.
+        // Disambiguate from this trait method - call the inherent one.
         RpcClient::block_hash(self, number).await
     }
 
@@ -81,14 +81,14 @@ impl Source for RpcClient {
 // ExEx source (feature-gated stub).
 //
 // A reth Execution Extension is compiled INTO the reth binary and runs in-process, consuming a
-// `CanonStateNotification` stream over shared memory — no RPC, no serialization boundary — with
+// `CanonStateNotification` stream over shared memory - no RPC, no serialization boundary - with
 // `ChainCommitted` / `ChainReverted` variants and an `ExExEvent::FinishedHeight` back-channel so
 // reth can prune. That gives native-block-time tip latency AND a first-class reorg signal.
 //
 // The design tension this stub captures: ExEx is PUSH (reth notifies us as blocks commit), while
 // the indexer's `Source` is PULL (it asks for `[from,to]`). The bridge is a bounded in-memory
 // buffer that a reth ExEx handler fills; `Source::logs` drains the requested range from it. The
-// reth wiring itself (a `reth` dependency + node build) is deliberately NOT pulled in here — it's an
+// reth wiring itself (a `reth` dependency + node build) is deliberately NOT pulled in here - it's an
 // enormous compile that needs a synced node to exercise, so it lands in a dedicated environment.
 // This stub establishes the trait boundary and the push→pull contract; see docs/exex-design.md.
 // ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ pub mod exex {
                 .insert(block, Committed { hash, logs });
         }
 
-        /// Called on `ChainReverted` — drop every buffered block above the revert point. (The hot
+        /// Called on `ChainReverted` - drop every buffered block above the revert point. (The hot
         /// store's own rollback still runs; this just keeps the buffer canonical.)
         pub fn revert(&self, from_block: u64) {
             self.blocks.lock().unwrap().retain(|&b, _| b < from_block);

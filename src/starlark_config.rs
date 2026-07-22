@@ -1,13 +1,13 @@
-//! RFC-0018 §2 — the optional Starlark front-end for parameterized, composable nests.
+//! RFC-0018 §2 - the optional Starlark front-end for parameterized, composable nests.
 //!
 //! A nest may be authored as `nest.star` that *computes* its config (loop over addresses that share
 //! an ABI, derive values in code) instead of hand-writing `nuthatch.toml`. It is evaluated
-//! hermetically at load time to the **same** `Config` the TOML produces — the core only
+//! hermetically at load time to the **same** `Config` the TOML produces - the core only
 //! ever sees the resolved `Config` and never learns which front-end produced it. TOML stays what
 //! `init` emits; Starlark is opt-in sugar for authors who want a function, not a fork.
 //!
 //! Hermetic by construction: no clock, no randomness, no network, no ambient FS. The interpreter runs
-//! once at load and is dropped — it is never in the data path (it only produces config), so
+//! once at load and is dropped - it is never in the data path (it only produces config), so
 //! non-negotiable #4 (determinism in the core) is untouched. Recursion is bounded by starlark's own
 //! callstack cap; a `nest.star` is a description, not a program with unbounded loops over host state.
 //!
@@ -15,7 +15,7 @@
 //!
 //! The four closed builtins (`nest` / `contract` / `factory` / `template`) each build a Starlark dict
 //! whose keys are exactly the serde field names of the matching struct. `nest()` assembles the whole
-//! thing into a `serde_json::Value` and `serde_json::from_value`s it into [`Config`] — so the
+//! thing into a `serde_json::Value` and `serde_json::from_value`s it into [`Config`] - so the
 //! Starlark path and the TOML path deserialize through the *same* serde derives. Round-trip equality
 //! (`.star` and equivalent `.toml` → identical `Config`) is therefore structural, not a coincidence
 //! we test into existence.
@@ -70,10 +70,10 @@ pub fn load_star(path: &Path, dir: &Path) -> Result<Config> {
 
     let calls = *collector.calls.borrow();
     if calls == 0 {
-        bail!("nest.star defined no nest — call `nest(name=..., chain=..., rpc_urls=[...])` once");
+        bail!("nest.star defined no nest - call `nest(name=..., chain=..., rpc_urls=[...])` once");
     }
     if calls > 1 {
-        bail!("nest.star called nest() {calls} times — a file defines exactly one nest");
+        bail!("nest.star called nest() {calls} times - a file defines exactly one nest");
     }
     let json = collector
         .config
@@ -86,17 +86,17 @@ pub fn load_star(path: &Path, dir: &Path) -> Result<Config> {
     Ok(cfg)
 }
 
-/// The restricted module loader behind `load()` (RFC-0018 §2 composition — "a nest is a function,
+/// The restricted module loader behind `load()` (RFC-0018 §2 composition - "a nest is a function,
 /// not a fork"). Two forms, both **confined** so a `.star` can never reach an arbitrary file:
 ///
-/// - `load("lib.star", "sym")` — a path relative to *this nest's* directory (a nest with its own
+/// - `load("lib.star", "sym")` - a path relative to *this nest's* directory (a nest with its own
 ///   library file), confined under the nest dir.
-/// - `load("//pkg:file.star", "sym")` — a catalogue load: `pkg/file.star` under the catalogue root
+/// - `load("//pkg:file.star", "sym")` - a catalogue load: `pkg/file.star` under the catalogue root
 ///   (`$NUTHATCH_CATALOGUE`, else the nest dir's parent so sibling nests resolve). This is how
 ///   `graph-network` reuses `horizon` instead of forking it.
 ///
 /// A loaded module is evaluated **without** the `Collector` (`extra`), so it can *define* factory
-/// functions but a stray top-level `nest()` in a library errors clearly — enforcing the lib-defines /
+/// functions but a stray top-level `nest()` in a library errors clearly - enforcing the lib-defines /
 /// entry-instantiates contract by construction. The factory it defines calls `nest()` only when the
 /// *entry* invokes it, at which point evaluation is back in the entry's collector-bearing evaluator.
 struct NestFileLoader<'a> {
@@ -125,10 +125,10 @@ impl<'a> NestFileLoader<'a> {
         })
     }
 
-    /// Resolve a `load()` spec to a real, confined `.star` path — or refuse it.
+    /// Resolve a `load()` spec to a real, confined `.star` path - or refuse it.
     fn resolve(&self, spec: &str) -> Result<PathBuf> {
         if spec.contains("..") {
-            bail!("load path {spec:?} may not contain `..` — loads are confined to the nest/catalogue");
+            bail!("load path {spec:?} may not contain `..` - loads are confined to the nest/catalogue");
         }
         let (root, rel) = if let Some(rest) = spec.strip_prefix("//") {
             let (pkg, file) = rest
@@ -151,7 +151,7 @@ impl<'a> NestFileLoader<'a> {
             .canonicalize()
             .map_err(|_| anyhow!("no such nest file for load({spec:?})"))?;
         if !canon.starts_with(&canon_root) {
-            bail!("load({spec:?}) escapes the catalogue root — refused");
+            bail!("load({spec:?}) escapes the catalogue root - refused");
         }
         Ok(canon)
     }
@@ -166,7 +166,7 @@ impl<'a> NestFileLoader<'a> {
             {
                 let mut eval = Evaluator::new(&module);
                 eval.set_loader(self); // transitive load()s stay confined
-                                       // NB: no `extra` — a loaded library may not call nest().
+                                       // NB: no `extra` - a loaded library may not call nest().
                 eval.eval_module(ast, self.globals)
                     .map_err(|e| anyhow!("error in load({spec:?}): {e}"))?;
             }
@@ -183,7 +183,7 @@ impl FileLoader for NestFileLoader<'_> {
     }
 }
 
-/// Convert a Starlark value to `serde_json::Value` — used to fold builtin outputs into the config JSON.
+/// Convert a Starlark value to `serde_json::Value` - used to fold builtin outputs into the config JSON.
 fn to_json(v: Value) -> Result<serde_json::Value> {
     v.to_json_value()
         .map_err(|e| anyhow!("value is not expressible as config data: {e}"))
@@ -284,7 +284,7 @@ fn nest_builtins(builder: &mut GlobalsBuilder) {
                 .map(|c| c.chain_id)
                 .ok_or_else(|| {
                     anyhow!(
-                        "unknown chain {chain:?} — pass chain_id= explicitly for a custom chain"
+                        "unknown chain {chain:?} - pass chain_id= explicitly for a custom chain"
                     )
                 })?
         } else {
@@ -357,7 +357,7 @@ mod tests {
 
     /// The acceptance bar: a parameterized `.star` and the hand-written `.toml` it stands in for must
     /// deserialize to the *same* `Config`. We compare through `serde_json` because both front-ends
-    /// funnel through the identical serde derives — so equality here is structural, not incidental.
+    /// funnel through the identical serde derives - so equality here is structural, not incidental.
     #[test]
     fn star_and_toml_produce_identical_config() {
         let star = r#"
@@ -464,7 +464,7 @@ nest(name = "b", chain = "mainnet", rpc_urls = ["u"])
 
     #[test]
     fn a_bad_field_type_surfaces_as_an_error() {
-        // rpc_urls must be a list of strings — a bare int is a type error, caught at unpack.
+        // rpc_urls must be a list of strings - a bare int is a type error, caught at unpack.
         let err = eval(r#"nest(name = "x", chain = "mainnet", rpc_urls = 5)"#)
             .unwrap_err()
             .to_string();
@@ -491,7 +491,7 @@ nest(
         assert_eq!(cfg.contracts[0].start_block, Some(6082465));
     }
 
-    // --- §2b: composition via load() — a nest is a function, not a fork -------------------------
+    // --- §2b: composition via load() - a nest is a function, not a fork -------------------------
 
     /// Lay out a two-package catalogue (`<root>/horizon/lib.star`, `<root>/<entry_pkg>/nest.star`) and
     /// return the entry's nest dir, so the default catalogue root (the nest dir's parent) resolves
@@ -506,7 +506,7 @@ nest(
     }
 
     const HORIZON_LIB: &str = r#"
-# horizon/lib.star — the reusable unit. Defines a factory; never self-instantiates.
+# horizon/lib.star - the reusable unit. Defines a factory; never self-instantiates.
 def horizon_staking(name, chain, extra = []):
     return nest(
         name = name,
@@ -519,7 +519,7 @@ def horizon_staking(name, chain, extra = []):
 "#;
 
     /// The headline: `graph-network` is `horizon` instantiated, not forked. It loads the shared
-    /// factory and extends it with one contract — no copy of horizon's contracts in sight.
+    /// factory and extends it with one contract - no copy of horizon's contracts in sight.
     #[test]
     fn graph_network_is_horizon_instantiated_not_forked() {
         let entry = r#"
@@ -542,7 +542,7 @@ horizon_staking(
         assert_eq!(cfg.contracts[1].alias, "grt");
     }
 
-    /// A library that wrongly instantiates itself at top level fails when loaded — the collector is
+    /// A library that wrongly instantiates itself at top level fails when loaded - the collector is
     /// only present in the entry, so the lib-defines / entry-instantiates contract is enforced.
     #[test]
     fn a_library_that_self_instantiates_is_rejected_on_load() {
@@ -565,7 +565,7 @@ nest(name = "entry", chain = "mainnet", rpc_urls = ["u"])
     /// Regression: a bare relative `--dir graph-network` has an *empty* `Path::parent()`, which used
     /// to leave the catalogue root blank and break every `//pkg:file` load. `NestFileLoader::new`
     /// canonicalizes first, so even a single-component relative dir yields a real, absolute catalogue
-    /// root. (`src` exists relative to the crate root where tests run — a single relative component.)
+    /// root. (`src` exists relative to the crate root where tests run - a single relative component.)
     #[test]
     fn relative_nest_dir_gets_a_real_catalogue_root() {
         let globals = GlobalsBuilder::standard().with(nest_builtins).build();

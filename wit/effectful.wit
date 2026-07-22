@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
-// Effectful stages (RFC-0008 C4) — the liminal capability-injection model.
+// Effectful stages (RFC-0008 C4) - the liminal capability-injection model.
 //
 // A PURE stage (`stage`, `screen`) imports nothing but base WASI and is therefore
 // deterministic by construction. An EFFECTFUL stage may import HOST-PROVIDED
-// capabilities (a key-value store here; outbound HTTP in C5) — but only the ones
+// capabilities (a key-value store here; outbound HTTP in C5) - but only the ones
 // the host GRANTS it at composition time, and the host refuses to load a component
 // whose actual imports exceed its declared grant (checked from the component's
 // imports alone, no code inspection). Its output is annotations only: it returns a
@@ -14,7 +14,7 @@
 
 /// A host-owned key-value capability. A component granted `kv` can persist small
 /// per-stage state (dedup markers, running counts, seen-before flags) across
-/// batches. The host owns the store — its scope, size, and durability — so a
+/// batches. The host owns the store - its scope, size, and durability - so a
 /// component cannot use it to escape the sandbox, only to remember.
 interface kv {
     get: func(key: string) -> option<list<u8>>;
@@ -27,7 +27,7 @@ interface effectful {
 }
 
 /// A world for an effectful stage that needs the `kv` capability. The import is
-/// what makes the capability requirement visible in the component's type — the
+/// what makes the capability requirement visible in the component's type - the
 /// host reads it and refuses to instantiate unless `kv` was granted.
 world effectful-kv {
     import kv;

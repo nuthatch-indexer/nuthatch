@@ -1,23 +1,23 @@
-//! The roost (RFC-0012 §1–4; multichain per RFC-0021): one runtime hosting many nests across **one or
-//! more chains** — one isolated cursor per distinct chain (`group_by_chain` → a `spawn_roost` each),
+//! The roost (RFC-0012 §1-4; multichain per RFC-0021): one runtime hosting many nests across **one or
+//! more chains** - one isolated cursor per distinct chain (`group_by_chain` → a `spawn_roost` each),
 //! held to a **per-cursor** RSS budget. A single-chain roost (top-level `chain`) is the N=1 case, still
 //! byte-identical to solo `dev`. The single-cursor law holds per chain: never multiplex two chains
 //! behind one cursor. Below is the original RFC-0012 single-chain history.
 //!
 //! (RFC-0012) one runtime hosting many nests on the same chain. Slice 1 landed the
-//! **layout + serving surface** — a `roost.toml` naming the chain and the mounted nests, a `/nests`
+//! **layout + serving surface** - a `roost.toml` naming the chain and the mounted nests, a `/nests`
 //! roster, and every nest's full API under a `/<name>/…` prefix. Slice 2a landed the **shared cursor**:
-//! `dev` now drives all nests from ONE `indexer::spawn_roost` task — one `getLogs` per window fanned
+//! `dev` now drives all nests from ONE `indexer::spawn_roost` task - one `getLogs` per window fanned
 //! out to the owning nests (see `indexer::roost_index_loop`), so N nests cost one nest's worth of RPC
 //! chatter. Per-nest tables stay byte-identical to running each nest solo (the same per-window code
-//! runs either way). Static and factory nests can be co-mounted (slice 2b — a factory forces the union
+//! runs either way). Static and factory nests can be co-mounted (slice 2b - a factory forces the union
 //! fetch topic0-only, demuxing by topic0 instead of address); shared reorg fan-out is slice 3; and a
 //! per-runtime footprint projection + `max_rss` refusal is slice 4.
 //!
-//! Isolation is by construction: each nest keeps its own directory (`nests/<name>/` — its own
+//! Isolation is by construction: each nest keeps its own directory (`nests/<name>/` - its own
 //! `nuthatch.redb`, `segments/`, views), so one nest's bad view or runaway factory can't touch
 //! another's data (the CLAUDE.md non-negotiable). The roost shares the *chain identity* and the
-//! *cursor* — never the stores.
+//! *cursor* - never the stores.
 
 use crate::config::Config;
 use crate::indexer;
@@ -36,7 +36,7 @@ pub const ROOST_FILE: &str = "roost.toml";
 pub const NESTS_DIR: &str = "nests";
 
 /// A roost manifest: the mounted nests plus the chain(s) they follow. A roost may host nests across
-/// **one or more chains** (RFC-0021) — one isolated cursor per distinct chain. The single-chain form
+/// **one or more chains** (RFC-0021) - one isolated cursor per distinct chain. The single-chain form
 /// keeps the top-level `chain`/`chain_id`/`rpc_urls`; a multichain roost lists its chains under
 /// `[[chains]]` and lets each nest declare its own chain. The single-cursor law holds **per chain**:
 /// never multiplex two chains behind one cursor.
@@ -49,7 +49,7 @@ pub struct Roost {
     pub chains: Vec<ChainEndpoint>,
 }
 
-/// One chain a roost follows, plus how to reach it — a cursor's substrate (RFC-0021).
+/// One chain a roost follows, plus how to reach it - a cursor's substrate (RFC-0021).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChainEndpoint {
     pub chain: String,
@@ -74,19 +74,19 @@ pub struct RoostMeta {
     pub rpc_urls: Vec<String>,
     /// The mounted nests, by directory name under `nests/`.
     pub nests: Vec<String>,
-    /// Resident-set ceiling **per active-chain cursor**, in MB (RFC-0021 — the footprint budget is
+    /// Resident-set ceiling **per active-chain cursor**, in MB (RFC-0021 - the footprint budget is
     /// per-cursor; a roost's total is Σ cursors). A cursor whose *projected* RSS exceeds this is refused
     /// before it starts. Absent → the CLAUDE.md 2 GB budget ([`DEFAULT_MAX_RSS_MB`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_rss_mb: Option<u64>,
 }
 
-/// The default per-cursor RSS ceiling: the CLAUDE.md ≤2 GB budget (RFC-0021 — now per active-chain
+/// The default per-cursor RSS ceiling: the CLAUDE.md ≤2 GB budget (RFC-0021 - now per active-chain
 /// cursor, not per whole runtime).
 pub const DEFAULT_MAX_RSS_MB: u64 = 2048;
 
 // A deliberately rough, *honest* per-runtime footprint model (RFC-0012 §3). These are order-of-
-// magnitude estimates for the pre-mount projection, not measurements — the roster reports the real
+// magnitude estimates for the pre-mount projection, not measurements - the roster reports the real
 // `rss_bytes()` alongside so an operator can calibrate. The shared serving/runtime cost is paid once;
 // each nest adds its hot-store working set + decode registry, plus a chunk per active IVM view.
 const ROOST_BASE_RSS_MB: u64 = 120; // serving + async runtime + on-demand DuckDB, paid once
@@ -124,11 +124,11 @@ impl Roost {
             );
         }
         // Reject duplicate mounts and any name that would collide with a reserved top-level route
-        // (`/nests`, `/health`) — the roster and per-nest prefixes share one path namespace.
+        // (`/nests`, `/health`) - the roster and per-nest prefixes share one path namespace.
         let mut seen = std::collections::HashSet::new();
         for n in &roost.roost.nests {
             // SEC-10: a nest name is both a filesystem path segment (`nests/<name>/`) and a route
-            // prefix (`/<name>/…`), so restrict it to a safe charset — no `/`, `..`, or empties that
+            // prefix (`/<name>/…`), so restrict it to a safe charset - no `/`, `..`, or empties that
             // could escape the nests dir or produce surprising routes (matters once names come from a
             // resolved blob roster, not just an operator-authored toml).
             if n.is_empty()
@@ -161,7 +161,7 @@ impl Roost {
         if !self.chains.is_empty() {
             if has_top {
                 bail!(
-                    "roost '{}' declares both a top-level chain and [[chains]] — use one form",
+                    "roost '{}' declares both a top-level chain and [[chains]] - use one form",
                     self.roost.name
                 );
             }
@@ -174,7 +174,7 @@ impl Roost {
                 rpc_urls: self.roost.rpc_urls.clone(),
             }]),
             _ => bail!(
-                "roost '{}' declares no chain — set [roost] chain/chain_id/rpc_urls, or [[chains]]",
+                "roost '{}' declares no chain - set [roost] chain/chain_id/rpc_urls, or [[chains]]",
                 self.roost.name
             ),
         }
@@ -182,7 +182,7 @@ impl Roost {
 }
 
 /// A chain's cursor unit (RFC-0021): the endpoint (RPC) plus the mounted nests that follow that chain.
-/// Each becomes one isolated cursor — the single-cursor law, held per chain.
+/// Each becomes one isolated cursor - the single-cursor law, held per chain.
 #[derive(Debug)]
 pub struct ChainGroup {
     pub endpoint: ChainEndpoint,
@@ -218,7 +218,7 @@ pub fn group_by_chain(
         match idx {
             Some(i) => groups[i].nests.push((name, path, config)),
             None => bail!(
-                "nest '{name}' is on {} (chain_id {}), which this roost doesn't declare — add it under \
+                "nest '{name}' is on {} (chain_id {}), which this roost doesn't declare - add it under \
                  [[chains]] (or [roost] chain/chain_id)",
                 config.nest.chain,
                 config.nest.chain_id
@@ -234,7 +234,7 @@ pub fn group_by_chain(
 
 /// `nuthatch roost dev <dir>`: bring up every mounted nest and serve them behind one listener.
 ///
-/// One shared source drives all nests through a single `indexer::spawn_roost` task (the shared cursor —
+/// One shared source drives all nests through a single `indexer::spawn_roost` task (the shared cursor -
 /// one `getLogs` per window fanned out to the owning nests). Before starting it projects the roost's
 /// RSS and refuses a mount that would exceed `max_rss` (§3). The process shares a fate with its nests:
 /// if the ingestion task dies, the whole roost exits non-zero rather than serve stale data as if healthy
@@ -254,7 +254,7 @@ pub async fn dev(
     let meta = &roost.roost;
     let endpoints = roost.chain_endpoints()?;
 
-    // Load every mounted nest, then group by chain — one isolated cursor per distinct chain (RFC-0021).
+    // Load every mounted nest, then group by chain - one isolated cursor per distinct chain (RFC-0021).
     let mut mounted = Vec::with_capacity(meta.nests.len());
     for name in &meta.nests {
         let (nest_path, config) = load_mounted_nest(&dir, name)?;
@@ -266,12 +266,12 @@ pub async fn dev(
     // a single-chain roost; a multichain roost sets rpc_urls per chain under [[chains]].
     if !rpc_override.is_empty() && groups.len() > 1 {
         bail!(
-            "--rpc is ambiguous for a multichain roost ({} chains) — set rpc_urls per chain under [[chains]]",
+            "--rpc is ambiguous for a multichain roost ({} chains) - set rpc_urls per chain under [[chains]]",
             groups.len()
         );
     }
     tracing::info!(
-        "roost '{}': mounting {} nest(s) across {} chain(s) — one isolated cursor per chain",
+        "roost '{}': mounting {} nest(s) across {} chain(s) - one isolated cursor per chain",
         meta.name,
         meta.nests.len(),
         groups.len(),
@@ -318,7 +318,7 @@ pub async fn dev(
         );
         if cursor_mb > max_rss {
             bail!(
-                "roost '{}' cursor on {} projects ~{cursor_mb} MB but max_rss is {max_rss} MB/cursor — \
+                "roost '{}' cursor on {} projects ~{cursor_mb} MB but max_rss is {max_rss} MB/cursor - \
                  raise max_rss, drop a nest, or move it to another roost",
                 meta.name,
                 group.endpoint.chain
@@ -326,7 +326,7 @@ pub async fn dev(
         }
         roost_total_mb += cursor_mb;
 
-        // One source + one shared cursor per chain — per-nest tables stay byte-identical to solo `dev`.
+        // One source + one shared cursor per chain - per-nest tables stay byte-identical to solo `dev`.
         let source: Arc<dyn Source> = Arc::new(RpcClient::new(rpc_urls)?);
         let (states, ingest, alerts) = indexer::spawn_roost(
             source,
@@ -380,7 +380,7 @@ pub async fn dev(
     });
 
     // Fate-share the server with every cursor: whichever ends first decides the exit, and any cursor's
-    // error/panic propagates out (never serve stale data as if healthy) — the single-failure-boundary
+    // error/panic propagates out (never serve stale data as if healthy) - the single-failure-boundary
     // rule, held per cursor. `select_all` over `&mut` handles so the rest stay abortable afterwards.
     let result = tokio::select! {
         r = crate::serve::run_roost(&listen, roster, all_states) => r,

@@ -1,14 +1,14 @@
-//! Host side of the effectful-stage runtime (RFC-0008 C4) — the liminal capability-injection model,
+//! Host side of the effectful-stage runtime (RFC-0008 C4) - the liminal capability-injection model,
 //! adapted to the batched-Arrow boundary.
 //!
 //! A pure stage (`screen`) gets zero capabilities. An **effectful** stage may import host-provided
-//! capabilities — a `kv` store here (outbound HTTP arrives in C5) — but only what it is **granted**.
+//! capabilities - a `kv` store here (outbound HTTP arrives in C5) - but only what it is **granted**.
 //! Two enforcement layers: (1) the host reads the component's *actual imports* and refuses to load one
-//! whose imports exceed its declared grant, with a clear error (no code inspection — the capability
+//! whose imports exceed its declared grant, with a clear error (no code inspection - the capability
 //! requirement is in the component's type); (2) the linker is wired with *only* the granted
 //! capabilities, so even if the check were bypassed, an ungranted import fails to instantiate. Grants
 //! come from the host (the pack manifest in C6), never from the component. An effectful stage's only
-//! output is an annotation batch the host records — it has no import that could write canonical
+//! output is an annotation batch the host records - it has no import that could write canonical
 //! entities, so "annotations only" is enforced by the absence of the capability, not by convention.
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -191,7 +191,7 @@ fn check_imports(component: &Component, engine: &Engine, grants: &Grants) -> Res
 }
 
 /// Decode an effectful stage's annotation output (Arrow IPC) into JSON rows. Generic over the schema:
-/// UInt64 columns become numbers, everything else its string form — the host records whatever the
+/// UInt64 columns become numbers, everything else its string form - the host records whatever the
 /// stage annotated without needing to know the stage's exact schema.
 fn ipc_to_json(bytes: &[u8]) -> Result<Vec<Value>> {
     use arrow::array::{Array, StringArray, UInt64Array};
@@ -256,7 +256,7 @@ mod tests {
         Some(std::fs::read(p).unwrap())
     }
 
-    /// Gate 1: a component importing an ungranted capability is refused at load — with a clear error,
+    /// Gate 1: a component importing an ungranted capability is refused at load - with a clear error,
     /// before instantiation. The recurrence component imports `kv`; loading it with no grant fails.
     #[test]
     fn rejects_component_with_ungranted_capability() {
@@ -274,7 +274,7 @@ mod tests {
     }
 
     /// Gate 2: with `kv` granted, the effectful component runs, produces annotations, and its kv state
-    /// persists across batches (the whole point of an effectful stage — a pure one couldn't remember).
+    /// persists across batches (the whole point of an effectful stage - a pure one couldn't remember).
     #[test]
     fn runs_kv_granted_component_producing_annotations() {
         let Some(bytes) = staged() else { return };

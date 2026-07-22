@@ -1,19 +1,19 @@
-# RFC-0013: Storage and query-engine direction — DataFusion convergence, Turso deferred
+# RFC-0013: Storage and query-engine direction - DataFusion convergence, Turso deferred
 
-- Status: Accepted (2026-07-18) — direction recorded; **§3 (SQL-over-the-tip) shipped**, but via a
+- Status: Accepted (2026-07-18) - direction recorded; **§3 (SQL-over-the-tip) shipped**, but via a
   DuckDB hot+cold `UNION` rather than a DataFusion `TableProvider` (see the §3 note below). DataFusion
   convergence (§2) stays the deferred, benchmark-gated destination.
 - Author: Pete (cargopete)
 - Date: 2026-07-17
-- Depends on: RFC-0001 (Implemented — decode registry, per-table model), RFC-0004
-  (Implemented — the `nuthatch bench` harness this RFC's gate reuses)
+- Depends on: RFC-0001 (Implemented - decode registry, per-table model), RFC-0004
+  (Implemented - the `nuthatch bench` harness this RFC's gate reuses)
 - Blocks: nothing now. Informs the scaled-mode build and any future hot-store swap.
 - Priority: explicitly **NOT now**. This is a *direction record*, not a build order.
   Nothing here is touched until after the GraphOps pilot (RFC-0011) and multi-nest
   (RFC-0012) land. The whole point is to decide the direction once, in writing, so it
-  is not relitigated from a chat thread — and to *not* destabilise the stack the pilot
+  is not relitigated from a chat thread - and to *not* destabilise the stack the pilot
   runs on.
-- Nature: process/decision RFC (per the RFCs README convention — the standard
+- Nature: process/decision RFC (per the RFCs README convention - the standard
   engineering-section structure is adapted).
 
 ## Abstract
@@ -23,9 +23,9 @@ Two storage/query decisions raised in the 2026-07-17 GraphOps conversation (chri
 federation?"), recorded here:
 
 1. **Hot store stays redb (embedded) / Postgres (scaled).** Turso is a watch-item,
-   **deferred** behind the existing `HotStore` trait — not adopted now.
-2. **The analytical/query layer converges on DataFusion as the destination** — one
-   Arrow-native, pure-Rust engine across both modes — but **benchmark-gated**,
+   **deferred** behind the existing `HotStore` trait - not adopted now.
+2. **The analytical/query layer converges on DataFusion as the destination** - one
+   Arrow-native, pure-Rust engine across both modes - but **benchmark-gated**,
    **built scaled-side first**, and **only after the pilot**. DuckDB stays until the
    numbers say otherwise.
 
@@ -37,23 +37,23 @@ Turso-in-embedded. So the query-engine call also answers the hot-store question.
 
 The pilot and multi-nest are the near-term work; both run happily on today's stack
 (redb hot + DuckDB-over-Parquet cold). But a partner is (rightly) probing the storage
-direction, and two attractive-sounding moves — adopt Turso for the hot store, swap
-DuckDB for DataFusion — are exactly the kind that feel obvious in a chat and cost a
+direction, and two attractive-sounding moves - adopt Turso for the hot store, swap
+DuckDB for DataFusion - are exactly the kind that feel obvious in a chat and cost a
 quarter if taken mid-flight. This RFC fixes the direction and the discipline (measure
 first, sequence late) so the answer is on record and the pilot stack is left alone.
 
 ## Decisions
 
-### §1 — Hot store: redb (embedded), Postgres (scaled); Turso deferred
+### §1 - Hot store: redb (embedded), Postgres (scaled); Turso deferred
 
-**Keep redb for embedded hot.** The hot store holds only *pre-finality* blocks —
-everything past finality is sealed to Parquet — so it is a small, hot, mutable window,
+**Keep redb for embedded hot.** The hot store holds only *pre-finality* blocks -
+everything past finality is sealed to Parquet - so it is a small, hot, mutable window,
 not a large dataset. redb's KV point-reads are ideal for that shape, it is pure-Rust
 and zero-service (the embedded non-negotiable), and it carries the most
 correctness-critical machinery in the system: single-writer, reorg rollback, durable
 restart. That is the last place to take a dependency risk on a young engine.
 
-**Postgres for the scaled hot store** — unchanged from the brief, and chris agrees.
+**Postgres for the scaled hot store** - unchanged from the brief, and chris agrees.
 It's the component uptime is bet on; maturity beats novelty there. Turso's
 Postgres-in-Rust is far too young to carry scaled infra today.
 
@@ -64,12 +64,12 @@ zero drama. Revisit criteria: Turso reaches a production-ready release, its lice
 clears the AGPL/no-BSL rule, and a measured win over redb exists that federation
 doesn't already provide. Until all three, no.
 
-### §2 — Query engine: converge on DataFusion (as destination)
+### §2 - Query engine: converge on DataFusion (as destination)
 
 DataFusion is the correct long-term analytical engine for Nuthatch:
 
 - **One engine, both modes.** Today it is DuckDB (embedded) + DataFusion (planned,
-  scaled) — two SQL engines, two dialects, two sets of quirks. A query that behaves one
+  scaled) - two SQL engines, two dialects, two sets of quirks. A query that behaves one
   way in the pilot behaving differently in scaled is a latent inconsistency and a soft
   violation of "same crates both modes, no forks of business logic." One engine removes
   it.
@@ -77,7 +77,7 @@ DataFusion is the correct long-term analytical engine for Nuthatch:
   IPC by mandate. DuckDB is the one island that marshals in/out of Arrow; DataFusion
   *is* Arrow. Convergence aligns the query layer with the rest of the system.
 - **Federation is native, not bolted on.** Hot (redb / Postgres) and cold (Parquet) as
-  `TableProvider`s behind one SQL surface — the direct answer to the federation
+  `TableProvider`s behind one SQL surface - the direct answer to the federation
   question, in both modes.
 - **Pure-Rust, Apache-2.0.** No bundled C++ blob (DuckDB is built with
   `features = ["bundled"]` today), smaller/simpler static binary, cleaner cross-compile,
@@ -87,37 +87,37 @@ DataFusion is the correct long-term analytical engine for Nuthatch:
 works. It stays until §4's benchmark gate says DataFusion holds analytical performance
 within the ≤2 GB budget.
 
-### §3 — SQL-over-the-tip is a `TableProvider`, not a store swap
+### §3 - SQL-over-the-tip is a `TableProvider`, not a store swap
 
 The reason the tip isn't SQL-queryable today is that redb is KV, so hot+cold "federation"
 is done in app code (the `/table` endpoint's hot+cold merge). The clean fix is a
 DataFusion `TableProvider` over redb: the tip becomes queryable through the same
-federated SQL surface, the store stays redb. This is the linchpin — it means the
+federated SQL surface, the store stays redb. This is the linchpin - it means the
 DataFusion decision (§2) *also* satisfies the wish that motivated Turso-for-embedded
 (§1), so there is one decision to make, not two.
 
-> **Shipped (2026-07-18) — via DuckDB, not DataFusion.** A dependency spike found DataFusion
+> **Shipped (2026-07-18) - via DuckDB, not DataFusion.** A dependency spike found DataFusion
 > premature to adopt *now*: under the project MSRV (Rust 1.85) cargo resolves DataFusion 48, which
 > pulls **arrow 55** and clashes with our **arrow 56** seal/parquet stack (aligning would need an MSRV
 > bump to 1.88 or an arrow downgrade), and it adds ~100 crates to a binary that already bundles
-> DuckDB — exactly the weight §2/§4 say to benchmark-gate first. So the §3 *goal* was delivered with
+> DuckDB - exactly the weight §2/§4 say to benchmark-gate first. So the §3 *goal* was delivered with
 > the engine already shipped: for `/sql`, each table's DuckDB view becomes `sealed Parquet UNION ALL
 > hot-tip`, where the hot rows are scanned from redb (`Store::hot_rows_by_table`) into a per-table temp
 > table typed to match the Parquet (`analytics::load_hot_temp`). Hot and cold are disjoint by block
 > (sealed rows are pruned from hot), so the union is exact with no dedup. The tip is now SQL-queryable
-> — verified live on Arbitrum (`SELECT … FROM arb__transfer` over unsealed rows) and by hot-only +
+> - verified live on Arbitrum (`SELECT … FROM arb__transfer` over unsealed rows) and by hot-only +
 > hot∪cold unit tests. A DataFusion `TableProvider` remains the destination when §4's gate is run.
 
-### §4 — Sequencing and the gate (the discipline)
+### §4 - Sequencing and the gate (the discipline)
 
 1. **Not during the pilot.** Lodestar runs on DuckDB and works; do not destabilise the
    thing being proven to the partner.
-2. **Build DataFusion scaled-side first.** Scaled mode is greenfield — introducing
+2. **Build DataFusion scaled-side first.** Scaled mode is greenfield - introducing
    DataFusion there adds the engine and yields real federation numbers with **zero risk
    to the working embedded path.**
 3. **Benchmark-gate the embedded question.** Point the RFC-0004 `nuthatch bench` harness
    at a DataFusion spike over the same sealed segments. Publish analytical-query latency
-   and RSS vs DuckDB. Benchmarks are CI artifacts precisely for calls like this — this
+   and RSS vs DuckDB. Benchmarks are CI artifacts precisely for calls like this - this
    is measure-then-switch, not a vibes migration.
 4. **Collapse embedded onto DataFusion only if the numbers hold.** If they do, retire
    DuckDB → one engine. If DuckDB's OLAP edge matters more than the consistency win,
@@ -129,7 +129,7 @@ DataFusion decision (§2) *also* satisfies the wish that motivated Turso-for-emb
 - Adopting Turso now, in either mode.
 - Removing DuckDB now, or before the benchmark gate.
 - Any change to the pilot or multi-nest stack.
-- A hot store that unifies mutable tip + immutable cold into one engine — the
+- A hot store that unifies mutable tip + immutable cold into one engine - the
   hot/cold split (redb mutable, Parquet sealed/immutable) is what keeps reorgs safe and
   is deliberately preserved; DataFusion federates *across* the two, it does not merge
   them into one mutable store.
@@ -143,7 +143,7 @@ DataFusion decision (§2) *also* satisfies the wish that motivated Turso-for-emb
    DuckDB for cold, to prove the federation shape.
 3. Benchmark spike: DataFusion over sealed segments vs DuckDB, via `nuthatch bench`;
    publish latency + RSS; port the `/sql` guard (DataFusion supports query cancellation
-   for the timeout, and Arrow-batch limiting for the row cap — the `QueryGuard`
+   for the timeout, and Arrow-batch limiting for the row cap - the `QueryGuard`
    semantics carry over).
 4. Golden SQL-compat suite: the existing analytical tests run against both engines,
    asserting identical results, before any switch.

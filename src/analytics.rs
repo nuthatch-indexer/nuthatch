@@ -4,7 +4,7 @@
 //! lives in redb. For `/sql` (RFC-0013) the hot rows are scanned into per-table temp tables and
 //! `UNION ALL`'d into each table's view. Hot and cold are kept disjoint *structurally* by the
 //! `sealed_through` watermark (COR-1): cold includes only segments finalized at/below it, hot only rows
-//! past it — so the union is exact with no dedup, even across the brief seal→prune window. Trusted
+//! past it - so the union is exact with no dedup, even across the brief seal→prune window. Trusted
 //! point-reads pass no hot rows (and `u64::MAX`, i.e. all segments).
 //!
 //! The binary stays single-file: DuckDB is statically bundled. Memory is capped so an analytical
@@ -25,9 +25,9 @@ const MAX_THREADS: u32 = 2;
 
 /// A resource guard for the untrusted `/sql` surface: a hard wall-clock deadline (enforced by
 /// interrupting the running DuckDB query) and a cap on materialised rows. Trusted internal callers
-/// (`net_balances`, `get_row`) run *unguarded* — their SQL is registry-built, never user text, and
+/// (`net_balances`, `get_row`) run *unguarded* - their SQL is registry-built, never user text, and
 /// they must run to completion. Access control (who may query, per-caller quotas) is deliberately
-/// *not* here: that needs caller identity a sovereign single-tenant node doesn't have — it's a
+/// *not* here: that needs caller identity a sovereign single-tenant node doesn't have - it's a
 /// gateway's job. This guard is only about the node protecting itself from any single query.
 #[derive(Clone, Copy)]
 pub struct QueryGuard {
@@ -42,24 +42,24 @@ pub struct QueryOutput {
     pub truncated: bool,
 }
 
-/// Hot (unsealed) rows grouped by logical table — from [`crate::store::Store::hot_rows_by_table`].
+/// Hot (unsealed) rows grouped by logical table - from [`crate::store::Store::hot_rows_by_table`].
 /// Passed to the query path so the live tip is `UNION ALL`'d into each table's view (RFC-0013).
 pub type HotRows = std::collections::HashMap<String, Vec<Value>>;
 
-/// Run a read-only query to completion. Only SELECT/WITH statements are accepted — this is a query
+/// Run a read-only query to completion. Only SELECT/WITH statements are accepted - this is a query
 /// surface, not a mutation surface. Unguarded: for trusted, registry-built SQL that must finish.
 pub fn query(dir: &Path, sql: &str) -> Result<Vec<Value>> {
     Ok(run(dir, sql, None, &HotRows::new(), u64::MAX)?.rows)
 }
 
-/// Run a read-only query under a resource guard, over the **sealed segments only** — the cold path used
+/// Run a read-only query under a resource guard, over the **sealed segments only** - the cold path used
 /// by trusted callers and the `/table` endpoint's cold fill (which merges hot itself). See [`QueryGuard`].
 pub fn query_guarded(dir: &Path, sql: &str, guard: QueryGuard) -> Result<QueryOutput> {
     // Cold-only: `u64::MAX` includes every sealed segment (no hot rows to keep disjoint from).
     run(dir, sql, Some(guard), &HotRows::new(), u64::MAX)
 }
 
-/// Run a guarded read-only query over the sealed segments **and the hot tip** — the public `/sql`
+/// Run a guarded read-only query over the sealed segments **and the hot tip** - the public `/sql`
 /// surface (RFC-0013). `hot` is the unsealed rows grouped by table; each is `UNION ALL`'d into its
 /// table's view. A query outliving `guard.timeout` is interrupted; a result past `guard.max_rows` is
 /// truncated and flagged.
@@ -80,21 +80,21 @@ fn run(
     hot: &HotRows,
     sealed_through: u64,
 ) -> Result<QueryOutput> {
-    // Check the first *statement keyword*, past any leading whitespace and SQL comments — a query
+    // Check the first *statement keyword*, past any leading whitespace and SQL comments - a query
     // that opens with `-- note` or `/* … */` is still a SELECT. DuckDB gets the original text.
     let head = strip_leading_sql_comments(sql).to_ascii_lowercase();
     if !(head.starts_with("select") || head.starts_with("with")) {
         bail!("only SELECT/WITH queries are allowed on the read-only SQL surface");
     }
-    // Read-only is enforced three-deep — do NOT loosen any of these without re-reasoning SEC-7:
+    // Read-only is enforced three-deep - do NOT loosen any of these without re-reasoning SEC-7:
     //   1. this leading-keyword gate rejects a *statement* that opens with INSERT/UPDATE/DELETE/COPY/
     //      ATTACH/PRAGMA/… (a `WITH cte AS (…) INSERT …` is the only way DML could ride a `with`
     //      prefix, and DuckDB won't parse INSERT/COPY *inside* a CTE/subquery);
-    //   2. `conn.prepare` below is single-statement — `;`-stacking a second statement is refused;
+    //   2. `conn.prepare` below is single-statement - `;`-stacking a second statement is refused;
     //   3. the connection is a fresh in-memory instance whose only tables are read-only views over
     //      Parquet plus an ephemeral hot temp table, so even a hypothetical write has no durable target.
     // `COPY … TO` (a file write) must *lead* the statement, which (1) blocks.
-    // SEC-2: refuse DuckDB filesystem/network table functions (`read_text`, `glob`, …) — they read
+    // SEC-2: refuse DuckDB filesystem/network table functions (`read_text`, `glob`, …) - they read
     // files from inside a plain SELECT, past the keyword gate, and would otherwise leak any file the
     // process can read (e.g. `nuthatch.toml`'s secrets). This is the primary control; the
     // `allowed_directories` lockdown below is defense-in-depth (its runtime enforcement is
@@ -117,7 +117,7 @@ fn run(
         .map(|p| format!("'{}'", p.display().to_string().replace('\'', "''")))
         .collect();
     // `enable_external_access` is a startup-only setting, so we scope at runtime with
-    // `allowed_directories` (an empty allowlist blocks all file access — the fresh-nest/tip-only case)
+    // `allowed_directories` (an empty allowlist blocks all file access - the fresh-nest/tip-only case)
     // and freeze it with `lock_configuration` so the untrusted query can't widen it back.
     let lockdown = format!(
         "SET allowed_directories=[{}]; SET lock_configuration=true;",
@@ -128,13 +128,13 @@ fn run(
     define_views(&conn, dir, hot, sealed_through)?;
     // A nest can ship derived-entity views (`views/*.sql`) that build on the per-event tables; the
     // analytical `/sql` surface sees them. Point-reads (`net_balances`, `get_row`) deliberately skip
-    // this — they only touch the raw per-event tables.
+    // this - they only touch the raw per-event tables.
     define_nest_views(&conn, dir);
     // The compliance substrate: expose imported label snapshots as a `labels` view so `/sql` (and the
-    // internal `cold_exposure` fold) can join against them. Best-effort — no snapshots, no view.
+    // internal `cold_exposure` fold) can join against them. Best-effort - no snapshots, no view.
     define_labels_view(&conn, dir);
     // Factory nests (RFC-0009): a `{template}__children` view over the sealed factory events, so
-    // "which pools, discovered when, by which parent" is one query. Best-effort — no factories, no-op.
+    // "which pools, discovered when, by which parent" is one query. Best-effort - no factories, no-op.
     define_children_views(&conn, dir);
 
     // Hard wall-clock deadline for the untrusted surface: a watchdog thread interrupts the in-flight
@@ -197,7 +197,7 @@ fn run(
 fn collect(conn: &Connection, sql: &str, cap: Option<usize>) -> Result<(Vec<Value>, bool)> {
     let mut stmt = conn.prepare(sql).context("failed to prepare query")?;
     let mut rows = stmt.query([]).context("query failed")?;
-    // Column metadata is only materialised once the statement has executed — read it off the
+    // Column metadata is only materialised once the statement has executed - read it off the
     // executed result, not the prepared statement.
     let column_names: Vec<String> = rows
         .as_ref()
@@ -240,7 +240,7 @@ fn strip_leading_sql_comments(sql: &str) -> &str {
     }
 }
 
-/// DuckDB table functions that read the filesystem or network — usable inside a plain SELECT, so the
+/// DuckDB table functions that read the filesystem or network - usable inside a plain SELECT, so the
 /// read-only keyword gate doesn't stop them (SEC-2). Legit `/sql` hits the per-table views, never these.
 const FORBIDDEN_FNS: &[&str] = &[
     "read_text",
@@ -259,7 +259,7 @@ const FORBIDDEN_FNS: &[&str] = &[
 ];
 
 /// Strip all SQL comments (line `--…` and block `/* … */`) so a function call can't be split or hidden
-/// by a comment before the denylist scan. Deliberately naive about string literals — over-stripping a
+/// by a comment before the denylist scan. Deliberately naive about string literals - over-stripping a
 /// query with `--`/`/*` inside a string just makes it invalid (rejected), which is the safe direction.
 fn strip_all_sql_comments(sql: &str) -> String {
     let mut out = String::with_capacity(sql.len());
@@ -287,7 +287,7 @@ fn strip_all_sql_comments(sql: &str) -> String {
 
 /// Refuse a query that *calls* any [`FORBIDDEN_FNS`] function. Comments are stripped first, then each
 /// name is matched only when it's a real call: a word boundary before it and (after optional
-/// whitespace) a `(` after it — so a table or column merely *named* like one (e.g. `pool__glob`) is
+/// whitespace) a `(` after it - so a table or column merely *named* like one (e.g. `pool__glob`) is
 /// fine, while `read_text/**/('…')` and `READ_TEXT (…)` are both caught. (SEC-2, primary control.)
 fn reject_file_access(sql: &str) -> Result<()> {
     let cleaned = strip_all_sql_comments(sql).to_ascii_lowercase();
@@ -305,7 +305,7 @@ fn reject_file_access(sql: &str) -> Result<()> {
             }
             let is_call = j < b.len() && b[j] == b'(';
             if boundary_before && is_call {
-                bail!("query uses forbidden filesystem/network function `{name}` — refused");
+                bail!("query uses forbidden filesystem/network function `{name}` - refused");
             }
             from = end;
         }
@@ -318,7 +318,7 @@ fn reject_file_access(sql: &str) -> Result<()> {
 /// circuit, we let DuckDB fold each immutable segment down to one (address, net) row. Addresses
 /// whose net is exactly zero are omitted (matching the view's drop-at-zero behaviour). `table` and
 /// the column names come from the registry (`{alias}__transfer`; from/to/value column names vary by
-/// token — USDC from/to/value, WETH src/dst/wad), never user text, so there is no injection surface.
+/// token - USDC from/to/value, WETH src/dst/wad), never user text, so there is no injection surface.
 pub fn net_balances(
     dir: &Path,
     table: &str,
@@ -348,7 +348,7 @@ pub fn net_balances(
 
 /// Cold exposure fold (RFC-0008 C1): direct counterparty exposure to the labeled set for one sealed
 /// transfer table, computed in DuckDB by joining the segments against the `labels` view. Mirrors
-/// `net_balances` — it lets a restart re-seed the exposure view from immutable segments instead of
+/// `net_balances` - it lets a restart re-seed the exposure view from immutable segments instead of
 /// replaying every sealed transfer. Returns `(encoded_key, amount, count)` where the key is
 /// `address\u{1f}label\u{1f}direction`, matching `exposure::seed_item`. `table`/column names are
 /// registry-derived (never user text); addresses are lower-cased to match the label snapshots.
@@ -393,7 +393,7 @@ pub fn cold_exposure(
 }
 
 /// Cold velocity fold (RFC-0008 C3): per-address outbound volume + count per tumbling block-window,
-/// summed in DuckDB over one sealed transfer table — the restart re-seed for the velocity view (as
+/// summed in DuckDB over one sealed transfer table - the restart re-seed for the velocity view (as
 /// `net_balances`/`cold_exposure` are for their views). Returns `(encoded_key, volume, count)` where
 /// the key is `address\u{1f}window_start`, matching `velocity::seed_item`. Registry-derived names.
 pub fn cold_velocity(
@@ -521,8 +521,8 @@ pub fn get_row(dir: &Path, block: u64, log_index: u64) -> Result<Option<Value>> 
 /// no sealed segments yet simply have no view (they hold only unsealed tip data, served from hot).
 ///
 /// Big-integer columns (uint/int > 64 bits) are stored as exact text (canonical form). For ergonomic
-/// SQL (RFC-0001 §2) each such column `c` gets two derived view columns: `c_dec` — the value as
-/// `DECIMAL(38,0)` when it fits, else NULL — and `c_overflow` — true when the exact value exceeds
+/// SQL (RFC-0001 §2) each such column `c` gets two derived view columns: `c_dec` - the value as
+/// `DECIMAL(38,0)` when it fits, else NULL - and `c_overflow` - true when the exact value exceeds
 /// 38 digits (so `c_dec` is NULL but `c` isn't). Analytics can `SUM(c_dec)` without hand-casting.
 fn define_views(conn: &Connection, dir: &Path, hot: &HotRows, sealed_through: u64) -> Result<()> {
     let manifest = crate::seal::load_manifest(dir)?;
@@ -538,8 +538,8 @@ fn define_views(conn: &Connection, dir: &Path, hot: &HotRows, sealed_through: u6
 
     // The full set of tables to define: declared (schema) ∪ sealed (manifest) ∪ hot. Each view is the
     // `UNION ALL` of whichever of {sealed Parquet, hot tip} exist. COR-1: hot and cold are kept disjoint
-    // structurally by `sealed_through` — cold includes only segments finalized *up to* the watermark,
-    // hot only rows *past* it — so the union is exact even across the brief seal→prune window (a segment
+    // structurally by `sealed_through` - cold includes only segments finalized *up to* the watermark,
+    // hot only rows *past* it - so the union is exact even across the brief seal→prune window (a segment
     // written before its watermark advances is excluded from cold; its rows are still served from hot).
     let mut tables: std::collections::BTreeSet<String> =
         schema.iter().map(|(t, _)| t.clone()).collect();
@@ -565,7 +565,7 @@ fn define_views(conn: &Connection, dir: &Path, hot: &HotRows, sealed_through: u6
                             Some(format!("'{}'", p.display()))
                         } else {
                             tracing::warn!(
-                                "segment {} for {table} missing on disk — skipping (cold data reduced)",
+                                "segment {} for {table} missing on disk - skipping (cold data reduced)",
                                 s.file
                             );
                             None
@@ -586,7 +586,7 @@ fn define_views(conn: &Connection, dir: &Path, hot: &HotRows, sealed_through: u6
 
         let mut parts: Vec<String> = Vec::new();
         if !sealed_files.is_empty() {
-            // COR-2: `union_by_name=true` NULL-fills columns that differ across segments — segment
+            // COR-2: `union_by_name=true` NULL-fills columns that differ across segments - segment
             // schemas legitimately drift over a nest's life as ABIs are versioned (CLAUDE.md), and
             // without this a single drifted column makes `read_parquet` throw and the whole table's view
             // silently vanish.
@@ -646,8 +646,8 @@ fn hot_col_type(name: &str) -> &'static str {
 }
 
 /// Create a temp table for one logical table's hot rows and append them, typed to match the sealed
-/// Parquet (so `UNION ALL BY NAME` lines up). Columns are the sorted union of the rows' JSON keys —
-/// exactly how `seal::rows_to_batch` derives the Parquet schema — so no `schema.json` is required.
+/// Parquet (so `UNION ALL BY NAME` lines up). Columns are the sorted union of the rows' JSON keys -
+/// exactly how `seal::rows_to_batch` derives the Parquet schema - so no `schema.json` is required.
 /// Value marshalling mirrors seal exactly: counter columns are `u64` (0 if absent), every other column
 /// is the JSON string as-is, or the JSON value stringified, or NULL when absent/null.
 fn load_hot_temp(conn: &Connection, name: &str, rows: &[&Value]) -> Result<()> {
@@ -698,14 +698,14 @@ fn json_to_duck(v: Option<&Value>, col: &str) -> DuckValue {
 /// Load a nest's derived-entity views from `{dir}/views/*.sql` into the connection, in sorted
 /// filename order (so `10-foo.sql` can build on nothing and `20-bar.sql` can build on foo). Run
 /// after the per-event table views (§4 of RFC-0002), so views may reference `{alias}__{event}`
-/// tables. Best-effort: a view over a table with no sealed segment yet — or a bad statement — is
+/// tables. Best-effort: a view over a table with no sealed segment yet - or a bad statement - is
 /// skipped with a debug log rather than failing the whole query. Nest SQL is authored by the nest
 /// you chose to consume; it runs read-only in this ephemeral in-memory DuckDB, same trust as `/sql`.
 fn define_nest_views(conn: &Connection, dir: &Path) {
     for v in nest_view_files(dir) {
         if let Err(e) = conn.execute_batch(&v.sql) {
             // Fault-isolated on the *live* query path: one bad view never takes down the others or the
-            // process. Silence ends elsewhere — `validate_nest_views` (RFC-0018 §1) is the loud gate,
+            // process. Silence ends elsewhere - `validate_nest_views` (RFC-0018 §1) is the loud gate,
             // surfaced at `dev` startup and by `nuthatch check`. Here we only need to not crash.
             tracing::debug!("nest view {} skipped: {e}", v.file);
         }
@@ -718,7 +718,7 @@ pub struct NestViewFile {
     pub sql: String,
 }
 
-/// Read `{dir}/views/*.sql` in sorted filename order — so `10-foo.sql` builds on nothing and
+/// Read `{dir}/views/*.sql` in sorted filename order - so `10-foo.sql` builds on nothing and
 /// `20-bar.sql` can build on foo. Empty when there is no `views/` dir. The one reader both the live
 /// loader and the validation gate use, so they never disagree about what a nest's views are.
 pub fn nest_view_files(dir: &Path) -> Vec<NestViewFile> {
@@ -740,21 +740,21 @@ pub fn nest_view_files(dir: &Path) -> Vec<NestViewFile> {
         .collect()
 }
 
-/// A view that failed to load — RFC-0018 §1 turns the old silent skip into a first-class, teachable
+/// A view that failed to load - RFC-0018 §1 turns the old silent skip into a first-class, teachable
 /// signal.
 #[derive(Debug, Clone)]
 pub struct ViewIssue {
     pub file: String,
-    /// The raw engine error (path-free — it's a bind, no segment paths).
+    /// The raw engine error (path-free - it's a bind, no segment paths).
     pub error: String,
-    /// A fuzzy-matched fix hint (RFC-0016 errors-as-prompts), when the failure is a known class — a
+    /// A fuzzy-matched fix hint (RFC-0016 errors-as-prompts), when the failure is a known class - a
     /// renamed/absent table or column (drift), a reserved word, or a big-int arithmetic slip.
     pub hint: Option<String>,
 }
 
-/// Validate a nest's authored views (RFC-0018 §1, the loud gate). Sets up the base surface — empty
+/// Validate a nest's authored views (RFC-0018 §1, the loud gate). Sets up the base surface - empty
 /// typed per-event views + labels + children, from the nest's own `schema.json`; no data needed, we're
-/// *binding*, not running — then defines each view in load order and records any that fail. A failure
+/// *binding*, not running - then defines each view in load order and records any that fail. A failure
 /// is either a syntax error or a reference to a table/column the registry no longer has (**drift**);
 /// both come back with a fuzzy-matched fix hint. Loading for real queries stays fault-isolated in
 /// `define_nest_views`; this is the separate, surfaced check for `dev` startup and `nuthatch check`.
@@ -824,7 +824,7 @@ fn schema_columns(dir: &Path) -> Vec<(String, Vec<(String, String)>)> {
     out
 }
 
-/// True for a big-integer (uint/int > 64-bit) storage kind — the columns that get `*_dec`/`*_overflow`.
+/// True for a big-integer (uint/int > 64-bit) storage kind - the columns that get `*_dec`/`*_overflow`.
 fn is_bigint(storage: &str) -> bool {
     storage == "word16" || storage == "word32"
 }
@@ -850,7 +850,7 @@ fn empty_view_ddl(table: &str, cols: &[(String, String)]) -> String {
     let mut sel: Vec<String> = Vec::new();
     for (name, storage) in cols {
         // COR-4: type by column NAME (`hot_col_type`), exactly as `seal::rows_to_batch` and the hot temp
-        // table do — only the four counter columns are UBIGINT, everything else (incl. a `u64`-storage
+        // table do - only the four counter columns are UBIGINT, everything else (incl. a `u64`-storage
         // event field like a `uint24`) is VARCHAR. Typing by *storage* here made a column flip type the
         // instant the first row sealed (`AVG(fee)` valid empty, erroring once populated).
         let ty = hot_col_type(name);
@@ -882,7 +882,7 @@ fn value_to_json(v: ValueRef<'_>) -> Value {
         ValueRef::Double(f) => Value::from(f),
         ValueRef::HugeInt(i) => Value::String(i.to_string()),
         ValueRef::Text(bytes) => Value::String(String::from_utf8_lossy(bytes).into_owned()),
-        // Timestamps, decimals, nested types etc. — stringify for the skeleton surface.
+        // Timestamps, decimals, nested types etc. - stringify for the skeleton surface.
         other => Value::String(format!("{other:?}")),
     }
 }
@@ -928,7 +928,7 @@ mod tests {
     }
 
     /// RFC-0009 step 6: a factory nest gets an auto-generated `{template}__children` view over the
-    /// sealed factory events — the discovered children with provenance, de-duplicated to the earliest
+    /// sealed factory events - the discovered children with provenance, de-duplicated to the earliest
     /// discovery per address. Answers "which pools, discovered when, by whom" in one query.
     #[test]
     fn children_view_lists_discovered_contracts() {
@@ -993,7 +993,7 @@ template="pool"
     fn guarded_query_times_out_on_a_runaway() {
         let dir = tempfile::tempdir().unwrap();
         // A recursive CTE that would iterate ~a billion times: it cannot finish inside the budget, so
-        // the watchdog interrupts it. Needs no sealed data — it never touches a table.
+        // the watchdog interrupts it. Needs no sealed data - it never touches a table.
         let runaway = "WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 1000000000) SELECT count(*) FROM t";
         let guard = QueryGuard {
             timeout: Duration::from_millis(250),
@@ -1032,7 +1032,7 @@ template="pool"
     #[test]
     fn query_survives_a_missing_segment_file() {
         // A segment listed in the manifest but gone from disk (quarantined as corrupt / removed) must
-        // not fail the whole query — its cold data is skipped, the surviving segment still answers.
+        // not fail the whole query - its cold data is skipped, the surviving segment still answers.
         let dir = tempfile::tempdir().unwrap();
         let row = |b: u64| {
             format!(
@@ -1060,7 +1060,7 @@ template="pool"
     #[test]
     fn sql_disjoint_union_never_double_counts_an_overlapping_row() {
         // COR-1: even if a block sits in BOTH a sealed segment and the hot store (the seal→prune crash
-        // window), the `sealed_through` filter counts it once — cold ≤ watermark, hot > watermark.
+        // window), the `sealed_through` filter counts it once - cold ≤ watermark, hot > watermark.
         let dir = tempfile::tempdir().unwrap();
         let cold = vec![r#"{"table":"t__e","block_number":10,"log_index":0,"x":"1"}"#.to_string()];
         crate::seal::seal_range(dir.path(), &cold, 10, 10).unwrap();
@@ -1092,7 +1092,7 @@ template="pool"
     #[test]
     fn empty_view_types_columns_by_name_not_storage() {
         // COR-4: a `u64`-storage event field with a NON-counter name (e.g. a `uint24` fee) must be
-        // VARCHAR in the empty view — matching what `seal::rows_to_batch` writes — so the column's SQL
+        // VARCHAR in the empty view - matching what `seal::rows_to_batch` writes - so the column's SQL
         // type doesn't flip (valid empty, erroring once populated) the instant the first row seals.
         let ddl = empty_view_ddl("pool__swap", &[("fee".to_string(), "u64".to_string())]);
         assert!(
@@ -1123,7 +1123,7 @@ template="pool"
             20,
         )
         .unwrap();
-        // Without union_by_name this errors ("table not found" — the view was silently dropped).
+        // Without union_by_name this errors ("table not found" - the view was silently dropped).
         let out = query(dir.path(), r#"SELECT count(*) AS n FROM "t__e""#).unwrap();
         assert_eq!(out[0]["n"], Value::from(2u64));
         // The drifted column is NULL-filled for the earlier segment.
@@ -1172,7 +1172,7 @@ template="pool"
             guard
         )
         .is_err());
-        // A legitimate query over the sealed segment still works — even when a *column* is named like a
+        // A legitimate query over the sealed segment still works - even when a *column* is named like a
         // function (no call → not blocked).
         let ok = query_guarded(
             dir.path(),
@@ -1186,7 +1186,7 @@ template="pool"
     #[test]
     fn hot_tip_is_queryable_without_any_segments() {
         // RFC-0013: a nest with only unsealed tip data (no segments, no schema.json) is still SQL-
-        // queryable — the hot rows are loaded into a temp table with data-derived columns.
+        // queryable - the hot rows are loaded into a temp table with data-derived columns.
         let dir = tempfile::tempdir().unwrap();
         let mut hot = HotRows::new();
         hot.insert(
@@ -1338,7 +1338,7 @@ template="pool"
     }
 
     /// RFC-0001 §2: a uint256 column gets a derived `_dec` DECIMAL(38) view column (value when it
-    /// fits in 38 digits, else NULL) and an `_overflow` flag — so ad-hoc SQL can aggregate big ints
+    /// fits in 38 digits, else NULL) and an `_overflow` flag - so ad-hoc SQL can aggregate big ints
     /// without hand-casting.
     #[test]
     fn bigint_columns_get_decimal_and_overflow_views() {
@@ -1450,7 +1450,7 @@ template="pool"
         ];
         crate::seal::seal_range(dir.path(), &entities, 10, 12).unwrap();
 
-        // Two view files: the second builds on the first — proves sorted load order.
+        // Two view files: the second builds on the first - proves sorted load order.
         std::fs::create_dir_all(dir.path().join("views")).unwrap();
         std::fs::write(
             dir.path().join("views/10-recipients.sql"),
@@ -1468,7 +1468,7 @@ template="pool"
         assert_eq!(rows[0]["addr"], Value::from("0xb")); // 0xb received 2, 0xc received 1
         assert_eq!(rows[0]["n"], Value::from(2u64));
 
-        // A broken view file doesn't blow up the surface — the good views still resolve.
+        // A broken view file doesn't blow up the surface - the good views still resolve.
         std::fs::write(
             dir.path().join("views/30-broken.sql"),
             "CREATE VIEW broken AS SELECT * FROM nonexistent_table;",
@@ -1479,7 +1479,7 @@ template="pool"
     }
 
     /// RFC-0018 §1: `validate_nest_views` flags a broken/drifted view (with a fuzzy-matched hint) and
-    /// leaves a valid one alone — the loud gate the old silent-skip loader never had.
+    /// leaves a valid one alone - the loud gate the old silent-skip loader never had.
     #[test]
     fn validate_nest_views_flags_the_broken_one_with_a_hint() {
         let dir = tempfile::tempdir().unwrap();
@@ -1493,7 +1493,7 @@ template="pool"
             r#"CREATE VIEW good AS SELECT "to" AS addr FROM "usdc__transfer";"#,
         )
         .unwrap();
-        // References `transfers` — the classic drop-the-prefix drift the registry no longer has.
+        // References `transfers` - the classic drop-the-prefix drift the registry no longer has.
         std::fs::write(
             dir.path().join("views/20-broken.sql"),
             "CREATE VIEW broken AS SELECT * FROM transfers;",

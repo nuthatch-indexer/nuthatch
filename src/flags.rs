@@ -1,10 +1,10 @@
 //! Threshold flags (RFC-0008 C3): the simple half of the flag family. A **threshold flag** is a
 //! single transfer whose value reaches a configured amount (travel-rule style, e.g. a $3,000-equivalent
-//! in token base units — thresholds are config, not code, and there is no currency conversion in-core).
+//! in token base units - thresholds are config, not code, and there is no currency conversion in-core).
 //!
 //! Unlike velocity, a threshold flag needs no aggregation: it is a pure per-transfer predicate, so it
 //! becomes an append-only `threshold_flag` annotation keyed by its transfer's `{block}-{log}`. That
-//! makes reorg handling free — the annotation is block-keyed, so it rolls back (retracts) with its
+//! makes reorg handling free - the annotation is block-keyed, so it rolls back (retracts) with its
 //! transfer exactly like a `sanction_hit`. Comparison is on the shipped **i128** path, so a value past
 //! i64 is flagged, not silently truncated (a threshold view on i64 would be a compliance liability).
 
@@ -57,7 +57,7 @@ mod tests {
         assert_eq!(ann["table"], "threshold_flag");
     }
 
-    /// The C3 gate item: threshold comparison runs on i128 — a transfer above i64::MAX is flagged,
+    /// The C3 gate item: threshold comparison runs on i128 - a transfer above i64::MAX is flagged,
     /// not lost to truncation. (~100 tokens of an 18-decimal token overflows i64.)
     #[test]
     fn flags_values_beyond_i64() {

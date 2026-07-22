@@ -1,4 +1,4 @@
-//! RFC-0020: nest lifecycle — the compatible-vs-breaking classifier (slice 1).
+//! RFC-0020: nest lifecycle - the compatible-vs-breaking classifier (slice 1).
 //!
 //! An update `vN → vN+1` is **compatible** when every existing downstream query keeps working with
 //! unchanged meaning, and **breaking** otherwise. Settled rule (RFC-0020): compatible = *additive
@@ -6,7 +6,7 @@
 //! changed); breaking = anything a consumer can observe as removed/renamed/retyped/re-meant. A
 //! conservative default falls to **breaking** when in doubt.
 //!
-//! This slice classifies over the **schema surface** — `schema.json`, the decoded event tables and
+//! This slice classifies over the **schema surface** - `schema.json`, the decoded event tables and
 //! their columns, which is the concrete machine-readable contract a consumer queries (`SELECT … FROM
 //! c0__transfer`). Later slices act on the verdict: compatible → hot-swap behind the same endpoint;
 //! breaking → a new versioned endpoint run alongside the old. This slice only *decides*; it moves no
@@ -90,7 +90,7 @@ impl Classification {
     }
 }
 
-/// A column's observable type — the pair a consumer sees. `indexed` is deliberately excluded: it
+/// A column's observable type - the pair a consumer sees. `indexed` is deliberately excluded: it
 /// affects query cost, not shape or meaning, so flipping it is not a break.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ColType {
@@ -195,7 +195,7 @@ fn classify(old: &Schema, new: &Schema) -> Classification {
     Classification { verdict, changes }
 }
 
-/// Classify an update from two `schema.json` documents. Errors only on malformed JSON — a real fault,
+/// Classify an update from two `schema.json` documents. Errors only on malformed JSON - a real fault,
 /// distinct from a *breaking* verdict.
 pub fn classify_schemas(old_json: &str, new_json: &str) -> Result<Classification> {
     let old = parse_schema(old_json)?;
@@ -225,7 +225,7 @@ pub fn classify_paths(old: &Path, new: &Path) -> Result<Classification> {
 /// Has the new version's indexed head reached the old version's? The flip condition a compatible hot
 /// upgrade polls (RFC-0020 slice 2b): serving can atomically swap once the new version is at least as
 /// current as the old, with no visible regression. The new version must have **actually indexed**
-/// (`Some`) — waiting for that avoids a premature flip before the new indexer commits anything; a
+/// (`Some`) - waiting for that avoids a premature flip before the new indexer commits anything; a
 /// missing old head counts as 0 (nothing to catch up to).
 pub fn caught_up(new_head: Option<u64>, old_head: Option<u64>) -> bool {
     matches!(new_head, Some(n) if n >= old_head.unwrap_or(0))
@@ -234,17 +234,17 @@ pub fn caught_up(new_head: Option<u64>, old_head: Option<u64>) -> bool {
 /// The result of attempting segment reuse for a compatible upgrade (RFC-0020 slice 4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReuseOutcome {
-    /// Decode unchanged — the old version's sealed segments were mounted into the new nest and its
+    /// Decode unchanged - the old version's sealed segments were mounted into the new nest and its
     /// sealed watermark set, so the new indexer resumes past this range instead of re-indexing history.
     Reused {
         sealed_through: u64,
         segments: usize,
     },
-    /// Not reusable — the new version must index history itself. Carries a human reason.
+    /// Not reusable - the new version must index history itself. Carries a human reason.
     NotReusable(String),
 }
 
-/// The decode-registry content hash a nest's `schema.json` pins — the key that decides segment reuse.
+/// The decode-registry content hash a nest's `schema.json` pins - the key that decides segment reuse.
 /// `None` if there's no `schema.json` or it lacks the field.
 fn schema_registry_hash(dir: &Path) -> Result<Option<String>> {
     #[derive(Deserialize)]
@@ -265,7 +265,7 @@ fn schema_registry_hash(dir: &Path) -> Result<Option<String>> {
 /// would produce, so mount them into the new nest instead of re-indexing. Copies `old/segments/*` →
 /// `new/segments/` and sets the new store's sealed watermark, so the new indexer resumes *past* the
 /// reused range (`resume_from_watermark`). A changed decode, or nothing sealed yet, falls back to a
-/// normal index — [`ReuseOutcome::NotReusable`]. Content-addressing makes this sound: reused segments
+/// normal index - [`ReuseOutcome::NotReusable`]. Content-addressing makes this sound: reused segments
 /// carry their own hashes and are re-verifiable; this is a capability subgraphs structurally lack.
 ///
 /// Call this **before** either version's indexer opens the stores (redb is single-writer).
@@ -273,14 +273,14 @@ pub fn reuse_segments(old_dir: &Path, new_dir: &Path) -> Result<ReuseOutcome> {
     let old_hash = schema_registry_hash(old_dir)?;
     if old_hash.is_none() || old_hash != schema_registry_hash(new_dir)? {
         return Ok(ReuseOutcome::NotReusable(
-            "decode registry changed — history must be re-indexed with the new decoding".into(),
+            "decode registry changed - history must be re-indexed with the new decoding".into(),
         ));
     }
 
     let old_seg = old_dir.join(crate::seal::SEGMENTS_DIR);
     if !old_seg.join(crate::seal::MANIFEST_FILE).exists() {
         return Ok(ReuseOutcome::NotReusable(
-            "nothing sealed yet in the old version — nothing to reuse".into(),
+            "nothing sealed yet in the old version - nothing to reuse".into(),
         ));
     }
 
@@ -317,7 +317,7 @@ pub fn reuse_segments(old_dir: &Path, new_dir: &Path) -> Result<ReuseOutcome> {
 }
 
 /// `nuthatch nest diff <old> <new>`: classify an update between two nests (each a nest dir or a
-/// `schema.json` path) and print the verdict with its reasons. Slice 1 is decision-only — it prints
+/// `schema.json` path) and print the verdict with its reasons. Slice 1 is decision-only - it prints
 /// what a later slice will *act* on (compatible → same endpoint; breaking → a new one).
 pub fn diff_cli(old: &Path, new: &Path) -> Result<()> {
     let c = classify_paths(old, new)?;
@@ -326,7 +326,7 @@ pub fn diff_cli(old: &Path, new: &Path) -> Result<()> {
     match c.verdict {
         Verdict::Compatible => {
             println!(
-                "✓ compatible — {additive} additive change(s), nothing removed/retyped. Safe to \
+                "✓ compatible - {additive} additive change(s), nothing removed/retyped. Safe to \
                  hot-swap behind the same endpoint."
             );
             for ch in c.additive_changes() {
@@ -335,7 +335,7 @@ pub fn diff_cli(old: &Path, new: &Path) -> Result<()> {
         }
         Verdict::Breaking => {
             println!(
-                "✗ breaking — a consumer-observable change. Serve on a NEW versioned endpoint, run \
+                "✗ breaking - a consumer-observable change. Serve on a NEW versioned endpoint, run \
                  it alongside the old, and let downstream migrate on their clock."
             );
             for ch in c.breaking_changes() {
@@ -423,7 +423,7 @@ mod tests {
         assert!(!caught_up(Some(99), Some(100)), "behind");
         assert!(
             !caught_up(None, None),
-            "new not started yet — don't flip prematurely"
+            "new not started yet - don't flip prematurely"
         );
         assert!(!caught_up(None, Some(1)), "new not started, old has data");
         assert!(caught_up(Some(1), None), "new started, old empty");
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn added_table_and_column_are_compatible() {
         // Same two tables, but `approval` gains a `note` column and a whole new `c0__mint` table
-        // appears — both additive, nothing existing touched.
+        // appears - both additive, nothing existing touched.
         let new = r#"{
           "tables": [
             {"table":"c0__transfer","columns":[

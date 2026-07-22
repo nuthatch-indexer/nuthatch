@@ -8,9 +8,9 @@
 //! extremes and self-heals into any provider's cap.
 
 /// Target logs per `getLogs` response. Providers cap on result count, so this is a log (not decoded
-/// event) budget — comfortably under the common 10k caps, with headroom for a growth step.
+/// event) budget - comfortably under the common 10k caps, with headroom for a growth step.
 pub const TARGET_LOGS_PER_RESPONSE: u64 = 2_000;
-/// Never go below one block (a single very dense block can still exceed the target — that's fine, we
+/// Never go below one block (a single very dense block can still exceed the target - that's fine, we
 /// can't split a block) or above this ceiling (keeps sparse-chain growth sane).
 pub const MIN_WINDOW: u64 = 1;
 pub const MAX_WINDOW: u64 = 100_000;
@@ -49,7 +49,7 @@ impl AdaptiveWindow {
     /// at most 4× per step so a single sparse (0-log) or spiky window doesn't swing the window wildly.
     pub fn observed(&mut self, logs: u64) {
         let next = if logs == 0 {
-            // Nothing came back — grow to cover more ground, but only 4× at a time.
+            // Nothing came back - grow to cover more ground, but only 4× at a time.
             self.window.saturating_mul(4)
         } else {
             // Proportional to hit the target, clamped to a 4× move either direction.
@@ -59,7 +59,7 @@ impl AdaptiveWindow {
         self.window = next.clamp(self.min, self.max);
     }
 
-    /// The provider rejected the range as too large — halve hard and (the caller) retry the range.
+    /// The provider rejected the range as too large - halve hard and (the caller) retry the range.
     pub fn too_large(&mut self) {
         self.window = (self.window / 2).max(self.min);
     }

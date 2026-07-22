@@ -1,6 +1,6 @@
-# RFC-0005: Release engineering — v0.1.0
+# RFC-0005: Release engineering - v0.1.0
 
-- Status: Implemented (2026-07-18) — v0.3.0 shipped
+- Status: Implemented (2026-07-18) - v0.3.0 shipped
 - Author: Pete (cargopete)
 - Date: 2026-07-16 (v1: 2026-07-14)
 - Depends on: RFC-0001 (Implemented), RFC-0002 (Implemented; Horizon parity fixtures
@@ -15,7 +15,7 @@
 
 Turn the repo into an installable product for two audiences that now demonstrably
 exist: individuals (single signed binary, `curl | sh`, Homebrew, crates.io) and
-**operators** (a versioned OCI image, operational guards, and stability contracts —
+**operators** (a versioned OCI image, operational guards, and stability contracts -
 GraphOps intends to run Nuthatch as part of its data-service platform). Tagged v0.1.0,
 with a v0.1.0-rc.1 that doubles as the GraphOps pilot artifact. After this RFC, the
 website's install command is end-to-end true for a stranger, and a fleet operator can
@@ -26,13 +26,13 @@ deploy, monitor, and upgrade Nuthatch without reading the source.
 Unchanged for individuals: `curl | sh` hits a placeholder; every downstream goal needs
 a real install. New since v1: GraphOps (8,000 physical cores, launching a data-service
 platform on Ethereum/Arbitrum/Base) proposes running Nuthatch as a hosted offering with
-revshare — the strongest external validation to date, and it converts "release
+revshare - the strongest external validation to date, and it converts "release
 engineering" from a courtesy to strangers into a contract with an operator. Operators
 cannot build a service on `cargo build --release` from main. What they need is small
 and well-understood: tagged artifacts, an image, metrics, guardrails, and a promise
 about what won't break between versions.
 
-## Release criteria for v0.1.0 (definition of done — synced to code state)
+## Release criteria for v0.1.0 (definition of done - synced to code state)
 
 1. ~~RFC-0001 implemented~~ **DONE** (multi-contract, full-ABI decode, proxy
    resolution, shipped 2026-07-15).
@@ -59,7 +59,7 @@ suffices; adaptive chunker lands incrementally), RFC-0008 compliance slices.
 
 Unchanged from v1 (SemVer 0.x, main always releasable, tags from main, nest
 `schema_version` guard) with one addition: **v0.1.0-rc.1 is a real, published
-pre-release** — it is the artifact GraphOps pilots against, so the rc gets the full
+pre-release** - it is the artifact GraphOps pilots against, so the rc gets the full
 workflow (signing, image, notes), not a shortcut. Feedback from the pilot may produce
 rc.2; the public v0.1.0 tag follows the pilot's first green week.
 
@@ -73,7 +73,7 @@ WSL2). One addition: the linux/amd64 and linux/arm64 builds feed the OCI image (
 
 Unchanged from v1 (SHA256SUMS + minisign, key published in three places, install.sh
 verifies always / aborts on mismatch). Addition: the OCI image is signed with cosign
-(keyless, GitHub OIDC) — operators verify provenance with one command; document both
+(keyless, GitHub OIDC) - operators verify provenance with one command; document both
 verification paths side by side.
 
 ### 4. install.sh (the real one)
@@ -82,18 +82,18 @@ Unchanged from v1.
 
 ### 5. Distribution channels
 
-- **GitHub Releases** — canonical, unchanged.
-- **crates.io / Homebrew** — unchanged.
+- **GitHub Releases** - canonical, unchanged.
+- **crates.io / Homebrew** - unchanged.
 - **5a. NEW: OCI image, first-class.** `ghcr.io/nuthatch-indexer/nuthatch:{version}`,
   multi-arch (amd64/arm64), distroless-or-scratch base + the static-ish binary, image
   runs as non-root, data dir at a declared volume path, config via mounted
   `nuthatch.toml` + env overrides for the operator-relevant knobs (listen addr, RPC
-  endpoints, guards). The v1 decision ("Docker image later — contradicts the
+  endpoints, guards). The v1 decision ("Docker image later - contradicts the
   single-binary story") is **revised, not reversed**: the binary remains the lead
   story and the only path the website hero shows; the image is the operator story and
-  is exactly the same binary in a box — say precisely that in the docs. (Prior art:
+  is exactly the same binary in a box - say precisely that in the docs. (Prior art:
   gib ships to GHCR the same way.)
-- Not yet: apt/AUR/nix — unchanged.
+- Not yet: apt/AUR/nix - unchanged.
 
 ### 6. NEW: Operator channel (the GraphOps-shaped requirements)
 
@@ -114,9 +114,9 @@ tenancy to the binary.
   the operator's gateway decides *who*; the guards bound *how much*.
 - **Bind posture**: unchanged rule (default 127.0.0.1); when bound publicly, startup
   logs a loud one-liner pointing at the guards doc. No token system in core beyond
-  what already exists — fronting is the operator's job.
+  what already exists - fronting is the operator's job.
 - **Config-stability contract**: `nuthatch.toml` keys and the nest `schema_version`
-  get a written deprecation policy — a key removed in 0.(n+1) must warn in 0.n. Same
+  get a written deprecation policy - a key removed in 0.(n+1) must warn in 0.n. Same
   for the data layout: redb tables, segment layout, `manifest.json`, `schema.json`
   are versioned; an upgrade note per release states "in-place safe" or "reseal
   required" (target: always in-place within 0.x; say so, then keep it true).
@@ -127,7 +127,7 @@ tenancy to the binary.
 ### 7. Release workflow (CI)
 
 v1 pipeline unchanged, plus: buildx multi-arch image → cosign sign → push to GHCR →
-image smoke test (run container, `--version`, quickstart against a mock RPC fixture) —
+image smoke test (run container, `--version`, quickstart against a mock RPC fixture) -
 all before the draft release is promoted. Release notes gain an "operator notes"
 section (upgrade safety, config changes, guard defaults).
 
@@ -135,16 +135,16 @@ section (upgrade safety, config changes, guard defaults).
 
 Unchanged from v1, plus /install gains an "Operators" tab: image pull + verify
 commands, the guards doc link, and one honest sentence that hosted Nuthatch offerings
-are run by independent operators — the binary neither knows nor cares.
+are run by independent operators - the binary neither knows nor cares.
 
 ## Implementation plan
 
-1. Base chain registry entry (criteria #4) — do first, it's small and unblocks pilot
+1. Base chain registry entry (criteria #4) - do first, it's small and unblocks pilot
    conversations concretely.
 2. Target builds + glibc floor (v1 step 1) and the Dockerfile/image build alongside.
 3. Query guards + /metrics + SIGTERM handling (§6) with tests.
 4. install.sh + shellcheck + container smoke (v1 step 2), minisign + cosign keys.
-5. release.yml end-to-end rehearsal with `v0.1.0-rc.1` (`prerelease: true`) — this rc
+5. release.yml end-to-end rehearsal with `v0.1.0-rc.1` (`prerelease: true`) - this rc
    is handed to GraphOps as the pilot artifact.
 6. Horizon parity fixtures (criteria #2) in parallel; cut v0.1.0 after the pilot's
    first green week and a fresh-machine stranger install.
@@ -161,17 +161,17 @@ warning fires on a renamed key fixture.
 
 v1 risks unchanged (DuckDB targets, minisign key custody, tap token scope), plus:
 - **Operator-driven scope pull**: the partnership will generate feature asks. The
-  dividing line in §6 is the shield — auth/metering/tenancy requests are gateway-layer
+  dividing line in §6 is the shield - auth/metering/tenancy requests are gateway-layer
   and get declined from core with a pointer to that paragraph. Roadmap input from
   GraphOps: welcomed; roadmap veto: no (mirrors RFC-0006's funder rule).
 - **Pilot timeline coupling**: GraphOps's platform launch date is theirs, not ours.
-  The rc ships when our criteria pass; the pilot consumes it when they're ready — no
+  The rc ships when our criteria pass; the pilot consumes it when they're ready - no
   criteria are relaxed to hit an external date.
 
 ## Alternatives considered
 
 v1 items stand (cargo-dist evaluation first; minisign over GPG). Revised: "Docker
-image as a primary channel — rejected" becomes "image as a first-class *secondary*
+image as a primary channel - rejected" becomes "image as a first-class *secondary*
 channel" per §5a; the reasoning that it must not lead the story is retained.
 
 ## Open questions
@@ -181,5 +181,5 @@ channel" per §5a; the reasoning that it must not lead the story is retained.
    revshare conversation (RFC-0006 v2) as the venue for anything firmer. Do not
    promise SLAs in release notes.
 3. Should the rc be public or a private pre-release shared with GraphOps? Leaning
-   public (`prerelease: true` visible) — consistent with everything else this project
+   public (`prerelease: true` visible) - consistent with everything else this project
    does in the open.

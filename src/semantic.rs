@@ -1,17 +1,17 @@
-//! The governed semantic layer (RFC-0016 §2). `semantic.toml` is what a nest's data *means* —
-//! per-table and per-column descriptions authored by the nest's author — sitting beside
+//! The governed semantic layer (RFC-0016 §2). `semantic.toml` is what a nest's data *means* -
+//! per-table and per-column descriptions authored by the nest's author - sitting beside
 //! `nuthatch.toml` and read by every surface that describes the nest (the MCP `schema` tool, the
 //! admin UI, the scaffolded skill). One source of truth, many readers.
 //!
 //! Two rules make it *governed* rather than just a docs file:
 //!
 //! 1. **Generated at `init`, never trusted blindly.** Descriptions are seeded from the ABI (honest
-//!    fallback text an author is invited to improve). **Footguns are derived, not authored** —
+//!    fallback text an author is invited to improve). **Footguns are derived, not authored** -
 //!    reserved-word columns (`"from"`/`"to"`) and big-int columns (`value` → use `value_dec`) are
 //!    computed from the decode registry, so they are always present and always correct even if the
 //!    author never opens the file.
 //! 2. **Drift is caught.** [`drift`] flags any table/column the file describes that the registry
-//!    doesn't have — stale semantics are worse than none, so `dev` warns loudly.
+//!    doesn't have - stale semantics are worse than none, so `dev` warns loudly.
 //!
 //! Nothing here touches the data path (non-negotiable 4): this is presentation over the registry.
 
@@ -34,7 +34,7 @@ pub struct Semantic {
     /// the generated file and the composed doc are deterministic (Tier-A goldenable).
     #[serde(default, rename = "table")]
     pub tables: BTreeMap<String, TableSemantic>,
-    /// Per-authored-view meaning, keyed by view name (RFC-0018 §1) — the derivations the nest exists to
+    /// Per-authored-view meaning, keyed by view name (RFC-0018 §1) - the derivations the nest exists to
     /// answer. Rendered into `/schema`/the MCP exactly like tables, so an agent *sees* `top_recipients`
     /// and what it means rather than rediscovering it.
     #[serde(default, rename = "view")]
@@ -52,7 +52,7 @@ pub struct NestSemantic {
 }
 
 /// What one authored SQL view (`views/*.sql`) computes (RFC-0018 §1). The view's *shape* (columns) is
-/// introspected from DuckDB at query time — the author only has to say what it *means*.
+/// introspected from DuckDB at query time - the author only has to say what it *means*.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ViewSemantic {
     #[serde(default)]
@@ -76,7 +76,7 @@ pub struct TableSemantic {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Footguns {
-    /// Columns whose names are SQL reserved words — must be double-quoted (`"from"`).
+    /// Columns whose names are SQL reserved words - must be double-quoted (`"from"`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reserved_words: Vec<String>,
     /// Columns holding integers wider than 64 bits, stored as exact text. Arithmetic must use the
@@ -84,7 +84,7 @@ pub struct Footguns {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub big_ints: Vec<String>,
     /// The subset of `big_ints` whose storage exceeds `DECIMAL(38,0)`'s range (int/uint wider than 128
-    /// bits — e.g. a Uniswap-v3 `sqrtPriceX96` uint160): their `{col}_dec` companion is **NULL**
+    /// bits - e.g. a Uniswap-v3 `sqrtPriceX96` uint160): their `{col}_dec` companion is **NULL**
     /// whenever the value has more than 38 digits, so exact-decimal math silently drops those rows.
     /// Use `CAST({col} AS DOUBLE)` for arithmetic on such price/sqrt-scale values.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -97,7 +97,7 @@ impl Footguns {
     }
 }
 
-/// SQL reserved words that also turn up as EVM event parameter names — a column with one of these
+/// SQL reserved words that also turn up as EVM event parameter names - a column with one of these
 /// names must be double-quoted in every dialect. Kept deliberately small and high-signal (the ones
 /// that actually collide with real ABIs) rather than the full 200-word SQL keyword list.
 const SQL_RESERVED: &[&str] = &[
@@ -137,7 +137,7 @@ const SQL_RESERVED: &[&str] = &[
     "asc",
 ];
 
-/// A big-integer storage kind (uint/int > 64-bit) — the columns that get a `{col}_dec` companion and
+/// A big-integer storage kind (uint/int > 64-bit) - the columns that get a `{col}_dec` companion and
 /// must not be summed/compared as raw text. Mirrors `analytics::is_bigint`.
 fn is_bigint_storage(storage: &str) -> bool {
     storage == "word16" || storage == "word32"
@@ -154,7 +154,7 @@ pub fn derive_footguns(table: &TableSchema) -> Footguns {
         }
         if is_bigint_storage(&col.storage) {
             big_ints.push(col.name.clone());
-            // `word32` = int/uint 129–256 bit: its max (up to ~1e77) exceeds `DECIMAL(38,0)`, so the
+            // `word32` = int/uint 129-256 bit: its max (up to ~1e77) exceeds `DECIMAL(38,0)`, so the
             // derived `_dec` is NULL for values with >38 digits (sqrtPriceX96, price accumulators).
             // `word16` (≤128 bit) fits comfortably for realistic values, so it keeps the plain `_dec`
             // guidance and is *not* flagged here.
@@ -172,7 +172,7 @@ pub fn derive_footguns(table: &TableSchema) -> Footguns {
 
 /// The honest fallback marker appended to every generated (un-edited) description, so an author can
 /// tell at a glance what still needs their attention and a reader knows the text is machine-seeded.
-const SEEDED: &str = "(seeded from the ABI — edit semantic.toml to improve this)";
+const SEEDED: &str = "(seeded from the ABI - edit semantic.toml to improve this)";
 
 /// Generate a `Semantic` from the registry: ABI-seeded descriptions plus derived footguns. This is
 /// what `init` writes. Descriptions are honest placeholders; footguns are authoritative.
@@ -210,7 +210,7 @@ pub fn generate(schema: &[TableSchema], nest_name: &str, chain: &str) -> Semanti
         },
         tables,
         // Authored views are seeded per-scaffolded-view by `init` (RFC-0018 §1b), not generated from
-        // the registry — the registry has no views.
+        // the registry - the registry has no views.
         views: BTreeMap::new(),
     }
 }
@@ -248,7 +248,7 @@ pub fn merge(existing: Semantic, generated: Semantic) -> Semantic {
 }
 
 /// Load `semantic.toml` from a nest directory, if present. Absent is fine (a nest predating the
-/// semantic layer still describes itself from the registry alone) — returns `Ok(None)`.
+/// semantic layer still describes itself from the registry alone) - returns `Ok(None)`.
 pub fn load(dir: &std::path::Path) -> Result<Option<Semantic>> {
     let path = dir.join("semantic.toml");
     if !path.exists() {
@@ -263,13 +263,13 @@ pub fn load(dir: &std::path::Path) -> Result<Option<Semantic>> {
 
 /// Write a `Semantic` to `semantic.toml` in a nest directory (what `init` calls).
 pub fn save(dir: &std::path::Path, sem: &Semantic) -> Result<()> {
-    let header = "# semantic.toml — what this nest's data *means* (RFC-0016). Read by the MCP `schema`\n\
+    let header = "# semantic.toml - what this nest's data *means* (RFC-0016). Read by the MCP `schema`\n\
                   # tool, the admin UI, and the scaffolded skill. Edit descriptions freely; the\n\
-                  # `[table.*.footguns]` are DERIVED from the ABI and regenerated — leave them be.\n\n";
+                  # `[table.*.footguns]` are DERIVED from the ABI and regenerated - leave them be.\n\n";
     let body = toml::to_string_pretty(sem).context("serialise semantic.toml")?;
     // When no views are described yet, seed a commented `[view.*]` stub (RFC-0018 §1b) so an author who
     // uncomments a `views/*.sql` knows where to say what it means. A comment can't be represented in the
-    // serde model, so it's appended as trailing text — inert until uncommented.
+    // serde model, so it's appended as trailing text - inert until uncommented.
     let view_stub = if sem.views.is_empty() {
         "\n# Authored views (views/*.sql) are described here so the MCP/`/schema` can render them:\n\
          # [view.your_view_name]\n\
@@ -286,7 +286,7 @@ pub fn save(dir: &std::path::Path, sem: &Semantic) -> Result<()> {
 }
 
 /// Drift check: every table/column the semantic file *describes* must exist in the registry. Returns
-/// human-readable warnings (empty when clean). Stale semantics are worse than none — `dev` surfaces
+/// human-readable warnings (empty when clean). Stale semantics are worse than none - `dev` surfaces
 /// these loudly so the author fixes or regenerates the file.
 pub fn drift(schema: &[TableSchema], sem: &Semantic) -> Vec<String> {
     let known: BTreeMap<&str, Vec<String>> = schema
@@ -328,7 +328,7 @@ pub struct Coverage {
 }
 
 /// Compose the enriched schema document from the four layers the RFC names: **structure** (registry),
-/// **meaning** (semantic.toml), **derived footguns**, and — when a running nest supplies it —
+/// **meaning** (semantic.toml), **derived footguns**, and - when a running nest supplies it -
 /// **coverage** (the hot/cold seam as numbers). Sample-row *evidence* is a later slice; this is the
 /// text an agent reads before writing SQL. Deterministic given its inputs, so it is Tier-A goldenable.
 pub fn compose(
@@ -348,7 +348,7 @@ pub fn compose(
     if let Some(c) = coverage {
         out.push_str(&format!(
             "COVERAGE\n  sealed_through = {} (the `sql` tool sees rows at or below this block);\n  \
-             tip = {} — rows above sealed_through are served by `table`/`entity`, not `sql`.\n\n",
+             tip = {} - rows above sealed_through are served by `table`/`entity`, not `sql`.\n\n",
             c.sealed_through, c.tip
         ));
     }
@@ -356,7 +356,7 @@ pub fn compose(
     out.push_str("TABLES (one per contract event; query via the `sql` tool)\n");
     for t in schema {
         let ts = sem.and_then(|s| s.tables.get(&t.table));
-        out.push_str(&format!("\n  {} — {}\n", t.table, describe_table(t, ts)));
+        out.push_str(&format!("\n  {} - {}\n", t.table, describe_table(t, ts)));
         if let Some(ts) = ts {
             if !ts.grain.is_empty() {
                 out.push_str(&format!("    grain: {}\n", ts.grain));
@@ -375,7 +375,7 @@ pub fn compose(
         let fg = derive_footguns(t);
         if !fg.reserved_words.is_empty() {
             out.push_str(&format!(
-                "    ⚠ reserved-word columns — double-quote them: {}\n",
+                "    ⚠ reserved-word columns - double-quote them: {}\n",
                 fg.reserved_words
                     .iter()
                     .map(|c| format!("\"{c}\""))
@@ -395,7 +395,7 @@ pub fn compose(
         }
         if !fg.overflows_dec.is_empty() {
             out.push_str(&format!(
-                "    ⚠ wide columns (>128-bit) whose `_dec` OVERFLOWS to NULL above 38 digits — use `CAST(col AS DOUBLE)` for math (e.g. sqrtPriceX96): {}\n",
+                "    ⚠ wide columns (>128-bit) whose `_dec` OVERFLOWS to NULL above 38 digits - use `CAST(col AS DOUBLE)` for math (e.g. sqrtPriceX96): {}\n",
                 fg.overflows_dec.join(", ")
             ));
         }
@@ -406,15 +406,15 @@ pub fn compose(
     if let Some(s) = sem {
         if !s.views.is_empty() {
             out.push_str(
-                "\nAUTHORED VIEWS (derived — query by name, recomputed per query over hot∪cold)\n",
+                "\nAUTHORED VIEWS (derived - query by name, recomputed per query over hot∪cold)\n",
             );
             for (name, v) in &s.views {
                 let desc = if v.description.is_empty() {
-                    "(an authored SQL view — describe it in semantic.toml `[view.…]`)"
+                    "(an authored SQL view - describe it in semantic.toml `[view.…]`)"
                 } else {
                     &v.description
                 };
-                out.push_str(&format!("  {name} — {desc}\n"));
+                out.push_str(&format!("  {name} - {desc}\n"));
             }
         }
     }
@@ -423,17 +423,17 @@ pub fn compose(
     out
 }
 
-/// Nest-independent guidance every composed schema carries — the derived views and compliance/factory
+/// Nest-independent guidance every composed schema carries - the derived views and compliance/factory
 /// surfaces an agent should know exist. Kept as a trailing appendix so the per-nest tables lead.
 const GENERAL_GUIDANCE: &str = r#"
 VIEWS (incrementally maintained; reorgs retract automatically)
-  balances — per-address net balance = Σ(received) − Σ(sent), i128 base units as decimal strings,
+  balances - per-address net balance = Σ(received) − Σ(sent), i128 base units as decimal strings,
              for ERC-20 Transfer tables. Query via the `balance`/`top_balances` tools.
 
 COMPLIANCE (RFC-0008; amounts are i128 base units as decimal strings)
-  exposure       — an address's direct exposure to the labeled set (tool `exposure`).
-  flags          — threshold and velocity flags (tool `flags`).
-  screen_status  — sanctions-screening hits + the list-snapshot version (tool `screen_status`);
+  exposure       - an address's direct exposure to the labeled set (tool `exposure`).
+  flags          - threshold and velocity flags (tool `flags`).
+  screen_status  - sanctions-screening hits + the list-snapshot version (tool `screen_status`);
                    also the `sanction_hit` SQL table (each row carries its list_snapshot hash).
 
 FACTORIES (RFC-0009; only in a nest with templates/factories)
@@ -493,7 +493,7 @@ mod tests {
         let fg = derive_footguns(&transfer_table());
         assert_eq!(fg.reserved_words, vec!["from", "to"]);
         assert_eq!(fg.big_ints, vec!["value"]);
-        // `value` is a word32 (uint256), so it also overflows DECIMAL(38,0) — flag it for CAST-to-DOUBLE.
+        // `value` is a word32 (uint256), so it also overflows DECIMAL(38,0) - flag it for CAST-to-DOUBLE.
         assert_eq!(fg.overflows_dec, vec!["value"]);
     }
 
@@ -523,7 +523,7 @@ mod tests {
         let schema = vec![transfer_table()];
         let mut good = TableSemantic::default();
         good.columns.insert("nope".into(), "x".into()); // not a column of usdc__transfer
-        good.columns.insert("from".into(), "the sender".into()); // real column — no warning
+        good.columns.insert("from".into(), "the sender".into()); // real column - no warning
         let mut sem = Semantic::default();
         sem.tables.insert("usdc__transfer".into(), good);
         sem.tables
@@ -570,12 +570,12 @@ mod tests {
         );
         let doc = compose(&schema, Some(&sem), None);
         assert!(doc.contains("AUTHORED VIEWS"));
-        assert!(doc.contains("top_recipients — The addresses that received the most transfers."));
+        assert!(doc.contains("top_recipients - The addresses that received the most transfers."));
     }
 
     #[test]
     fn compose_teaches_the_footguns_without_a_semantic_file() {
-        // Even with no semantic.toml, compose must surface the derived footguns from the registry —
+        // Even with no semantic.toml, compose must surface the derived footguns from the registry -
         // that's the "always correct even if the author never opens the file" guarantee.
         let schema = [transfer_table()];
         // A tiny registry stand-in isn't available, so assert the footgun text via the same helper
