@@ -1,7 +1,7 @@
 //! MCP server, compiled into the binary. `nuthatch mcp` speaks the Model Context Protocol over
 //! stdio (newline-delimited JSON-RPC), so a coding agent (Claude Code, Cursor, …) can query a
 //! running index directly. It is a thin, fully-offline bridge to the local HTTP API of a running
-//! `nuthatch dev` — no external calls, no telemetry, no gated data service. Nothing phones home.
+//! `nuthatch dev` - no external calls, no telemetry, no gated data service. Nothing phones home.
 //!
 //! Bridging (rather than reopening the redb/segments) means the MCP server never contends with the
 //! indexer for the single-writer store, and it automatically reflects the live IVM views.
@@ -14,12 +14,12 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// The MCP server is meant to be launched by an MCP *client* (Claude Code, Cursor, …) as a stdio
 /// subprocess. When a human runs `nuthatch mcp` in a terminal, stdin is a TTY and no client is
-/// driving it — so instead of silently blocking on a read that never comes, show how to wire it up.
+/// driving it - so instead of silently blocking on a read that never comes, show how to wire it up.
 /// Returns true if we short-circuited (printed guidance and should exit).
 fn guide_if_interactive(base: &str) -> bool {
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() {
-        return false; // a client is piping JSON-RPC in — run the server.
+        return false; // a client is piping JSON-RPC in - run the server.
     }
     eprintln!("`nuthatch mcp` is a stdio server for an AI client to launch, not to run by hand.\n");
     print_client_config(base);
@@ -28,7 +28,7 @@ fn guide_if_interactive(base: &str) -> bool {
 
 /// Emit a copy-paste MCP client configuration for this binary bridging to `base`. One documented
 /// command wires a coding agent to a running nest (RFC-0015 slice 5): print it, paste it, ask your
-/// contract's data in plain English — fully offline, nothing phones home.
+/// contract's data in plain English - fully offline, nothing phones home.
 pub fn print_client_config(base: &str) {
     // Prefer this binary's absolute path so the snippet works even off `PATH`; fall back to the bare
     // command name.
@@ -40,7 +40,7 @@ pub fn print_client_config(base: &str) {
     let snippet = client_config_json(&exe, base);
 
     println!("First run your index:   nuthatch dev");
-    println!("Then point an AI client at it — either way is one step:\n");
+    println!("Then point an AI client at it - either way is one step:\n");
     println!("  Claude Code (one-liner):");
     println!("    claude mcp add nuthatch -- {exe} mcp --url {base}\n");
     println!("  Or add to .mcp.json / your client's MCP config:");
@@ -49,11 +49,11 @@ pub fn print_client_config(base: &str) {
         serde_json::to_string_pretty(&snippet).unwrap_or_default()
     );
     println!(
-        "\nThen ask your agent: \"what are the top USDC holders?\" — it queries the nest over MCP."
+        "\nThen ask your agent: \"what are the top USDC holders?\" - it queries the nest over MCP."
     );
 }
 
-/// The MCP-client server entry for this binary bridging to `base` — the value that goes under
+/// The MCP-client server entry for this binary bridging to `base` - the value that goes under
 /// `mcpServers.nuthatch` in a client's config.
 fn client_config_json(exe: &str, base: &str) -> Value {
     json!({
@@ -155,7 +155,7 @@ fn initialize_result(req: &Value) -> Value {
         .unwrap_or(PROTOCOL_VERSION);
     json!({
         "protocolVersion": pv,
-        // Advertise exactly what we implement — tools, resources, prompts; nothing else. When a future
+        // Advertise exactly what we implement - tools, resources, prompts; nothing else. When a future
         // standing-queries RFC lands, `notifications` slots in here without breaking a client (§6).
         "capabilities": { "tools": {}, "resources": {}, "prompts": {} },
         "serverInfo": { "name": "nuthatch", "version": env!("CARGO_PKG_VERSION") },
@@ -163,7 +163,7 @@ fn initialize_result(req: &Value) -> Value {
 }
 
 /// The resources a client may preload (RFC-0016 §6). Stable `nuthatch://…` URIs backed by the running
-/// nest's HTTP surface — reading one is a GET, so a client gets the context without a tool round-trip.
+/// nest's HTTP surface - reading one is a GET, so a client gets the context without a tool round-trip.
 fn resource_specs() -> Value {
     json!([
         { "uri": "nuthatch://schema", "name": "schema", "mimeType": "text/plain",
@@ -186,7 +186,7 @@ async fn read_resource(uri: &str, client: &reqwest::Client, base: &str) -> Resul
     get(client, &format!("{base}{path}")).await
 }
 
-/// The argument-taking prompts (RFC-0016 §6) — canned analysis flows that name real tools. Rendered
+/// The argument-taking prompts (RFC-0016 §6) - canned analysis flows that name real tools. Rendered
 /// entirely client-side (no network), so they work the instant a client lists them.
 fn prompt_specs() -> Value {
     json!([
@@ -218,7 +218,7 @@ fn render_prompt(name: &str, args: &Value) -> Option<Value> {
         "verify-a-number" => {
             let c = args.get("claim").and_then(Value::as_str).unwrap_or("<the claim>");
             format!(
-                "Independently verify this claim: \"{c}\". Call `schema` first (mind the footguns — \
+                "Independently verify this claim: \"{c}\". Call `schema` first (mind the footguns - \
                  big-int columns need their `_dec` companion), write the SQL from scratch with `sql`, \
                  and report the result *with* its provenance stamp (as-of block, sealed_through) so it \
                  is citable. If your first query errors, use the returned hint to correct it."
@@ -231,13 +231,13 @@ fn render_prompt(name: &str, args: &Value) -> Option<Value> {
     }))
 }
 
-/// The tool surface. Not a thin single-endpoint wrapper — schema discovery, SQL, point-reads, and
+/// The tool surface. Not a thin single-endpoint wrapper - schema discovery, SQL, point-reads, and
 /// the IVM views, each with an LLM-friendly description.
 pub fn tool_specs() -> Value {
     json!([
         { "name": "status", "description": "Index status: contract, chain, transfers indexed, holders, last & sealed block.",
           "inputSchema": { "type": "object", "properties": {} } },
-        { "name": "schema", "description": "The data model — how tables/views are named and queried. Read this first, then `tables` for the exact tables and columns.",
+        { "name": "schema", "description": "The data model - how tables/views are named and queried. Read this first, then `tables` for the exact tables and columns.",
           "inputSchema": { "type": "object", "properties": {} } },
         { "name": "tables", "description": "List every decoded table (`{alias}__{event}`) with its columns, Solidity types, and topic0.",
           "inputSchema": { "type": "object", "properties": {} } },
@@ -245,7 +245,7 @@ pub fn tool_specs() -> Value {
           "inputSchema": { "type": "object", "properties": { "name": { "type": "string" }, "limit": { "type": "integer", "default": 50 } }, "required": ["name"] } },
         { "name": "sql", "description": "Run a read-only SQL query over the live tip ∪ sealed history. Each event is a DuckDB view named `{alias}__{event}` (e.g. \"usdc__transfer\") with block_number, log_index, tx_hash, address + the event's params. Call `schema` first. SELECT/WITH only. Returns a compact table + a provenance stamp; capped at `limit` rows (default 200).",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string", "description": "A SELECT or WITH query." }, "limit": { "type": "integer", "description": "Max rows to return (default 200).", "default": 200 } }, "required": ["query"] } },
-        { "name": "explain", "description": "Validate a SQL query WITHOUT executing it — binds tables/columns/types and returns {valid:true} or an error with a fix hint. Cheaper than `sql`; use it to check a query before running it.",
+        { "name": "explain", "description": "Validate a SQL query WITHOUT executing it - binds tables/columns/types and returns {valid:true} or an error with a fix hint. Cheaper than `sql`; use it to check a query before running it.",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string", "description": "A SELECT or WITH query to validate." } }, "required": ["query"] } },
         { "name": "entity", "description": "Look up one transfer by its id, formatted `{block:012}-{logindex:06}`.",
           "inputSchema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] } },
@@ -336,7 +336,7 @@ async fn call_tool(params: &Value, client: &reqwest::Client, base: &str) -> Resu
             // Query the sealed sanction_hit annotations for this address, with the list version.
             // Escape `'` → `''` before interpolating into the SQL literal (SEC review): the read-only
             // gate already blocks writes and DuckDB `prepare` blocks stacking, but an unescaped quote is
-            // still a real injection bug — close it at the source.
+            // still a real injection bug - close it at the source.
             let a = args["address"]
                 .as_str()
                 .ok_or_else(|| anyhow!("`address` is required"))?
@@ -418,7 +418,7 @@ fn format_sql_result(raw: &str) -> String {
         .unwrap_or(rows.len() as u64);
     if v.get("truncated").and_then(Value::as_bool).unwrap_or(false) {
         out.push_str(&format!(
-            "\n… truncated at {count} rows — aggregate (GROUP BY), tighten the WHERE, or raise `limit`.\n"
+            "\n… truncated at {count} rows - aggregate (GROUP BY), tighten the WHERE, or raise `limit`.\n"
         ));
     }
     if let Some(p) = v.get("provenance") {
@@ -437,7 +437,7 @@ fn format_sql_result(raw: &str) -> String {
             .take(8)
             .collect();
         out.push_str(&format!(
-            "— as of block {as_of}, sealed_through {sealed}, source hot+sealed, registry {rh}\n"
+            "- as of block {as_of}, sealed_through {sealed}, source hot+sealed, registry {rh}\n"
         ));
     }
     out
@@ -463,7 +463,7 @@ async fn get_query(client: &reqwest::Client, url: &str, q: &[(&str, &str)]) -> R
 
 async fn fetch(req: reqwest::RequestBuilder, url: &str) -> Result<String> {
     let resp = req.send().await.map_err(|e| {
-        anyhow!("cannot reach nuthatch at {url} — is `nuthatch dev` running? ({e})")
+        anyhow!("cannot reach nuthatch at {url} - is `nuthatch dev` running? ({e})")
     })?;
     Ok(resp.text().await?)
 }

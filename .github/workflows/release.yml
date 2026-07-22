@@ -2,7 +2,7 @@ name: release
 
 # On a version tag, build native binaries per target and attach them to the GitHub Release.
 # Built on the pinned toolchain (rust-toolchain.toml → 1.95.0), so the dbsp/next-solver ICE that
-# breaks `cargo install` on rustc 1.97 never applies — users download a binary and never compile.
+# breaks `cargo install` on rustc 1.97 never applies - users download a binary and never compile.
 on:
   push:
     tags: ['v*']

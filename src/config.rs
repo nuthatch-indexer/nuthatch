@@ -1,6 +1,6 @@
 //! The one config file a nest has: `nuthatch.toml`.
 //!
-//! v2 (RFC-0001) is a `[nest]` header plus a `[[contracts]]` array — many contracts per nest. A
+//! v2 (RFC-0001) is a `[nest]` header plus a `[[contracts]]` array - many contracts per nest. A
 //! v1 file (single top-level `address`) is migrated transparently on load, so existing projects
 //! keep working.
 
@@ -14,7 +14,7 @@ pub const DB_FILE: &str = "nuthatch.redb";
 pub const ABI_FILE: &str = "abi.json";
 
 /// The nest-config schema this build understands. A nest declaring a higher version is rejected on
-/// load (it was authored by a newer nuthatch) — the guard that makes `init --from` safe.
+/// load (it was authored by a newer nuthatch) - the guard that makes `init --from` safe.
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 fn default_schema_version() -> u32 {
@@ -66,10 +66,10 @@ pub struct Webhook {
     /// Max rows per delivery POST (default [`crate::webhooks::DEFAULT_BATCH_MAX`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub batch_max: Option<usize>,
-    /// `"sealed"` (default — never lies, finality-gated) or `"tip"` (fast, may send retractions).
+    /// `"sealed"` (default - never lies, finality-gated) or `"tip"` (fast, may send retractions).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finality: Option<String>,
-    /// Where the cursor starts on first registration: `"registration"` (default — only rows sealed
+    /// Where the cursor starts on first registration: `"registration"` (default - only rows sealed
     /// after the webhook is added, so a `--seal-direct` backfill doesn't fire history), `"genesis"`,
     /// or a block number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,7 +85,7 @@ pub struct Webhook {
 pub struct Alert {
     /// Annotation kinds to deliver, e.g. `["sanction_hit", "threshold_flag"]`.
     pub kinds: Vec<String>,
-    /// The webhook endpoint. The operator configures it — it is the delivery allowlist (a sink only
+    /// The webhook endpoint. The operator configures it - it is the delivery allowlist (a sink only
     /// ever POSTs to the URLs a nest declares here).
     pub url: String,
 }
@@ -99,7 +99,7 @@ pub struct Template {
     /// ABI path relative to the nest dir, e.g. "abis/uniswap_v3_pool.json".
     pub abi: String,
     /// Backfill filter strategy override (RFC-0009 §4): `"topic0"` forces the topic0-only fetch (with
-    /// local registry-lookup filtering) instead of the address list — useful when a template is known
+    /// local registry-lookup filtering) instead of the address list - useful when a template is known
     /// to have many children. Omit for the automatic address-list → topic0 flip above ~500 children.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<String>,
@@ -137,7 +137,7 @@ impl Screening {
 }
 
 /// Threshold & velocity flag configuration (RFC-0008 C3). Amounts are token **base units** as decimal
-/// strings (i128 — no currency conversion in-core, per the RFC). Both flavours are opt-in.
+/// strings (i128 - no currency conversion in-core, per the RFC). Both flavours are opt-in.
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Flags {
     /// Flag any single transfer whose value ≥ this many base units (travel-rule style).
@@ -219,7 +219,7 @@ impl Config {
         let path = dir.join(CONFIG_FILE);
         let raw = std::fs::read_to_string(&path).with_context(|| {
             format!(
-                "no {CONFIG_FILE} in {} — run `nuthatch init` first",
+                "no {CONFIG_FILE} in {} - run `nuthatch init` first",
                 dir.display()
             )
         })?;
@@ -232,7 +232,7 @@ impl Config {
         };
         if cfg.nest.schema_version > CURRENT_SCHEMA_VERSION {
             bail!(
-                "this nest needs config schema v{} but this nuthatch supports up to v{} — upgrade nuthatch",
+                "this nest needs config schema v{} but this nuthatch supports up to v{} - upgrade nuthatch",
                 cfg.nest.schema_version,
                 CURRENT_SCHEMA_VERSION
             );
@@ -281,7 +281,7 @@ impl Config {
         Ok(())
     }
 
-    /// The first contract — the indexer's single-contract path uses this until step 3 generalises
+    /// The first contract - the indexer's single-contract path uses this until step 3 generalises
     /// decode + storage to every contract in the nest.
     pub fn primary(&self) -> Result<&Contract> {
         self.contracts

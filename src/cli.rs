@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "nuthatch",
     version,
-    about = "Be your own indexer — one binary, one command."
+    about = "Be your own indexer - one binary, one command."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -17,11 +17,11 @@ pub struct Cli {
 pub enum Command {
     /// Scaffold an indexer for a contract: resolve its ABI and write a project here.
     Init(InitArgs),
-    /// Add another contract to an existing nest — resolve its ABI and grow the config, no re-init.
+    /// Add another contract to an existing nest - resolve its ABI and grow the config, no re-init.
     Add(AddArgs),
     /// Run the indexer: poll logs, store entities, and serve the API.
     Dev(DevArgs),
-    /// Query a nest's data with SQL — the live tip and sealed history, one surface. Prints a table.
+    /// Query a nest's data with SQL - the live tip and sealed history, one surface. Prints a table.
     Sql(SqlArgs),
     /// Run a WASM transform component over a project's stored transfers.
     Transform(TransformArgs),
@@ -30,12 +30,12 @@ pub enum Command {
     /// Run a nest's invariant/parity checks (`checks/*.sql`) against recorded expected results.
     Check(CheckArgs),
     /// Regenerate the derived artifacts (`schema.json`, `llms.txt`, `semantic.toml` footguns) from
-    /// `nuthatch.toml` — run after hand-editing the config (e.g. adding a factory `[[template]]`), so
+    /// `nuthatch.toml` - run after hand-editing the config (e.g. adding a factory `[[template]]`), so
     /// the schema and the derived `*_dec` columns match the tables the config now produces.
     Schema(SchemaArgs),
-    /// Benchmark the indexing pipeline (measure first, optimise second — RFC-0004).
+    /// Benchmark the indexing pipeline (measure first, optimise second - RFC-0004).
     Bench(BenchArgs),
-    /// Manage labeled address sets — the compliance annotation substrate (RFC-0008 C1).
+    /// Manage labeled address sets - the compliance annotation substrate (RFC-0008 C1).
     Labels(LabelsArgs),
     /// Manage sanctions/watch lists as content-addressed snapshots (RFC-0008 C2).
     Lists(ListsArgs),
@@ -46,15 +46,15 @@ pub enum Command {
     Pack(PackArgs),
     /// Audit the compliance annotations: `replay` re-proves them, `report` summarises them (C6).
     Audit(AuditArgs),
-    /// Package a nest as a content-addressed blob — the deploy unit (RFC-0012).
+    /// Package a nest as a content-addressed blob - the deploy unit (RFC-0012).
     Nest(NestArgs),
     /// Run a roost: many nests across one or more chains behind one API, each under `/<name>/…`
-    /// (RFC-0012, RFC-0021 — one isolated cursor per chain).
+    /// (RFC-0012, RFC-0021 - one isolated cursor per chain).
     Roost(RoostArgs),
     /// Derive-first recipes (RFC-0023): add a view that computes a read (e.g. `total_supply`) from
     /// indexed events instead of fetching it with an `eth_call`. No archive node, deterministic, free.
     Recipe(RecipeArgs),
-    /// Fetch + cache a token's immutable metadata — `decimals`/`symbol`/`name` (RFC-0023 tier 2). Called
+    /// Fetch + cache a token's immutable metadata - `decimals`/`symbol`/`name` (RFC-0023 tier 2). Called
     /// once (they never change) and remembered in `metadata.json`; the constants tier 1 can't derive.
     Metadata(MetadataArgs),
     /// Regenerate the builder skill's machine-generated references from clap metadata (RFC-0017).
@@ -168,18 +168,18 @@ pub struct RecipeAddArgs {
 
 #[derive(Subcommand)]
 pub enum NestWhat {
-    /// Bundle a nest into one portable, content-addressed `.bundle` file — its authored inputs (config,
+    /// Bundle a nest into one portable, content-addressed `.bundle` file - its authored inputs (config,
     /// ABIs, views, labels, skills) plus a `manifest.json` pinning the expected decode-registry hash.
     /// Share the `.bundle` anywhere (a URL, a file); anyone can `load` it to run your exact nest,
     /// verified by hash. Prints the bundle's content address.
     Bundle(NestBundleArgs),
     /// Load a bundle: verify a `.bundle` (or a URL to one, or an unpacked bundle dir) and install it as
     /// a runnable nest. Checks the manifest format, every file's hash, and that the decode registry
-    /// regenerated from the inputs matches the manifest — so a loaded nest decodes exactly as authored.
+    /// regenerated from the inputs matches the manifest - so a loaded nest decodes exactly as authored.
     /// With `--registry`, the positional is a `name[@version]` reference resolved against that store.
     Load(NestLoadArgs),
     /// Publish a `.bundle` to a registry (RFC-0019) under `name@version`, advancing `latest`. The
-    /// registry is a decoupled, optional store — a filesystem path now; object storage lands next. A
+    /// registry is a decoupled, optional store - a filesystem path now; object storage lands next. A
     /// self-built bundle and `nest load <file|dir>` never need one. Prints the content address.
     Publish(NestPublishArgs),
     /// Classify an update between two nests as compatible or breaking (RFC-0020). Compatible = additive
@@ -212,7 +212,7 @@ pub struct NestBundleArgs {
 #[derive(Args)]
 pub struct NestLoadArgs {
     /// The bundle to load: a `.bundle` file, an `http(s)://` URL to one, or an unpacked bundle
-    /// directory — or, with `--registry`, a `name[@version]` reference (no `@version` → `latest`).
+    /// directory - or, with `--registry`, a `name[@version]` reference (no `@version` → `latest`).
     pub bundle: String,
 
     /// Target directory to install the nest into (default: the nest's name).
@@ -239,7 +239,7 @@ pub struct NestPublishArgs {
     pub registry: String,
 
     /// Publish as `name` or `name@version`. Defaults: name = the bundle's nest name; version =
-    /// `h<hash12>` (a content-addressed label — semantic versions are RFC-0020's concern).
+    /// `h<hash12>` (a content-addressed label - semantic versions are RFC-0020's concern).
     #[arg(long = "as")]
     pub as_ref: Option<String>,
 }
@@ -254,7 +254,7 @@ pub struct NestDiffArgs {
 
 #[derive(Args)]
 pub struct NestUpgradeArgs {
-    /// The running/current nest directory — the OLD version being upgraded from.
+    /// The running/current nest directory - the OLD version being upgraded from.
     #[arg(long, default_value = ".")]
     pub dir: String,
 
@@ -396,7 +396,7 @@ pub struct ListsFetchArgs {
     /// `--url` or `--file`.
     pub list: String,
 
-    /// Read the list from a local file instead of downloading (any text: XML/CSV/JSON/plain — the
+    /// Read the list from a local file instead of downloading (any text: XML/CSV/JSON/plain - the
     /// fetcher extracts every `0x…40hex` address).
     #[arg(long)]
     pub file: Option<String>,
@@ -479,20 +479,20 @@ pub enum BenchWhat {
     /// Measure backfill throughput (events/sec, wall-clock, peak RSS) over a pinned block range.
     Backfill(BackfillBenchArgs),
     /// Measure the read path: entity point-read latency (p50/p99) and the `/sql` hot∪cold scan cost
-    /// (query latency + peak RSS). The regression guard for the perf refactors — run offline against
+    /// (query latency + peak RSS). The regression guard for the perf refactors - run offline against
     /// an already-indexed nest.
     Query(QueryBenchArgs),
 }
 
 #[derive(Args)]
 pub struct QueryBenchArgs {
-    /// Nest directory (must contain an indexed `nuthatch.redb`). Stop `dev` first — the bench opens
+    /// Nest directory (must contain an indexed `nuthatch.redb`). Stop `dev` first - the bench opens
     /// the store directly.
     #[arg(long, default_value = ".")]
     pub dir: String,
 
     /// The `/sql` query to time (over hot∪cold). Defaults to `SELECT count(*)` on the largest hot
-    /// table — the full-tip-materialising scan whose cost is the #1 RAM risk on deep-finality L2s.
+    /// table - the full-tip-materialising scan whose cost is the #1 RAM risk on deep-finality L2s.
     #[arg(long)]
     pub sql: Option<String>,
 
@@ -527,7 +527,7 @@ pub struct BackfillBenchArgs {
     #[arg(long)]
     pub to: u64,
 
-    /// How many runs to take (the report is the median). Public RPC is noisy — 3 is sensible.
+    /// How many runs to take (the report is the median). Public RPC is noisy - 3 is sensible.
     #[arg(long, default_value_t = 3)]
     pub runs: usize,
 
@@ -549,7 +549,7 @@ pub struct BackfillBenchArgs {
     pub seal_direct: bool,
 
     /// Concurrent window fetches (seal-direct only). >1 overlaps RPC round-trip latency; results are
-    /// still consumed in block order so segments are identical. Try 8–16 against your own node.
+    /// still consumed in block order so segments are identical. Try 8-16 against your own node.
     #[arg(long, default_value_t = 1)]
     pub concurrency: usize,
 }
@@ -564,7 +564,7 @@ pub struct CheckArgs {
     pub dir: String,
 
     /// Record current query results as the expected fixtures (`checks/expected/*.json`) instead of
-    /// comparing — the authoring mode, run once against known-good sealed data.
+    /// comparing - the authoring mode, run once against known-good sealed data.
     #[arg(long)]
     pub update: bool,
 }
@@ -628,7 +628,7 @@ pub struct InitArgs {
     pub addresses: Vec<String>,
 
     /// Initialise from a published nest instead of addresses: a git URL or a local directory. The
-    /// nest is self-contained (ABIs vendored), so nothing is resolved — just cloned/copied + validated.
+    /// nest is self-contained (ABIs vendored), so nothing is resolved - just cloned/copied + validated.
     #[arg(long, conflicts_with = "addresses")]
     pub from: Option<String>,
 
@@ -637,7 +637,7 @@ pub struct InitArgs {
     pub alias: Vec<String>,
 
     /// Chain to index, e.g. mainnet, arbitrum-one, base. Omit it and nuthatch probes each known
-    /// chain for the contract's bytecode and picks the one it lives on — you rarely need to say.
+    /// chain for the contract's bytecode and picks the one it lives on - you rarely need to say.
     #[arg(long)]
     pub chain: Option<String>,
 
@@ -695,26 +695,26 @@ pub struct DevArgs {
     #[arg(long)]
     pub backfill: Option<u64>,
 
-    /// Backfill finalized history straight to Parquet (skip the hot store) before tip-following —
+    /// Backfill finalized history straight to Parquet (skip the hot store) before tip-following -
     /// much faster for a from-deployment backfill (RFC-0004). The near-tip window still uses the hot
     /// path; the IVM view is rebuilt from the sealed segments.
     #[arg(long)]
     pub seal_direct: bool,
 
     /// Concurrent window fetches during the seal-direct history backfill (overlaps RPC latency).
-    /// Try 8–16 against your own node; keep low on rate-limited public RPC.
+    /// Try 8-16 against your own node; keep low on rate-limited public RPC.
     #[arg(long, default_value_t = 1)]
     pub concurrency: usize,
 
     /// Override the `eth_getLogs` block-window (the chain default otherwise). For a *sparse* contract
-    /// over a long backfill — few events across many blocks — a large window (e.g. 50000) turns tens
+    /// over a long backfill - few events across many blocks - a large window (e.g. 50000) turns tens
     /// of thousands of near-empty requests into a few, so a from-history backfill finishes in minutes.
     /// Keep it under your provider's max block-range for `getLogs` (many allow 100k+ when the result
     /// set is small); the concurrent backfill fails the range rather than auto-shrinking it.
     #[arg(long)]
     pub window: Option<u64>,
 
-    /// Disable the built-in admin UI (`/_admin/`) entirely — no routes, for hosted deployments that
+    /// Disable the built-in admin UI (`/_admin/`) entirely - no routes, for hosted deployments that
     /// front their own dashboard (RFC-0010 Part A). Off-localhost the UI requires `NUTHATCH_ADMIN_TOKEN`
     /// to be set AND each request to present it as `?token=…` (or it self-disables with a log line).
     #[arg(long)]

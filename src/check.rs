@@ -1,4 +1,4 @@
-//! `nuthatch check` — run a nest's invariant/parity checks (RFC-0002 §5).
+//! `nuthatch check` - run a nest's invariant/parity checks (RFC-0002 §5).
 //!
 //! Each `checks/<name>.sql` is a read-only query run over the nest's sealed data (the same DuckDB
 //! surface as `/sql`, so it sees the per-event tables *and* the nest's derived views). Its result is
@@ -6,7 +6,7 @@
 //! fixtures are the deployed subgraph's answers at a pinned block, so this is a parity check; the
 //! framework itself is generic (any nest can ship invariant checks).
 //!
-//! Hermetic by design — it compares against committed fixtures, not a live endpoint, so it runs in
+//! Hermetic by design - it compares against committed fixtures, not a live endpoint, so it runs in
 //! CI with no network. `--update` re-records the fixtures from current results (authoring, run once
 //! against known-good sealed data). Refreshing fixtures from a live subgraph is a nest-side chore,
 //! not this command's job.
@@ -35,7 +35,7 @@ pub fn check(args: CheckArgs) -> Result<()> {
 
     let mut failures = 0usize;
 
-    // RFC-0018 §1: authored views are validated as part of `check` — a broken view, or one that
+    // RFC-0018 §1: authored views are validated as part of `check` - a broken view, or one that
     // references a table/column the registry no longer has (**drift**), fails loudly with a
     // fuzzy-matched fix hint instead of vanishing silently. This runs before the parity checks so a
     // drifted view is caught even if it's the reason a parity check would fail.
@@ -57,7 +57,7 @@ pub fn check(args: CheckArgs) -> Result<()> {
         let got = match analytics::query(&dir, &sql) {
             Ok(rows) => rows,
             Err(e) => {
-                println!("✗ {name}: query failed — {e:#}");
+                println!("✗ {name}: query failed - {e:#}");
                 failures += 1;
                 continue;
             }
@@ -76,7 +76,7 @@ pub fn check(args: CheckArgs) -> Result<()> {
                 .with_context(|| format!("corrupt fixture {}", exp_path.display()))?,
             Err(_) => {
                 println!(
-                    "✗ {name}: no expected fixture — run `nuthatch check --update` to record it"
+                    "✗ {name}: no expected fixture - run `nuthatch check --update` to record it"
                 );
                 failures += 1;
                 continue;
@@ -100,7 +100,7 @@ pub fn check(args: CheckArgs) -> Result<()> {
 }
 
 /// The nest's decode-registry table schemas, for view drift-validation. `None` if the dir isn't a
-/// nest (no config) — view validation is then skipped, not fatal.
+/// nest (no config) - view validation is then skipped, not fatal.
 fn nest_schema(dir: &Path) -> Option<Vec<crate::registry::TableSchema>> {
     let cfg = crate::config::Config::load(dir).ok()?;
     let reg = crate::registry::DecodeRegistry::from_nest(dir, &cfg).ok()?;
@@ -130,7 +130,7 @@ fn collect_checks(dir: &Path, filter: Option<&str>) -> Result<Vec<(String, PathB
 }
 
 /// Compare expected vs actual result sets. Returns None if identical, else a human diff of the first
-/// discrepancy. Row order is significant — checks should `ORDER BY` for a deterministic comparison.
+/// discrepancy. Row order is significant - checks should `ORDER BY` for a deterministic comparison.
 fn diff(expected: &[Value], got: &[Value]) -> Option<String> {
     if expected.len() != got.len() {
         return Some(format!(

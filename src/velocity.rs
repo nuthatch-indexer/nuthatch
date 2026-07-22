@@ -1,16 +1,16 @@
 //! Velocity flags (RFC-0008 C3): per-address outbound volume within a block-window, maintained
-//! incrementally by DBSP — the same IVM machinery as balances/exposure, applied to "how much did this
+//! incrementally by DBSP - the same IVM machinery as balances/exposure, applied to "how much did this
 //! address move recently?". A **velocity flag** is an (address, window) whose outbound volume reaches
 //! a configured threshold.
 //!
 //! The window is a **tumbling block-bucket**, not a true sliding window: a transfer at block `b` falls
 //! in the bucket starting at `(b / W) * W`. This is an honest approximation of "~24h volume" (blocks,
-//! not wall-clock — `W ≈ 7200` on 12s-block mainnet) that stays exactly maintainable incrementally: a
+//! not wall-clock - `W ≈ 7200` on 12s-block mainnet) that stays exactly maintainable incrementally: a
 //! reorg re-feeds the transfer with weight −1 and its bucket's volume retracts, exactly like a balance
 //! (so a flag that a reorg invalidates disappears). A true sliding window would need per-block aging;
 //! the tumbling approximation is documented rather than faked.
 //!
-//! Two linear DBSP aggregates per (address, window) — summed volume and a transfer count — because a
+//! Two linear DBSP aggregates per (address, window) - summed volume and a transfer count - because a
 //! tuple aggregate isn't linear, and splitting them keeps both incrementally maintained *and* seedable
 //! on restart from a pre-summed cold aggregate (see `rebuild_velocity`).
 
@@ -46,7 +46,7 @@ pub struct VelItem {
 pub type VelocityBatch = Vec<VelItem>;
 
 /// The velocity contribution of one transfer: the **sender** moves `value` in `block`'s window. (Only
-/// outbound volume — the AML-relevant "how much did X push out"; empty on a zero/over-i128 value.)
+/// outbound volume - the AML-relevant "how much did X push out"; empty on a zero/over-i128 value.)
 pub fn velocity_deltas(
     from: &str,
     block: u64,
@@ -242,7 +242,7 @@ pub struct VelocityView {
 
 impl VelocityView {
     /// Start the velocity view. When `enabled` is false (no velocity flag configured) the DBSP circuit
-    /// and its worker thread are not spawned — `apply` no-ops and `snapshot` stays empty (L10).
+    /// and its worker thread are not spawned - `apply` no-ops and `snapshot` stays empty (L10).
     pub fn start(enabled: bool) -> Result<Self> {
         let (tx, rx) = channel::<Msg>();
         let rows = Arc::new(RwLock::new(HashMap::new()));
@@ -312,7 +312,7 @@ impl VelocityView {
         rows_over(&counts, &volumes, threshold)
     }
 
-    /// Number of (address, window) buckets tracked — a small gauge for `/` and `/metrics`.
+    /// Number of (address, window) buckets tracked - a small gauge for `/` and `/metrics`.
     pub fn entries(&self) -> usize {
         self.rows.read().map(|m| m.len()).unwrap_or(0)
     }
@@ -366,7 +366,7 @@ mod tests {
         assert_eq!(flags[0].window_start, 100);
     }
 
-    /// The C3 gate item: velocity arithmetic runs on the shipped i128 path — a windowed volume that
+    /// The C3 gate item: velocity arithmetic runs on the shipped i128 path - a windowed volume that
     /// overflows i64 is tracked, not truncated (a threshold view on i64 would be a compliance bug).
     #[test]
     fn velocity_volume_exceeds_i64() {

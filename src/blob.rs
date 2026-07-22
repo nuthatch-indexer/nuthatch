@@ -1,4 +1,4 @@
-//! Content-addressed nest packaging (RFC-0012 §4): turn a nest directory into a **bundle** — its
+//! Content-addressed nest packaging (RFC-0012 §4): turn a nest directory into a **bundle** - its
 //! *authored inputs* canonicalised and pinned by a Merkle-root hash, so a nest becomes a portable
 //! deploy unit. `nest bundle` writes a single `.bundle` file (`bundle` here); `nest load` verifies +
 //! installs one (`load`), resolving a `.bundle` file, an `http(s)` URL, or an unpacked bundle dir.
@@ -6,7 +6,7 @@
 //! The blob pins **inputs** (`nuthatch.toml`, ABIs, views, labels, skills, `schema.json`, `llms.txt`),
 //! never build artifacts (the generated decode registry) or sealed data (`segments/`, `nuthatch.redb`).
 //! Instead the manifest records the *expected* `registry_hash`; a `mount` regenerates the registry from
-//! the packed inputs and asserts it matches — extending determinism from the data path (RFC-0009's
+//! the packed inputs and asserts it matches - extending determinism from the data path (RFC-0009's
 //! content-addressed segments) to the *authoring* path: same inputs + same generator → same blob →
 //! same decode, verifiably. The blob hash is `sha256` over the **canonical** manifest (fixed field
 //! order, files sorted by path, compact encoding), reusing the seal-manifest discipline, not new crypto.
@@ -34,9 +34,9 @@ pub struct FileEntry {
     pub sha256: String,
 }
 
-/// The blob manifest — the content-addressed declaration of a nest's inputs. Field order here IS the
+/// The blob manifest - the content-addressed declaration of a nest's inputs. Field order here IS the
 /// canonical order (serde preserves declaration order); `files` is sorted by path. Do not reorder
-/// fields without bumping [`BLOB_FORMAT_VERSION`] — the order is load-bearing for the blob hash.
+/// fields without bumping [`BLOB_FORMAT_VERSION`] - the order is load-bearing for the blob hash.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Manifest {
     pub blob_format_version: u32,
@@ -44,7 +44,7 @@ pub struct Manifest {
     pub schema_version: u32,
     /// The nuthatch version that produced (and can reproduce) this blob's decode registry.
     pub generator_version: String,
-    /// The expected decode-registry hash — a mount regenerates the registry from `files` and asserts
+    /// The expected decode-registry hash - a mount regenerates the registry from `files` and asserts
     /// it equals this. Hex, no `0x` (matches the seal manifest's convention).
     pub registry_hash: String,
     /// Every authored input, sorted by `path`. A Merkle layer: each file hashed, the sorted list
@@ -62,7 +62,7 @@ impl Manifest {
     }
 
     /// The blob hash: `sha256` of the canonical manifest bytes, hex-encoded. This is the nest's
-    /// content address — the thing `mount <hash>` resolves.
+    /// content address - the thing `mount <hash>` resolves.
     pub fn blob_hash(&self) -> String {
         hex::encode(Sha256::digest(self.canonical_bytes()))
     }
@@ -96,19 +96,19 @@ fn collect_files(root: &Path, skip: Option<&Path>) -> Result<Vec<PathBuf>> {
             } else if ft.is_file() {
                 out.push(path);
             }
-            // Symlinks are deliberately ignored — a blob must be self-contained.
+            // Symlinks are deliberately ignored - a blob must be self-contained.
         }
     }
     out.sort();
     Ok(out)
 }
 
-/// Build the manifest for the nest at `dir` without writing anything — hashes every authored input and
+/// Build the manifest for the nest at `dir` without writing anything - hashes every authored input and
 /// records the regenerated `registry_hash`. Shared by `pack` and (later) `mount`'s verify.
 pub fn build_manifest(dir: &Path, skip_out: Option<&Path>) -> Result<Manifest> {
     let config = Config::load(dir).context("loading nest config for pack")?;
     // Regenerate the decode registry from the *inputs* (toml + ABIs) so the manifest pins what a mount
-    // must reproduce — never a stored artifact.
+    // must reproduce - never a stored artifact.
     let registry = DecodeRegistry::from_nest(dir, &config).context("building decode registry")?;
     let registry_hash = hex::encode(registry.hash());
 
@@ -189,7 +189,7 @@ pub fn bundle(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
     println!();
     println!("tip: share this .bundle (a URL, or the file). Anyone can run your exact nest with");
     println!(
-        "     `nuthatch nest load <file-or-url>` — every file is verified against the manifest,"
+        "     `nuthatch nest load <file-or-url>` - every file is verified against the manifest,"
     );
     println!(
         "     and the decode registry is reproduced from the inputs. Pin it with `--expect {}`.",
@@ -198,7 +198,7 @@ pub fn bundle(dir: &Path, out: Option<&Path>, as_dir: bool) -> Result<()> {
     Ok(())
 }
 
-/// Materialise a bundle's files (from the nest `src`) plus `manifest.json` into `out_dir` — the
+/// Materialise a bundle's files (from the nest `src`) plus `manifest.json` into `out_dir` - the
 /// unpacked on-disk layout shared by the `--as-dir` form and, tarred, the `.bundle`.
 fn write_bundle_dir(src: &Path, out_dir: &Path, manifest: &Manifest) -> Result<()> {
     std::fs::create_dir_all(out_dir)
@@ -222,7 +222,7 @@ fn write_bundle_dir(src: &Path, out_dir: &Path, manifest: &Manifest) -> Result<(
 
 /// Write a single-file `.bundle`: a tar of `manifest.json` + every manifest file, read from the nest
 /// `src`. The bundle's *identity* is `manifest.blob_hash()` (over the canonical manifest), so the tar's
-/// own byte layout is immaterial — a load re-verifies each file against the manifest regardless.
+/// own byte layout is immaterial - a load re-verifies each file against the manifest regardless.
 fn write_bundle(src: &Path, manifest: &Manifest, out_file: &Path) -> Result<()> {
     let file = std::fs::File::create(out_file)
         .with_context(|| format!("creating bundle {}", out_file.display()))?;
@@ -252,7 +252,7 @@ pub fn load_manifest(blob_dir: &Path) -> Result<Manifest> {
     serde_json::from_str(&raw).context("parsing blob manifest")
 }
 
-/// The manifest of a single-file `.bundle`, read without installing it — extract, parse, done. The
+/// The manifest of a single-file `.bundle`, read without installing it - extract, parse, done. The
 /// registry (RFC-0019) uses this to key a blob by its content address (`.blob_hash()`) and to read its
 /// nest name for the default `name@version`, all without touching the install path.
 pub fn bundle_manifest(bundle_file: &Path) -> Result<Manifest> {
@@ -262,7 +262,7 @@ pub fn bundle_manifest(bundle_file: &Path) -> Result<Manifest> {
     load_manifest(&blob_dir)
 }
 
-/// Join a **manifest-declared** relative path onto `base`, refusing anything that could escape it — an
+/// Join a **manifest-declared** relative path onto `base`, refusing anything that could escape it - an
 /// bundle is a distributable, hash-resolved deploy unit (RFC-0012 §4/§5), so its file paths are
 /// untrusted input. Only `Normal` path components are allowed: an absolute path (which `Path::join`
 /// would let *replace* the base), a `..` parent, a root/prefix, or a bare `.` are all rejected. This is
@@ -270,12 +270,12 @@ pub fn bundle_manifest(bundle_file: &Path) -> Result<Manifest> {
 fn checked_join(base: &Path, rel: &str) -> Result<PathBuf> {
     let rel_path = Path::new(rel);
     if rel_path.is_absolute() {
-        bail!("blob file path {rel:?} is absolute — refusing (path-traversal guard)");
+        bail!("blob file path {rel:?} is absolute - refusing (path-traversal guard)");
     }
     for comp in rel_path.components() {
         if !matches!(comp, std::path::Component::Normal(_)) {
             bail!(
-                "blob file path {rel:?} has an illegal component — refusing (path-traversal guard)"
+                "blob file path {rel:?} has an illegal component - refusing (path-traversal guard)"
             );
         }
     }
@@ -286,7 +286,7 @@ fn checked_join(base: &Path, rel: &str) -> Result<PathBuf> {
 /// nest. `bundle` may be a `.bundle` file, an `http(s)://` URL to one, or an already-unpacked bundle
 /// directory. A URL or file is resolved to a local bundle dir (fetch + untar), then verified and
 /// installed by [`install_verified`]. The fetch is the *only* network touch and only when you pass a
-/// URL — a local `.bundle` or dir loads fully offline.
+/// URL - a local `.bundle` or dir loads fully offline.
 pub async fn load(bundle: &str, target: Option<&Path>, expect: Option<&str>) -> Result<()> {
     if bundle.starts_with("http://") || bundle.starts_with("https://") {
         let bytes = reqwest::get(bundle)
@@ -306,7 +306,7 @@ pub async fn load(bundle: &str, target: Option<&Path>, expect: Option<&str>) -> 
     }
     let path = Path::new(bundle);
     if path.is_dir() {
-        // Already an unpacked bundle directory (e.g. `bundle --as-dir` output) — install straight from it.
+        // Already an unpacked bundle directory (e.g. `bundle --as-dir` output) - install straight from it.
         return install_verified(path, target, expect);
     }
     if path.is_file() {
@@ -316,13 +316,13 @@ pub async fn load(bundle: &str, target: Option<&Path>, expect: Option<&str>) -> 
         return install_verified(&blob_dir, target, expect);
     }
     bail!(
-        "nothing to load at '{bundle}' — expected a .bundle file, an http(s):// URL, or a bundle directory"
+        "nothing to load at '{bundle}' - expected a .bundle file, an http(s):// URL, or a bundle directory"
     );
 }
 
 /// Untar a `.bundle` into `dest`. `tar`'s `unpack` refuses entries that would escape `dest` (its own
 /// zip-slip guard); [`install_verified`] then re-checks every *manifest-declared* file with
-/// [`checked_join`], so extraction and install are both bounded — defence in depth on untrusted input.
+/// [`checked_join`], so extraction and install are both bounded - defence in depth on untrusted input.
 fn extract_bundle(bundle_file: &Path, dest: &Path) -> Result<()> {
     let file = std::fs::File::open(bundle_file)
         .with_context(|| format!("opening bundle {}", bundle_file.display()))?;
@@ -335,7 +335,7 @@ fn extract_bundle(bundle_file: &Path, dest: &Path) -> Result<()> {
 
 /// Verify a resolved blob directory and install it as a runnable nest. Verification is three-fold, all
 /// local (RFC-0012 §5): the manifest's format version is understood, every file's bytes hash to what
-/// the manifest claims (integrity), and — after install — the decode registry *regenerated from the
+/// the manifest claims (integrity), and - after install - the decode registry *regenerated from the
 /// installed inputs* equals the manifest's `registry_hash` (the nest decodes exactly as authored). With
 /// `expect`, the blob's own content address is asserted too, so you load *that* bundle and no other.
 pub fn install_verified(
@@ -345,11 +345,11 @@ pub fn install_verified(
 ) -> Result<()> {
     let manifest = load_manifest(blob_dir)?;
 
-    // Format gate — reject a blob authored by a newer nuthatch, exactly as `config.rs` rejects a newer
+    // Format gate - reject a blob authored by a newer nuthatch, exactly as `config.rs` rejects a newer
     // schema_version. A too-new manifest may hash/verify by rules this build doesn't know.
     if manifest.blob_format_version > BLOB_FORMAT_VERSION {
         bail!(
-            "blob needs manifest format v{} but this build understands up to v{} — upgrade nuthatch",
+            "blob needs manifest format v{} but this build understands up to v{} - upgrade nuthatch",
             manifest.blob_format_version,
             BLOB_FORMAT_VERSION
         );
@@ -409,21 +409,21 @@ pub fn install_verified(
     );
     println!();
     println!(
-        "tip: it's yours to run — `nuthatch dev --dir {}`. It decodes byte-for-byte as the author",
+        "tip: it's yours to run - `nuthatch dev --dir {}`. It decodes byte-for-byte as the author",
         target.display()
     );
     println!("     bundled it (every file hashed, registry reproduced from inputs).");
     Ok(())
 }
 
-/// Verify that a nest dir's inputs reproduce the `registry_hash` a manifest claims — the check `load`
+/// Verify that a nest dir's inputs reproduce the `registry_hash` a manifest claims - the check `load`
 /// runs. Kept here so `bundle` and load share one definition of "does this blob decode as promised".
 pub fn verify_registry_reproduces(dir: &Path, manifest: &Manifest) -> Result<()> {
     let config = Config::load(dir)?;
     let regen = hex::encode(DecodeRegistry::from_nest(dir, &config)?.hash());
     if regen != manifest.registry_hash {
         bail!(
-            "registry hash mismatch: manifest claims {}, inputs regenerate {} — the blob was authored \
+            "registry hash mismatch: manifest claims {}, inputs regenerate {} - the blob was authored \
              by a different generator version",
             manifest.registry_hash,
             regen
@@ -437,7 +437,7 @@ mod tests {
     use super::*;
     use crate::config::CONFIG_FILE;
 
-    /// SEC-1: a blob is untrusted, distributable input — `mount` must refuse a manifest whose file
+    /// SEC-1: a blob is untrusted, distributable input - `mount` must refuse a manifest whose file
     /// paths would escape the target (zip-slip `../` or an absolute path, which `Path::join` would let
     /// *replace* the base). Otherwise mounting a hostile blob is an arbitrary file write → RCE.
     #[test]

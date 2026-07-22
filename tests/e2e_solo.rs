@@ -1,7 +1,7 @@
 //! End-to-end solo-pipeline tests: golden land → seal → query, and serving over real HTTP.
 //!
 //! Both drive the real `indexer::spawn_nest` background loop against a scripted [`TapeSource`], and
-//! observe progress by bounded polling on the hot store / HTTP — no fixed sleeps drive the pipeline.
+//! observe progress by bounded polling on the hot store / HTTP - no fixed sleeps drive the pipeline.
 
 mod common;
 
@@ -13,7 +13,7 @@ use nuthatch::{analytics, indexer, seal, serve};
 
 use common::tape::*;
 
-/// Query timeout for the read-only surface in tests — generous; these fixtures are tiny.
+/// Query timeout for the read-only surface in tests - generous; these fixtures are tiny.
 fn guard() -> analytics::QueryGuard {
     analytics::QueryGuard {
         timeout: Duration::from_secs(10),
@@ -225,7 +225,7 @@ async fn serves_over_real_http() {
     }
     assert_eq!(entities, 3, "expected all three transfers served at `/`");
 
-    // GET / — summary shape.
+    // GET / - summary shape.
     let root: serde_json::Value = client
         .get(&base)
         .send()
@@ -239,7 +239,7 @@ async fn serves_over_real_http() {
     assert_eq!(root["entities"], 3);
     assert_eq!(root["last_block"], "3");
 
-    // GET /tables — the decoded data model.
+    // GET /tables - the decoded data model.
     let tables: serde_json::Value = client
         .get(format!("{base}/tables"))
         .send()
@@ -260,7 +260,7 @@ async fn serves_over_real_http() {
         "tables should list usdc__transfer, got {names:?}"
     );
 
-    // GET /sql — count matches the fed transfers.
+    // GET /sql - count matches the fed transfers.
     let sql: serde_json::Value = client
         .get(format!("{base}/sql"))
         .query(&[(
@@ -281,7 +281,7 @@ async fn serves_over_real_http() {
         "sql sees three rows"
     );
 
-    // GET /entity/{id} — the block-1 transfer, value 100.
+    // GET /entity/{id} - the block-1 transfer, value 100.
     let id = nuthatch::store::Store::entity_key(1, 0);
     let entity: serde_json::Value = client
         .get(format!("{base}/entity/{id}"))
@@ -295,7 +295,7 @@ async fn serves_over_real_http() {
     assert_eq!(entity["value"], "100");
     assert_eq!(entity["table"], transfer_table("usdc"));
 
-    // GET /health — plain "ok".
+    // GET /health - plain "ok".
     let health = client
         .get(format!("{base}/health"))
         .send()
@@ -313,10 +313,10 @@ async fn serves_over_real_http() {
     server.abort();
 }
 
-/// RFC-0020 slice 2b — the compatible hot-upgrade: two real `spawn_nest` indexers (old + new version)
+/// RFC-0020 slice 2b - the compatible hot-upgrade: two real `spawn_nest` indexers (old + new version)
 /// run concurrently against the same scripted chain; the endpoint serves the OLD version until the NEW
 /// one catches up, then `await_catchup_and_flip` atomically re-points the served backing to the new
-/// version. Deterministic (no network, no sleeps driving the pipeline) — the old/new backings are told
+/// version. Deterministic (no network, no sleeps driving the pipeline) - the old/new backings are told
 /// apart by their `dir`. This is the full concurrent-reindex-then-flip proven end to end.
 #[tokio::test]
 async fn compatible_hot_upgrade_flips_backing_after_catchup() {
@@ -400,7 +400,7 @@ async fn compatible_hot_upgrade_flips_backing_after_catchup() {
     new_rt.ingest.abort();
 }
 
-/// RFC-0020 slice 3 — the breaking path: two versions served on distinct endpoints over one listener.
+/// RFC-0020 slice 3 - the breaking path: two versions served on distinct endpoints over one listener.
 /// The OLD version stays at the root (its consumers unchanged) but every response carries a
 /// `Deprecation: true` header + a `Link` to the successor; the NEW version is served under `/next` and
 /// is not deprecated. Distinct nest aliases (`usdc` vs `usdcv2`) make the two schemas tell-apart-able.
@@ -499,9 +499,9 @@ async fn breaking_upgrade_serves_both_versions_with_old_deprecated() {
     server.abort();
 }
 
-/// RFC-0023 tier 1 — derive-first: the `total_supply` recipe computes ERC-20 `totalSupply()` from the
+/// RFC-0023 tier 1 - derive-first: the `total_supply` recipe computes ERC-20 `totalSupply()` from the
 /// Transfer events already indexed (Σ minted − Σ burned), with **no eth_call**. Derive-correctness: the
-/// derived value equals the hand-computed mints − burns — the thing a subgraph pays an archive node to
+/// derived value equals the hand-computed mints − burns - the thing a subgraph pays an archive node to
 /// fetch, nuthatch derives for free.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn total_supply_recipe_derives_mints_minus_burns() {
@@ -614,8 +614,8 @@ async fn total_supply_recipe_derives_mints_minus_burns() {
     }
 }
 
-/// RFC-0023 tier 1 — the `reserves` recipe: Uniswap-V2 `getReserves()` derived as the **latest `Sync`
-/// per pair**. No eth_call — the thing an AMM subgraph fetches per swap, computed from the Sync events
+/// RFC-0023 tier 1 - the `reserves` recipe: Uniswap-V2 `getReserves()` derived as the **latest `Sync`
+/// per pair**. No eth_call - the thing an AMM subgraph fetches per swap, computed from the Sync events
 /// already indexed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reserves_recipe_derives_latest_sync_per_pair() {
@@ -670,9 +670,9 @@ async fn reserves_recipe_derives_latest_sync_per_pair() {
     }
 }
 
-/// RFC-0020 slice 4 — segment reuse: a compatible update whose decode is unchanged mounts the old
+/// RFC-0020 slice 4 - segment reuse: a compatible update whose decode is unchanged mounts the old
 /// version's sealed segments instead of re-indexing. Here a fresh nest, given ONLY the old's segments +
-/// watermark (never having indexed a block itself), serves the sealed history — the true no-re-index
+/// watermark (never having indexed a block itself), serves the sealed history - the true no-re-index
 /// path, and a capability subgraphs structurally lack (their storage isn't content-addressed).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn compatible_upgrade_reuses_sealed_segments_when_decode_unchanged() {
@@ -691,7 +691,7 @@ async fn compatible_upgrade_reuses_sealed_segments_when_decode_unchanged() {
         .unwrap();
     }
 
-    // Index ten blocks and seal [1,5] into the OLD version — inside a scope so every redb handle drops
+    // Index ten blocks and seal [1,5] into the OLD version - inside a scope so every redb handle drops
     // before reuse reopens it (redb is single-writer).
     {
         let tape = Arc::new(TapeSource::new());

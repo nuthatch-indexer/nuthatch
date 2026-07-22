@@ -1,15 +1,15 @@
-//! RFC-0016 §1 — the eval harness (Tier A: deterministic, CI-gated, no LLM).
+//! RFC-0016 §1 - the eval harness (Tier A: deterministic, CI-gated, no LLM).
 //!
 //! This is the measurement spine for the agent-grade MCP work. It builds the fixture nest on the
 //! tape infra, seals a deterministic range, then runs every question in `eval/questions.toml`
-//! through the *same* hot∪cold SQL surface an agent's `sql` tool hits — asserting each known-correct
+//! through the *same* hot∪cold SQL surface an agent's `sql` tool hits - asserting each known-correct
 //! query returns its declared `expect`. That proves the oracle: the SQL and expected answers are
 //! correct against the fixture *before* any agent is ever scored against them (Tier B compares an
 //! agent's query result to the same `expect`). If this test is green, the question set is a valid
 //! scoreboard; if the surface regresses, this goes red before any agent eval runs.
 //!
-//! Comparison is order-normalised (multiset) and numeric-tolerant — a DECIMAL `"5500"` equals the
-//! number 5500 — exactly the equivalence the RFC specifies for scoring.
+//! Comparison is order-normalised (multiset) and numeric-tolerant - a DECIMAL `"5500"` equals the
+//! number 5500 - exactly the equivalence the RFC specifies for scoring.
 
 mod common;
 
@@ -42,19 +42,19 @@ struct Question {
     sql: String,
     /// A compact JSON array of the expected result rows.
     expect: String,
-    // The natural-language ask — the Tier-B input; unused by the deterministic gate but part of the
+    // The natural-language ask - the Tier-B input; unused by the deterministic gate but part of the
     // committed spec, so keep it in the struct (and off the dead-code warning).
     #[allow(dead_code)]
     question: String,
 }
 
-/// Build the deterministic fixture nest: `usdc__transfer` over 10 blocks —
+/// Build the deterministic fixture nest: `usdc__transfer` over 10 blocks -
 ///   blocks 1..5 : a1 → a2, value 100*b     blocks 6..10: a2 → a3, value 100*b
 /// with 1..7 sealed and 8..10 hot. Returns the running nest handle so the caller can query and abort.
 async fn build_fixture(dir: &std::path::Path) -> indexer::NestRuntime {
     let cfg = scaffold_nest(dir, "usdc", USDC);
     // The tape scaffolder writes no schema.json; real `init` does, and it's what drives the typed
-    // view — the reserved-word columns (`from`/`to`) and the derived big-int helper (`value_dec`).
+    // view - the reserved-word columns (`from`/`to`) and the derived big-int helper (`value_dec`).
     // Generate it here so the fixture's SQL surface matches a real nest exactly.
     write_fixture_schema(dir, &cfg);
     let tape = Arc::new(TapeSource::new());
@@ -225,7 +225,7 @@ fn row_matches(expected: &Value, actual: &Value) -> bool {
 }
 
 /// Numeric-tolerant scalar equality: if both sides look numeric (a JSON number, or a string that
-/// parses as one — DECIMAL columns come back as numeric strings), compare as f64; else compare their
+/// parses as one - DECIMAL columns come back as numeric strings), compare as f64; else compare their
 /// string forms. Addresses and hashes ("0x…") never parse as f64, so they fall to exact string match.
 fn values_equal(a: &Value, b: &Value) -> bool {
     match (as_f64(a), as_f64(b)) {
@@ -237,7 +237,7 @@ fn values_equal(a: &Value, b: &Value) -> bool {
 fn as_f64(v: &Value) -> Option<f64> {
     match v {
         Value::Number(n) => n.as_f64(),
-        // "0x…" hex parses via f64::from_str? No — it returns Err, so addresses stay string-compared.
+        // "0x…" hex parses via f64::from_str? No - it returns Err, so addresses stay string-compared.
         Value::String(s) => s.parse::<f64>().ok(),
         _ => None,
     }

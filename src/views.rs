@@ -1,11 +1,11 @@
 //! Incremental view maintenance (the IVM core) via DBSP. The first declarative view: per-address
-//! token balances, derived from Transfer facts. This is the differentiator vs imperative indexers —
+//! token balances, derived from Transfer facts. This is the differentiator vs imperative indexers -
 //! we never hand-write "on transfer, load balance, add, save". We state balance = Σ(in) − Σ(out) as
 //! a circuit, and DBSP maintains it incrementally: a new transfer is a +1 delta, and a reorg is the
 //! *same* transfer re-fed with weight −1 (a retraction). Backfill and tip use the identical circuit.
 //!
 //! Balances accumulate in **i128** base units. That matters: an i64 accumulator silently drops any
-//! transfer above ~9.2e18 base units — barely ~9.2 tokens of an 18-decimal token — so large-supply
+//! transfer above ~9.2e18 base units - barely ~9.2 tokens of an 18-decimal token - so large-supply
 //! or high-decimal tokens would under-count. i128 (max ~1.7e38) comfortably holds any real token's
 //! total supply in base units. Values that somehow exceed i128 are skipped by the caller.
 //!
@@ -153,7 +153,7 @@ impl BalanceView {
                             }
                         }
                         // Messages are processed in order, so by the time we see the barrier every
-                        // prior batch is applied — ack unblocks the waiter.
+                        // prior batch is applied - ack unblocks the waiter.
                         Msg::Flush(ack) => {
                             let _ = ack.send(());
                         }
@@ -234,7 +234,7 @@ mod tests {
     }
 
     /// The P0 regression: a transfer larger than i64::MAX must be tracked, not silently dropped.
-    /// ~1e20 base units is ~100 tokens of an 18-decimal token — utterly ordinary, yet overflows i64.
+    /// ~1e20 base units is ~100 tokens of an 18-decimal token - utterly ordinary, yet overflows i64.
     #[test]
     fn balances_hold_values_beyond_i64() {
         let mut circuit = BalanceCircuit::new().unwrap();
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(bal.get("0xwhale"), Some(&(2 * big)));
     }
 
-    /// A flush barrier returns only once queued work is drained — the property `rebuild` relies on.
+    /// A flush barrier returns only once queued work is drained - the property `rebuild` relies on.
     #[test]
     fn flush_waits_for_enqueued_work() {
         let view = BalanceView::start().unwrap();

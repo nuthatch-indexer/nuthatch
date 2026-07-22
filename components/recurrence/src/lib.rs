@@ -1,7 +1,7 @@
-//! `recurrence` — a toy EFFECTFUL stage (RFC-0008 C4) that demonstrates a granted host capability.
+//! `recurrence` - a toy EFFECTFUL stage (RFC-0008 C4) that demonstrates a granted host capability.
 //!
 //! It reads a batch of addresses (Arrow IPC), and for each keeps a running "how many times have I
-//! seen this address across all batches?" count in the host `kv` store — state a *pure* stage could
+//! seen this address across all batches?" count in the host `kv` store - state a *pure* stage could
 //! not hold. It emits one annotation per input row: `(address, seen)`. The `kv` import is visible in
 //! the component's type, so the host refuses to instantiate it unless `kv` was granted. It still
 //! cannot write canonical entities: its only output is the annotation batch the host records.

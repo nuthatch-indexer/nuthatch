@@ -20,7 +20,7 @@
       "properties": {
         "first_try_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
         "overall_pass_rate": { "type": "number", "minimum": 0, "maximum": 1 },
-        "mean_sql_attempts": { "type": "number", "minimum": 0, "description": "Mean SQL attempts per question — the S3 (errors-as-prompts) success metric." },
+        "mean_sql_attempts": { "type": "number", "minimum": 0, "description": "Mean SQL attempts per question - the S3 (errors-as-prompts) success metric." },
         "by_class": {
           "type": "object",
           "description": "Optional per-class breakdown of overall pass rate.",

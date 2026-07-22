@@ -1,4 +1,4 @@
-//! nuthatch — be your own indexer.
+//! nuthatch - be your own indexer.
 //!
 //! Turn any contract into a local SQL database:
 //!   `nuthatch init 0xADDR`                  -> detect the chain, resolve ABI (Sourcify -> Etherscan), scaffold a nest
@@ -7,7 +7,7 @@
 //!
 //! Generalised event decode over many contracts, content-addressed Parquet sealing past finality with
 //! DuckDB analytics (hot ∪ cold SQL), DBSP incremental views, factories, a compliance pack, webhooks,
-//! a built-in admin UI, an MCP server, and multi-nest roosts — all from one static binary. This file is
+//! a built-in admin UI, an MCP server, and multi-nest roosts - all from one static binary. This file is
 //! just the CLI front door; the engine lives in the library crate.
 
 use nuthatch::{
@@ -155,7 +155,7 @@ fn now_stamp() -> String {
     format!("unix:{secs}")
 }
 
-/// `nuthatch lists …` — manage sanctions/watch lists as content-addressed snapshots (RFC-0008 C2).
+/// `nuthatch lists …` - manage sanctions/watch lists as content-addressed snapshots (RFC-0008 C2).
 async fn run_lists(args: cli::ListsArgs) -> Result<()> {
     use std::path::{Path, PathBuf};
     match args.what {
@@ -187,7 +187,7 @@ async fn run_lists(args: cli::ListsArgs) -> Result<()> {
     }
 }
 
-/// `nuthatch labels …` — manage the compliance annotation substrate (RFC-0008 C1).
+/// `nuthatch labels …` - manage the compliance annotation substrate (RFC-0008 C1).
 fn run_labels(args: cli::LabelsArgs) -> Result<()> {
     use std::path::{Path, PathBuf};
     match args.what {
@@ -214,7 +214,7 @@ fn run_labels(args: cli::LabelsArgs) -> Result<()> {
     }
 }
 
-/// `nuthatch sql [query]` — read-only SQL over the nest's data (live tip ∪ sealed history). With a
+/// `nuthatch sql [query]` - read-only SQL over the nest's data (live tip ∪ sealed history). With a
 /// query, one-shot to a table (`--json` to pipe). Without, an interactive REPL. The terminal-native
 /// front door to querying, so a user never needs curl to poke at their own data (RFC-0015).
 async fn run_sql(args: cli::SqlArgs) -> Result<()> {
@@ -255,7 +255,7 @@ impl SqlBackend {
     fn open(dir: &str, url: &str) -> Result<Self> {
         let dir = std::path::PathBuf::from(dir);
         // Prefer local files; redb is single-writer, so if `dev` holds the store the open fails and we
-        // fall back to the running instance's API — the same command works either way.
+        // fall back to the running instance's API - the same command works either way.
         match store::Store::open(&dir.join(config::DB_FILE)) {
             Ok(store) => Ok(SqlBackend::Local { dir, store }),
             Err(_) => Ok(SqlBackend::Http {
@@ -312,7 +312,7 @@ impl SqlBackend {
                     .query(&[("q", sql)])
                     .send()
                     .await
-                    .with_context(|| format!("querying {url} — is `nuthatch dev` running?"))?;
+                    .with_context(|| format!("querying {url} - is `nuthatch dev` running?"))?;
                 let status = resp.status();
                 let body: serde_json::Value =
                     resp.json().await.context("reading the API response")?;
@@ -342,7 +342,7 @@ impl SqlBackend {
 /// The interactive `nuthatch sql` REPL: readline with history, dot-commands, and a table per query.
 async fn repl(backend: SqlBackend) -> Result<()> {
     use rustyline::error::ReadlineError;
-    println!("nuthatch sql — querying {}.", backend.describe());
+    println!("nuthatch sql - querying {}.", backend.describe());
     println!("Type SQL, or .help for commands. .exit (or Ctrl-D) to quit.");
     let mut rl = rustyline::DefaultEditor::new().context("starting the REPL")?;
     loop {
@@ -359,7 +359,7 @@ async fn repl(backend: SqlBackend) -> Result<()> {
                     }
                     continue;
                 }
-                // A query error is printed, never fatal — the session stays open.
+                // A query error is printed, never fatal - the session stays open.
                 match backend.query(line).await {
                     Ok((rows, truncated)) => {
                         print_table(&rows);
@@ -411,7 +411,7 @@ async fn repl_meta(line: &str, backend: &SqlBackend) -> bool {
             }
             None => eprintln!("usage: .schema <table>"),
         },
-        _ => eprintln!("unknown command {line:?} — try .help"),
+        _ => eprintln!("unknown command {line:?} - try .help"),
     }
     false
 }
@@ -482,7 +482,7 @@ fn print_table(rows: &[serde_json::Value]) {
     println!("({n} row{})", if n == 1 { "" } else { "s" });
 }
 
-/// `nuthatch transform` — run a WASM transform component over a project's stored transfers.
+/// `nuthatch transform` - run a WASM transform component over a project's stored transfers.
 fn run_transform(args: cli::TransformArgs) -> Result<()> {
     use std::path::{Path, PathBuf};
     let dir = PathBuf::from(&args.dir);

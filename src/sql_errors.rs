@@ -4,14 +4,14 @@
 //! agent self-corrects in one shot. The raw engine message is always preserved (we never lie about
 //! what the engine said); the hint is appended.
 //!
-//! This is pure text-in / text-out over the schema — nothing here touches the data path. It enriches
+//! This is pure text-in / text-out over the schema - nothing here touches the data path. It enriches
 //! the `/sql` (and thus MCP `sql`) error surface and the `nuthatch sql` REPL alike.
 
 use crate::registry::TableSchema;
 use crate::semantic::derive_footguns;
 
 /// Classify a DuckDB error for `query` against the nest `schema`, returning an actionable hint if the
-/// failure matches a known class (`None` otherwise — an unrecognised error is relayed raw, unadorned).
+/// failure matches a known class (`None` otherwise - an unrecognised error is relayed raw, unadorned).
 /// The classes mirror the RFC-0016 §4 table; each is matched off DuckDB's real message text.
 pub fn enrich(raw: &str, query: &str, schema: &[TableSchema]) -> Option<String> {
     // Unknown table: `Catalog Error: Table with name <X> does not exist!`
@@ -42,13 +42,13 @@ pub fn enrich(raw: &str, query: &str, schema: &[TableSchema]) -> Option<String> 
             && !all_cols.contains(&col.to_string())
         {
             return Some(format!(
-                "`{col}` is derived on the fly — it isn't a stored column, but you *can* select it. If \
+                "`{col}` is derived on the fly - it isn't a stored column, but you *can* select it. If \
                  the binder rejected it, the base column exists as `{}` (exact text).",
                 col.trim_end_matches("_dec")
             ));
         }
         // A `{col}_dec` whose *base* column the schema doesn't know either: the schema is very likely
-        // stale — e.g. the author hand-added a `[[templates]]`/`[[factories]]` to `nuthatch.toml` (whose
+        // stale - e.g. the author hand-added a `[[templates]]`/`[[factories]]` to `nuthatch.toml` (whose
         // `{template}__{event}` tables `init`/`add` never generated a schema for), so the derived `_dec`
         // columns were never created. Point at the regen command, not a fuzzy typo match.
         if let Some(base) = col.strip_suffix("_dec") {
@@ -77,7 +77,7 @@ pub fn enrich(raw: &str, query: &str, schema: &[TableSchema]) -> Option<String> 
             for rc in derive_footguns(t).reserved_words {
                 if mentions_unquoted(query, &rc) {
                     return Some(format!(
-                        "`{rc}` is a SQL reserved word and a column of `{}` — double-quote it: SELECT \"{rc}\" …",
+                        "`{rc}` is a SQL reserved word and a column of `{}` - double-quote it: SELECT \"{rc}\" …",
                         t.table
                     ));
                 }
@@ -169,10 +169,10 @@ fn is_ident(b: u8) -> bool {
 }
 
 /// The closest real candidate to `name`. Tries, in order: an exact (case-insensitive) hit; then
-/// **containment** — the most common agent slip is dropping the `{alias}__` prefix (`transfers` for
+/// **containment** - the most common agent slip is dropping the `{alias}__` prefix (`transfers` for
 /// `usdc__transfer`) or pluralising, so a candidate that contains the de-pluralised guess wins; then
 /// **Levenshtein** within a sane budget (≤ 3, or half the name) for genuine typos (`valu` → `value`).
-/// `None` if nothing is close enough — suggestions therefore always come from the real schema, never
+/// `None` if nothing is close enough - suggestions therefore always come from the real schema, never
 /// hallucinated.
 fn closest<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
     let n = name.to_ascii_lowercase();
@@ -182,7 +182,7 @@ fn closest<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
         return Some(c);
     }
     // Containment on the de-pluralised guess (`transfer` ⊆ `usdc__transfer`). Prefer the shortest
-    // matching candidate — the most specific.
+    // matching candidate - the most specific.
     if let Some(c) = candidates
         .iter()
         .filter(|c| {

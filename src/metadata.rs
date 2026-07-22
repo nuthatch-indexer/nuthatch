@@ -1,12 +1,12 @@
-//! RFC-0023 tier 2 — the **immutable-metadata cache.** `decimals()`, `symbol()`, `name()` are
+//! RFC-0023 tier 2 - the **immutable-metadata cache.** `decimals()`, `symbol()`, `name()` are
 //! write-once ERC-20 constants: they never change, so calling them once and caching forever is safe
-//! and deterministic (the value is time-invariant — this is the one place a plain call is fine, and it
+//! and deterministic (the value is time-invariant - this is the one place a plain call is fine, and it
 //! is *metadata*, never data feeding entity derivation). Tier 1 derives the changing reads; this tier
 //! fetches the handful of constants tier 1 can't derive from events, and remembers them.
 //!
 //! The fetch uses the existing `eth_call` plumbing; the encode (bare 4-byte selectors, no args) and the
 //! decode (uint8 / ABI-string returns) are pure and tested here. The cache is a small `metadata.json`
-//! in the nest dir, keyed by lowercased address — immutable values, so a present entry is never
+//! in the nest dir, keyed by lowercased address - immutable values, so a present entry is never
 //! re-fetched.
 
 use crate::rpc::RpcClient;
@@ -24,7 +24,7 @@ pub const NAME_SELECTOR: &str = "0x06fdde03";
 pub const METADATA_FILE: &str = "metadata.json";
 
 /// One token's immutable metadata. Each field is optional: a contract may not implement it, or return
-/// a non-standard shape (e.g. `bytes32` symbol) we don't decode — absent rather than wrong.
+/// a non-standard shape (e.g. `bytes32` symbol) we don't decode - absent rather than wrong.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TokenMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,7 +56,7 @@ pub fn decode_string(hex: &str) -> Option<String> {
 }
 
 /// Fetch a contract's immutable metadata via `eth_call`. A failed or non-standard call leaves its field
-/// `None` — best-effort, never a hard error (a token missing `name()` is not a nest failure).
+/// `None` - best-effort, never a hard error (a token missing `name()` is not a nest failure).
 pub async fn fetch(rpc: &RpcClient, address: &str) -> TokenMetadata {
     TokenMetadata {
         decimals: rpc
@@ -92,7 +92,7 @@ pub fn save(dir: &Path, cache: &MetadataCache) -> Result<()> {
     Ok(())
 }
 
-/// `nuthatch metadata fetch [--dir <d>] [--rpc <url>…]` — fetch + cache the immutable metadata for every
+/// `nuthatch metadata fetch [--dir <d>] [--rpc <url>…]` - fetch + cache the immutable metadata for every
 /// contract in the nest. Immutable, so already-cached contracts are skipped (no re-fetch).
 pub async fn fetch_cli(dir: &Path, rpc_override: Vec<String>) -> Result<()> {
     let config = crate::config::Config::load(dir)?;
@@ -107,7 +107,7 @@ pub async fn fetch_cli(dir: &Path, rpc_override: Vec<String>) -> Result<()> {
     for c in &config.contracts {
         let addr = c.address.to_lowercase();
         if cache.contains_key(&addr) {
-            continue; // immutable — never re-fetch
+            continue; // immutable - never re-fetch
         }
         let md = fetch(&rpc, &c.address).await;
         println!(

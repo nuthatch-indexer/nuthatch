@@ -1,4 +1,4 @@
-//! RFC-0016 §2 — the governed semantic layer, integration-tested against a real registry.
+//! RFC-0016 §2 - the governed semantic layer, integration-tested against a real registry.
 //!
 //! Unit tests in `src/semantic.rs` cover the pure helpers with hand-built schemas; this exercises
 //! the whole composition against a decode registry built from a real ERC-20 ABI, so the derived

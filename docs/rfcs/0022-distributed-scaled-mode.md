@@ -1,22 +1,22 @@
-# RFC-0022: Distributed scaled mode — read/write planes, a writer pool, dynamic nest placement
+# RFC-0022: Distributed scaled mode - read/write planes, a writer pool, dynamic nest placement
 
-- Status: **Accepted — design only, build deferred** (2026-07-21). §0 brief amendment applied to
+- Status: **Accepted - design only, build deferred** (2026-07-21). §0 brief amendment applied to
   `CLAUDE.md` 2026-07-21. **Nothing is built yet.** The build is **dependency-gated** on RFC-0013's
   scaled-side (external Postgres hot store + DataFusion federation) and on RFC-0021 (the per-chain cursor
   = the unit of placement). **Operator-run by design:** this is the distributed self-hosted fleet
-  (writer pool + query-FE tier + control-plane) an operator like GraphOps runs *across machines* — not a
+  (writer pool + query-FE tier + control-plane) an operator like GraphOps runs *across machines* - not a
   laptop build, and verified on operator infra, never a single-box CI run. The scope line holds:
   per-tenant billing/authz between untrusting **paying** customers stays the gateway's job, out of scope.
 - Author: Pete (cargopete)
 - Date: 2026-07-21
-- Depends on: RFC-0013 (the storage/query-engine direction — external hot store + DataFusion federation
+- Depends on: RFC-0013 (the storage/query-engine direction - external hot store + DataFusion federation
   on the scaled side; this RFC is where "scaled mode" stops being a docker-compose sketch), RFC-0019
   (the registry workers pull nests from, and where runtime-secret injection is realized), RFC-0021 (the
-  **per-chain cursor** — this RFC's unit of placement; the writer pool is the multichain roost spread
+  **per-chain cursor** - this RFC's unit of placement; the writer pool is the multichain roost spread
   across machines), RFC-0009/0012 (nest + roost isolation being distributed).
 - Blocks: an operator like **GraphOps running nuthatch directly at fleet scale**, without building a
   bespoke platform layer on top.
-- Nature: design RFC. **Design now, build later** — the design is committable today; the *build* is
+- Nature: design RFC. **Design now, build later** - the design is committable today; the *build* is
   **dependency-gated** (RFC-0013's scaled-side external hot store + DataFusion federation, and
   RFC-0021's per-chain cursor), **not hardware-gated**. It's a distributed multi-service stack we
   build and integration-test under docker-compose on the MacBook/VPSes; **GraphOps runs it at scale**
@@ -27,7 +27,7 @@
 ## ⚠️ Brief amendment required (see §0)
 
 `CLAUDE.md`'s *Out of scope* bins "hosted-SaaS multi-tenancy." This RFC scopes a **distributed
-self-hosted** mode **in** while keeping hosted-SaaS **out** — the line is billing/metering/authz between
+self-hosted** mode **in** while keeping hosted-SaaS **out** - the line is billing/metering/authz between
 mutually-untrusting paying customers, which stays the **gateway's** job. §0 is the proposed nuance; it
 must be accepted before build.
 
@@ -46,17 +46,17 @@ control plane, so one operator can scale horizontally:
 - **Resolve any nest at the FE.** A query-FE node accepts a request for *any* nest and knows how to
   **resolve** it to the right version (RFC-0020) and backend.
 
-**The scope line — the keystone.** GraphOps is *one operator* running a fleet of cooperating nests it
-chose — **not** a landlord to mutually-untrusting paying customers. The core provides the distributed
+**The scope line - the keystone.** GraphOps is *one operator* running a fleet of cooperating nests it
+chose - **not** a landlord to mutually-untrusting paying customers. The core provides the distributed
 *substrate*; it **never** grows per-tenant billing, metering, or authz between untrusting customers.
 Hold this line and it's fleet scaling; cross it and we've built the SaaS platform the brief bins.
 
-## §0 — Proposed brief amendment
+## §0 - Proposed brief amendment
 
 `CLAUDE.md` *Out of scope* gains an explicit nuance (final wording in the closing pass): *Distributed
-**self-hosted** scaled mode — one operator, a writer pool + query-FE tier + control-plane over
-cooperating nests — is **IN scope** (RFC-0022). **Hosted-SaaS multi-tenancy** — per-tenant
-authz/quotas/billing and isolation between mutually-untrusting **paying** customers — remains **OUT**;
+**self-hosted** scaled mode - one operator, a writer pool + query-FE tier + control-plane over
+cooperating nests - is **IN scope** (RFC-0022). **Hosted-SaaS multi-tenancy** - per-tenant
+authz/quotas/billing and isolation between mutually-untrusting **paying** customers - remains **OUT**;
 that is the gateway's job, in front of nuthatch.* The single-cursor law (now per-chain, RFC-0021)
 still holds under distribution: a cursor is single-chain and owned by exactly **one** worker at a time.
 
@@ -89,18 +89,18 @@ still holds under distribution: a cursor is single-chain and owned by exactly **
 
 ## Non-goals
 
-- **Hosted-SaaS multi-tenancy** — per-tenant authz/quotas/billing, isolation between mutually-untrusting
+- **Hosted-SaaS multi-tenancy** - per-tenant authz/quotas/billing, isolation between mutually-untrusting
   paying customers. The gateway's job. Out.
-- **A second cursor per chain / cursor sharding across workers** — a chain's cursor is single-chain
+- **A second cursor per chain / cursor sharding across workers** - a chain's cursor is single-chain
   (RFC-0021) and owned by **one** worker; we never split one chain's cursor across workers or run two.
-- **Kubernetes/Helm as the deliverable** — the brief allows binary + compose only. This RFC designs the
+- **Kubernetes/Helm as the deliverable** - the brief allows binary + compose only. This RFC designs the
   *system*; packaging beyond compose is out.
-- **A new query engine** — the FE federates hot (Postgres) + cold (segments) via DataFusion per
+- **A new query engine** - the FE federates hot (Postgres) + cold (segments) via DataFusion per
   RFC-0013; it doesn't invent one.
 
 ## Design
 
-### §1 — The two planes
+### §1 - The two planes
 
 **Writer worker**: owns a set of **per-chain cursors** assigned by the scheduler. For each cursor it
 runs today's deterministic ingest→decode→derive→seal, writing the **hot store to Postgres** (RFC-0013)
@@ -113,7 +113,7 @@ hot store (recent, Postgres) with sealed segments (object storage) through **Dat
 
 The planes share the external hot store + object storage; they do **not** share process or host.
 
-### §2 — The writer pool and the scheduler
+### §2 - The writer pool and the scheduler
 
 The **scheduler** reconciles *desired* nests (control-plane DB) with *actual* cursor→worker assignments:
 
@@ -122,18 +122,18 @@ The **scheduler** reconciles *desired* nests (control-plane DB) with *actual* cu
 - **Balancing**: spread cursors across workers by load (RAM = Σ assigned cursors ≤ worker budget, tip
   lag, backfill demand). Rebalance on worker join/leave or hotspot.
 - **Single-owner guarantee**: a cursor is assigned to exactly one worker; handoff (drain → reassign) is
-  explicit, never concurrent — preserving single-writer + one-observable-failure-boundary under
+  explicit, never concurrent - preserving single-writer + one-observable-failure-boundary under
   distribution.
 
-### §3 — Dynamic, API-driven nest lifecycle + the control-plane DB
+### §3 - Dynamic, API-driven nest lifecycle + the control-plane DB
 
 A **control-plane API** (add/remove/inspect nests) writes desired state to a **control-plane DB**
-(distinct from the Postgres *hot store* — one holds *what should run*, the other holds *indexed data*).
+(distinct from the Postgres *hot store* - one holds *what should run*, the other holds *indexed data*).
 The scheduler watches it and converges. Adding a nest: resolve from the registry (RFC-0019) → assign its
 cursor to a worker → worker pulls the bundle, injects secrets (§4), mounts, begins indexing. Removing:
 drain the cursor, tear down, free budget. No process restarts; it's API-driven and continuous.
 
-### §4 — Nest resolution (promoted, cross-cutting)
+### §4 - Nest resolution (promoted, cross-cutting)
 
 Flagged twice in the source notes, so first-class here. Given an incoming request or a placement:
 
@@ -147,18 +147,18 @@ request/placement for "foo"
 
 Reads need no worker affinity (state is in shared stores); writes follow cursor ownership. RFC-0020's
 compatible/breaking endpoints ride this resolution: a breaking version resolves to a distinct endpoint,
-a compatible one hot-swaps behind the same one — across the fleet, not just one box.
+a compatible one hot-swaps behind the same one - across the fleet, not just one box.
 
-### §5 — Runtime-secret injection (credential kind **b**)
+### §5 - Runtime-secret injection (credential kind **b**)
 
 RFC-0019 §4 committed the *rule* (secrets never in a bundle); this RFC provides the *mechanism*. The
 control-plane holds per-nest secrets (private RPC URLs, enricher API keys) in a secret store, keyed by
 nest. At mount, the scheduler hands the assigned worker only that nest's secrets, out-of-band from the
 content-addressed bundle. Rotating a secret is a control-plane op; it never changes a bundle hash.
 
-### §6 — The scope line, made concrete
+### §6 - The scope line, made concrete
 
-What the core **does**: place, serve, resolve, isolate, inject secrets, balance load — for **one
+What the core **does**: place, serve, resolve, isolate, inject secrets, balance load - for **one
 operator's** cooperating nests. What the core **must not** grow: per-tenant billing, metering, quota
 enforcement between untrusting customers, or customer-facing authz. Those belong to the **gateway** in
 front. If a feature request only makes sense when the tenants *don't trust each other and pay*, it's out
@@ -167,7 +167,7 @@ of this RFC and this project.
 ## Implementation (design-now, build-later)
 
 - Feature-flag the storage backend behind the existing `HotStore` trait (founding architecture):
-  `Postgres` for scale mode, `redb` for embedded — no `#[cfg]` forks of business logic.
+  `Postgres` for scale mode, `redb` for embedded - no `#[cfg]` forks of business logic.
 - Writer-worker binary/role and query-FE role from the same crates; a role flag, not a fork.
 - Scheduler + control-plane API + control-plane DB as new components (compose services), watching desired
   state and reconciling cursor assignments.
@@ -191,28 +191,28 @@ of this RFC and this project.
 
 ## Risks
 
-- **Crossing the scope line** — the defining risk. Mitigation: §6 states the line; the non-goal is
+- **Crossing the scope line** - the defining risk. Mitigation: §6 states the line; the non-goal is
   explicit; anything requiring untrusting-tenant authz/billing is refused here and pointed at the
   gateway.
-- **Single-cursor invariant under distribution** — a scheduler bug double-assigning a cursor breaks
+- **Single-cursor invariant under distribution** - a scheduler bug double-assigning a cursor breaks
   single-writer. Mitigation: explicit single-owner assignment + drain-before-reassign handoff, asserted
   in test.
-- **Control-plane as SPOF** — its outage shouldn't stop running cursors serving/ingesting. Mitigation:
+- **Control-plane as SPOF** - its outage shouldn't stop running cursors serving/ingesting. Mitigation:
   workers keep running their last-assigned cursors if the control-plane is briefly unreachable
   (desired-state convergence resumes on reconnect); the control-plane is not in the data path.
-- **Complexity + footprint** — a distributed system is a lot of moving parts; keep embedded mode a
+- **Complexity + footprint** - a distributed system is a lot of moving parts; keep embedded mode a
   first-class, unaffected default (the brief's primary deliverable is still the single binary).
 
 ## Alternatives considered
 
-- **Leave scale-out to the gateway / a bespoke platform** — considered and *declined* 2026-07-21: the
+- **Leave scale-out to the gateway / a bespoke platform** - considered and *declined* 2026-07-21: the
   operator ask is to run nuthatch directly at fleet scale. We provide the substrate, not the SaaS.
-- **Shard a chain's cursor across workers for throughput** — rejected: breaks single-writer + single
+- **Shard a chain's cursor across workers for throughput** - rejected: breaks single-writer + single
   observable failure boundary. Throughput scales by adding *chains/nests* across workers, never by
   splitting one chain.
-- **Keep redb in scale mode** — impossible; embedded-only. External hot store is forced (as the notes
+- **Keep redb in scale mode** - impossible; embedded-only. External hot store is forced (as the notes
   said).
-- **One coupled scale binary (no plane split)** — wastes resources given read/write asymmetry; rejected.
+- **One coupled scale binary (no plane split)** - wastes resources given read/write asymmetry; rejected.
 
 ## Open questions
 

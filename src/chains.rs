@@ -1,9 +1,9 @@
-//! Tiny chain registry. Ships sensible public-RPC defaults with round-robin failover — the
+//! Tiny chain registry. Ships sensible public-RPC defaults with round-robin failover - the
 //! first-run killer is RPC friction, so out of the box you should not need to bring a key.
 //! (The "no third-party" upgrade is to colocate with a reth node; that path comes later.)
 //!
 //! The registry also carries each chain's finality policy and `eth_getLogs` window, so an L2 like
-//! Arbitrum — different finality semantics, denser blocks — is a data entry here, not a fork of the
+//! Arbitrum - different finality semantics, denser blocks - is a data entry here, not a fork of the
 //! indexing loop.
 
 /// How a chain decides a block is final enough to seal to the immutable cold layer. The sealing
@@ -56,7 +56,7 @@ const ARBITRUM_ONE: Chain = Chain {
         "https://arbitrum.drpc.org",
         "https://arb-pokt.nodies.app",
     ],
-    // True finality is L1 confirmation of the batch (~10–20 min). Prefer the node's `finalized`
+    // True finality is L1 confirmation of the batch (~10-20 min). Prefer the node's `finalized`
     // tag; else ~7.5 min at 250 ms blocks. Horizon is sparse, so the extra hot window is cheap.
     finality: Finality::FinalizedTag {
         fallback_depth: 1800,
@@ -81,7 +81,7 @@ const BASE: Chain = Chain {
     finality: Finality::FinalizedTag {
         fallback_depth: 900,
     },
-    // ~2 s blocks and busy — a moderate window that the adaptive chunker (RFC-0004 §2) tunes further.
+    // ~2 s blocks and busy - a moderate window that the adaptive chunker (RFC-0004 §2) tunes further.
     log_window: 1000,
 };
 

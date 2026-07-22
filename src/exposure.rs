@@ -1,6 +1,6 @@
-//! Direct counterparty-exposure view (RFC-0008 C1), maintained incrementally by DBSP — the same IVM
+//! Direct counterparty-exposure view (RFC-0008 C1), maintained incrementally by DBSP - the same IVM
 //! machinery as balances, applied to a compliance question: *how much has each address transacted,
-//! directly, with a labeled set?* "Direct" is deliberate — no multi-hop taint tracing (out of scope).
+//! directly, with a labeled set?* "Direct" is deliberate - no multi-hop taint tracing (out of scope).
 //!
 //! For a transfer `from → to` of `value`:
 //!   - if `to` is labeled L, then `from` gains **outbound** exposure to L (+value, +1 transfer);
@@ -9,10 +9,10 @@
 //! A reorg re-feeds the transfer with weight −1 and the exposure retracts, exactly like balances.
 //!
 //! Membership (is an address labeled?) is resolved by the caller against the loaded [`LabelSet`] when
-//! building deltas — the same pattern as `views::transfer_deltas` pre-computing balance deltas in the
+//! building deltas - the same pattern as `views::transfer_deltas` pre-computing balance deltas in the
 //! indexer. This view only aggregates. Two quantities are maintained per (address, label, direction):
 //! a **count** of qualifying transfers and the **summed amount** (i128 base units, like balances). We
-//! run two linear DBSP aggregates — one over amount, one over a per-transfer `1` — because a tuple
+//! run two linear DBSP aggregates - one over amount, one over a per-transfer `1` - because a tuple
 //! aggregate isn't linear; splitting them keeps both incrementally maintained *and* seedable on
 //! restart from a pre-summed cold aggregate (see `rebuild`).
 
@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender};
 use std::sync::{Arc, RwLock};
 
-/// Field separator inside an encoded exposure key. ASCII Unit Separator (0x1f) — never appears in a
+/// Field separator inside an encoded exposure key. ASCII Unit Separator (0x1f) - never appears in a
 /// hex address, a direction, or a sane label, so decoding is unambiguous.
 const SEP: char = '\u{1f}';
 
@@ -66,7 +66,7 @@ pub struct ExpItem {
 pub type ExposureBatch = Vec<ExpItem>;
 
 /// The two exposure contributions a single transfer makes, given who's labeled. Empty when neither
-/// counterparty is labeled — the overwhelmingly common case, so this stays cheap.
+/// counterparty is labeled - the overwhelmingly common case, so this stays cheap.
 pub fn exposure_deltas(
     from: &str,
     to: &str,
@@ -133,7 +133,7 @@ struct ExposureCircuit {
     count_in: dbsp::ZSetHandle<KeyAmt>,
     amount_out: OutputHandle<OrdZSet<Tup2<String, i128>>>,
     count_out: OutputHandle<OrdZSet<Tup2<String, i128>>>,
-    /// Summed amount per key (may be 0 while count > 0 — nets can cancel).
+    /// Summed amount per key (may be 0 while count > 0 - nets can cancel).
     amounts: HashMap<String, i128>,
     /// Summed transfer count per key; authoritative for a key's existence (0 ⇒ drop the key).
     counts: HashMap<String, i128>,
@@ -170,7 +170,7 @@ impl ExposureCircuit {
 
         // Fold amount changes: a group moving old→new appears as (key,old,−1),(key,new,+1); a group
         // returning to 0 appears only as (key,old,−1). Amount may legitimately be 0, so a cleared
-        // amount sets 0 rather than dropping — the count map decides existence.
+        // amount sets 0 rather than dropping - the count map decides existence.
         fold_changes(&self.amount_out.consolidate(), &mut self.amounts, false);
         // Fold count changes: same shape, but a cleared count *does* drop the key (no transfers left),
         // and we drop it from amounts too so the two maps stay consistent.
@@ -216,7 +216,7 @@ impl ExposureCircuit {
 }
 
 /// Fold a DBSP change stream into `map`. Returns the keys that were cleared (fell to zero) when
-/// `drop_on_clear` is set — for the count aggregate, those keys are removed; for amount, a cleared
+/// `drop_on_clear` is set - for the count aggregate, those keys are removed; for amount, a cleared
 /// value is written as 0 (the key may still exist via a nonzero count).
 fn fold_changes(
     changes: &OrdZSet<Tup2<String, i128>>,
@@ -286,7 +286,7 @@ pub struct ExposureView {
 
 impl ExposureView {
     /// Start the exposure view. When `enabled` is false (a nest with no labels) the DBSP circuit and
-    /// its worker thread are *not* spawned — `apply` becomes a silent no-op (its send finds no
+    /// its worker thread are *not* spawned - `apply` becomes a silent no-op (its send finds no
     /// receiver) and `snapshot` stays empty, so an unused view costs nothing (L10).
     pub fn start(enabled: bool) -> Result<Self> {
         let (tx, rx) = channel::<Msg>();
@@ -385,7 +385,7 @@ impl ExposureView {
         rows
     }
 
-    /// Number of distinct (address, label, direction) exposure entries maintained — a small gauge for
+    /// Number of distinct (address, label, direction) exposure entries maintained - a small gauge for
     /// `/` and `/metrics`.
     pub fn entries(&self) -> usize {
         self.rows.read().map(|m| m.len()).unwrap_or(0)
@@ -399,7 +399,7 @@ mod tests {
 
     fn labelset(pairs: &[(&str, &str)]) -> LabelSet {
         // Build a LabelSet via its public load path would need files; instead round-trip through the
-        // import canonicalisation isn't needed here — construct directly via a tiny JSON snapshot.
+        // import canonicalisation isn't needed here - construct directly via a tiny JSON snapshot.
         let entries: Vec<LabelEntry> = pairs
             .iter()
             .map(|(a, l)| LabelEntry {
@@ -419,7 +419,7 @@ mod tests {
     }
 
     /// Golden test: exposure is maintained incrementally, and a reorg (retraction) converges to the
-    /// state as if the retracted transfer never happened — the C1 gate.
+    /// state as if the retracted transfer never happened - the C1 gate.
     #[test]
     fn exposure_is_maintained_with_retraction() {
         // `mixer` is labeled; `alice` and `bob` are not.
@@ -482,7 +482,7 @@ mod tests {
         );
     }
 
-    /// Amounts exceeding i64 are tracked (the same i128 discipline as balances — a threshold view
+    /// Amounts exceeding i64 are tracked (the same i128 discipline as balances - a threshold view
     /// built on i64 would be a compliance liability).
     #[test]
     fn exposure_holds_values_beyond_i64() {
@@ -495,7 +495,7 @@ mod tests {
         assert_eq!(circuit.rows_for("0xwhale")[0].amount, big);
     }
 
-    /// Seeding a pre-summed cold aggregate reproduces the same state as replaying transfers — the
+    /// Seeding a pre-summed cold aggregate reproduces the same state as replaying transfers - the
     /// property `rebuild` relies on to avoid replaying every sealed transfer on restart.
     #[test]
     fn seeding_matches_replay() {

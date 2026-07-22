@@ -1,6 +1,6 @@
-//! Prometheus `/metrics` — the operator's alerting and billing surface (RFC-0005 §6).
+//! Prometheus `/metrics` - the operator's alerting and billing surface (RFC-0005 §6).
 //!
-//! Hand-rolled: a handful of process-global atomics plus text formatting, not a metrics framework —
+//! Hand-rolled: a handful of process-global atomics plus text formatting, not a metrics framework -
 //! the single-binary / minimal-deps rule stands, and the metric set is small and fixed. Gauges
 //! (tip, watermark, RSS) are set to the latest value; counters (rows, queries) only ever increase.
 //! Nothing here phones home: metrics are exposed on the same local API and scraped by the operator.
@@ -49,7 +49,7 @@ impl NestMetrics {
 }
 
 pub struct Metrics {
-    // Ingestion — the "is it keeping up?" signals an operator alerts on.
+    // Ingestion - the "is it keeping up?" signals an operator alerts on.
     tip_height: AtomicU64,
     last_block: AtomicU64,
     sealed_through: AtomicU64,
@@ -61,7 +61,7 @@ pub struct Metrics {
     rows_sealed: AtomicU64,
     reorgs: AtomicU64,
     alert_outbox_depth: AtomicU64,
-    // Serving — the surface an operator bills against.
+    // Serving - the surface an operator bills against.
     http_requests: AtomicU64,
     sql_queries: AtomicU64,
     sql_rejections: AtomicU64,
@@ -111,7 +111,7 @@ impl Metrics {
     pub fn set_sealed_through(&self, v: u64) {
         self.sealed_through.store(v, Relaxed);
     }
-    /// Record a successful source poll — call it on every tip fetch that returns (the tip loop does),
+    /// Record a successful source poll - call it on every tip fetch that returns (the tip loop does),
     /// so readiness reflects "we can still reach the chain", independent of whether we're behind.
     pub fn mark_poll_ok(&self) {
         self.last_poll_ok.store(now_unix(), Relaxed);
@@ -289,7 +289,7 @@ impl Metrics {
     }
 }
 
-/// Wall-clock unix seconds — used only for the poll-freshness/readiness signal, never in the
+/// Wall-clock unix seconds - used only for the poll-freshness/readiness signal, never in the
 /// deterministic data path.
 pub fn now_unix() -> u64 {
     std::time::SystemTime::now()
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn no_nests_means_no_per_nest_block() {
-        // A fresh registry with no nests registered renders only the aggregates — no labelled series.
+        // A fresh registry with no nests registered renders only the aggregates - no labelled series.
         assert!(!Metrics::new().render().contains("nuthatch_nest_last_block"));
     }
 

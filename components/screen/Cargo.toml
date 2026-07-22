@@ -1,4 +1,4 @@
-# Standalone guest component — deliberately NOT a member of the nuthatch workspace (a wasm32-wasip2
+# Standalone guest component - deliberately NOT a member of the nuthatch workspace (a wasm32-wasip2
 # cdylib only links for that target). Build + stage with:
 #   cargo build --manifest-path components/screen/Cargo.toml --target wasm32-wasip2 --release
 #   cp target/wasm32-wasip2/release/screen.wasm components/screen.wasm

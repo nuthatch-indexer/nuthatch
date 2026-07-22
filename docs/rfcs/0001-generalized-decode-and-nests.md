@@ -3,7 +3,7 @@
 - Status: Implemented (2026-07-18)
 - Author: Pete (cargopete)
 - Date: 2026-07-14
-- Depends on: — (first post-skeleton slice)
+- Depends on: - (first post-skeleton slice)
 - Blocks: RFC-0002 (Horizon nest), RFC-0004 (backfill), RFC-0005 (v0.1.0)
 
 ## Abstract
@@ -98,7 +98,7 @@ Every table gets implicit columns: `block_number: u64`, `block_hash: bytes32`,
 validated `[a-z][a-z0-9_]*`). Overloads append a 4-hex-char suffix of the topic0:
 `pool__swap_a1b2`. The generated `schema.json` in the nest records, per table: topic0,
 full event signature, column list with Solidity + storage + SQL types, and the registry
-hash. `nuthatch mcp`'s `schema` tool and `llms.txt` are regenerated from this manifest —
+hash. `nuthatch mcp`'s `schema` tool and `llms.txt` are regenerated from this manifest -
 one source of truth.
 
 ### 4. nuthatch.toml and init
@@ -123,7 +123,7 @@ abi = "abis/pool_factory.json"
 
 `init` accepts N addresses (and `--alias` pairs, else aliases derived from resolved
 contract names, deduplicated). Per-contract ABI resolution keeps the existing
-Sourcify-then-Etherscan order; ABIs are written to `abis/` (no runtime re-fetch — the
+Sourcify-then-Etherscan order; ABIs are written to `abis/` (no runtime re-fetch - the
 nest is self-contained). Deployment-block auto-detection: binary search on
 `eth_getCode(addr, block) == 0x` over [0, tip], ~40 RPC calls per contract, cached in
 the toml.
@@ -141,7 +141,7 @@ optimize here; RFC-0004 owns throughput).
 Hot store (redb): replace the transfer-specific table with one redb table per event
 table, key `(block_number, log_index)` big-endian concatenated for range deletes on
 rollback, value = bincode row. `rollback_to(block)` iterates all tables (range delete
-`> block` — cheap in redb, and the reason Daimo's Postgres pain doesn't apply here).
+`> block` - cheap in redb, and the reason Daimo's Postgres pain doesn't apply here).
 Checkpoints unchanged.
 
 Sealing: one Parquet file per (event table, sealed range); `manifest.json` becomes
@@ -150,7 +150,7 @@ creates one view per table over its segment glob. `/entity/{id}` generalizes to
 `/table/{name}/row/{block}/{log_index}` with the old route kept as an alias for the
 transfer table when present.
 
-Watermark: `sealed_through` remains global (min across tables is unnecessary — all
+Watermark: `sealed_through` remains global (min across tables is unnecessary - all
 tables ingest from the same block stream and seal together per range).
 
 ### 7. Serving

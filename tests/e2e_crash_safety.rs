@@ -1,5 +1,5 @@
-//! Crash-safety: sealing is idempotent (the COR-1 property). Re-sealing an already-sealed range —
-//! what a `kill -9` between "segment written" and "watermark advanced" makes the next run do — must
+//! Crash-safety: sealing is idempotent (the COR-1 property). Re-sealing an already-sealed range -
+//! what a `kill -9` between "segment written" and "watermark advanced" makes the next run do - must
 //! not add a duplicate segment or double-count rows. The pipeline's `maybe_seal` is private, so this
 //! targets its content-addressed core, `seal::seal_range`, exercised twice against the SAME dir (the
 //! inline seal tests only ever seal into two DIFFERENT dirs, so this same-dir re-seal is new coverage).

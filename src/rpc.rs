@@ -1,5 +1,5 @@
 //! The thinnest JSON-RPC client that works: `eth_blockNumber` + `eth_getLogs`, with round-robin
-//! failover across the configured endpoints. No ExEx yet — that's the sovereignty upgrade later.
+//! failover across the configured endpoints. No ExEx yet - that's the sovereignty upgrade later.
 
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
@@ -12,7 +12,7 @@ const TIMESTAMP_ATTEMPTS: usize = 4;
 
 /// Max block numbers per `eth_getBlockByNumber` JSON-RPC batch. Many providers cap batch size and
 /// **silently drop** an oversized batch (returning nothing), which the strict no-partial-map guard
-/// then correctly rejects — so a dense window that needs 1000+ distinct timestamps would fail on such
+/// then correctly rejects - so a dense window that needs 1000+ distinct timestamps would fail on such
 /// a node. Splitting into bounded sub-batches keeps each request within common limits.
 const MAX_TIMESTAMP_BATCH: usize = 200;
 
@@ -29,7 +29,7 @@ pub fn merge_rpcs(preferred: &[String], fallback: impl IntoIterator<Item = Strin
     out
 }
 
-/// After an endpoint fails, skip it for this long (unless every endpoint is unhealthy) — so one dead
+/// After an endpoint fails, skip it for this long (unless every endpoint is unhealthy) - so one dead
 /// provider doesn't cost a full request-timeout on every call that round-robins onto it. A partial
 /// outage fails over fast instead of stalling the tip loop.
 const ENDPOINT_COOLDOWN_MS: u64 = 30_000;
@@ -42,7 +42,7 @@ pub struct RpcClient {
     /// (`0` = healthy). Set on a failed call, cleared on a successful one. Endpoints past their cooldown
     /// are tried first; still-unhealthy ones are the fallback of last resort (soonest-to-recover first).
     health: Vec<AtomicU64>,
-    /// Total HTTP requests attempted (incl. failover retries) — a benchmark/observability metric.
+    /// Total HTTP requests attempted (incl. failover retries) - a benchmark/observability metric.
     requests: AtomicU64,
 }
 
@@ -173,8 +173,8 @@ impl RpcClient {
             .error_for_status()?
             .json()
             .await?;
-        // A whole-batch rejection — e.g. a keyless endpoint answering HTTP 200 with
-        // `{"error":{"message":"authenticate with an API key"}}` instead of the expected array — comes
+        // A whole-batch rejection - e.g. a keyless endpoint answering HTTP 200 with
+        // `{"error":{"message":"authenticate with an API key"}}` instead of the expected array - comes
         // back as a single object with a top-level `error`. Treat it as an endpoint failure so
         // `post_with_failover` cools it down and tries the next, exactly as `call_one` does for single
         // calls; otherwise the bad endpoint silently poisons the pool and the batch aborts with a
@@ -210,7 +210,7 @@ impl RpcClient {
         parse_hex_u64(result.as_str().unwrap_or_default())
     }
 
-    /// A storage slot's value at `address` (latest block) — used to read the EIP-1967 proxy slot.
+    /// A storage slot's value at `address` (latest block) - used to read the EIP-1967 proxy slot.
     pub async fn get_storage_at(&self, address: &str, slot: &str) -> Result<String> {
         let result = self
             .call("eth_getStorageAt", json!([address, slot, "latest"]))
@@ -242,7 +242,7 @@ impl RpcClient {
     /// Two different "missing" cases, deliberately kept distinct because timestamps feed the sealed
     /// (immutable) path: a block the endpoint *answered but omitted* is simply absent from the returned
     /// map (best-effort; the caller stores 0 for it), but a *whole-batch request failure* is retried a
-    /// few times and then returned as `Err` — never silently collapsed into an all-zeros map, which
+    /// few times and then returned as `Err` - never silently collapsed into an all-zeros map, which
     /// would bake `block_timestamp = 0` into a permanent segment from a transient blip.
     pub async fn block_timestamps(&self, blocks: &[u64]) -> Result<HashMap<u64, u64>> {
         if blocks.is_empty() {
@@ -255,14 +255,14 @@ impl RpcClient {
             out.extend(self.fetch_timestamp_batch(chunk).await?);
         }
         // COR-3: a *partial* response (endpoint answered but a load-balanced/archive-vs-full split
-        // returned `null` for some block) must be an error, not a partial map — else the caller defaults
+        // returned `null` for some block) must be an error, not a partial map - else the caller defaults
         // the missing block's `block_timestamp` to 0 and *seals it permanently*, breaking determinism
         // (a re-run against a healthy endpoint yields a different timestamp → different content hash).
         // Erroring makes the seal path retry the whole window, exactly like a total failure.
         if out.len() != blocks.len() {
             let missing = blocks.iter().filter(|b| !out.contains_key(b)).count();
             bail!(
-                "block_timestamps: {missing}/{} block(s) missing from the RPC response — refusing a \
+                "block_timestamps: {missing}/{} block(s) missing from the RPC response - refusing a \
                  partial map (would seal block_timestamp=0)",
                 blocks.len()
             );
@@ -360,7 +360,7 @@ impl RpcClient {
         to: u64,
     ) -> Result<Vec<Log>> {
         let mut filter = serde_json::Map::new();
-        // An empty address list means "no address filter" (topic0-only) — the factory tip regime
+        // An empty address list means "no address filter" (topic0-only) - the factory tip regime
         // (RFC-0009 §3) fetches this way so a child created and active in the same block is already in
         // hand. Sending `"address": []` would instead match nothing, so omit the field when empty.
         if !addresses.is_empty() {
@@ -414,7 +414,7 @@ fn parse_hex_u64(s: &str) -> Result<u64> {
     u64::from_str_radix(s, 16).with_context(|| format!("bad hex number '{s}'"))
 }
 
-/// Wall-clock millis since the epoch — used only for endpoint-health cooldowns (a coarse "try again
+/// Wall-clock millis since the epoch - used only for endpoint-health cooldowns (a coarse "try again
 /// after" timer), never for anything in the deterministic data path.
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
@@ -447,7 +447,7 @@ mod tests {
             // The two healthy endpoints lead, in some round-robin order.
             assert!(order[..2].contains(&0) && order[..2].contains(&2));
         }
-        // A success clears it — back into normal rotation, no longer forced last.
+        // A success clears it - back into normal rotation, no longer forced last.
         c.mark_healthy(1);
         let mut seen_first = false;
         for _ in 0..3 {

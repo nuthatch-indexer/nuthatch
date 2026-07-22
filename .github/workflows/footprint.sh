@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Measure peak resident memory of a single-chain index and enforce a ceiling.
 #
-# Runs the documented scenario — `init` USDC on mainnet, then `dev --backfill 200` against public
-# RPC — samples peak RSS while it indexes, and fails if it exceeds MAX_RSS_MB. The ceiling is set
+# Runs the documented scenario - `init` USDC on mainnet, then `dev --backfill 200` against public
+# RPC - samples peak RSS while it indexes, and fails if it exceeds MAX_RSS_MB. The ceiling is set
 # generously (256 MB) above the measured ~37 MB so public-RPC flakiness never causes a false pass,
 # and the job retries once if the first attempt indexes nothing.
 #
@@ -54,7 +54,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 fi
 
 if [ "${entities:-0}" -lt 1 ]; then
-  echo "FAIL: indexed 0 transfers after retry — cannot measure; failing rather than false-passing"
+  echo "FAIL: indexed 0 transfers after retry - cannot measure; failing rather than false-passing"
   exit 1
 fi
 if [ "$peak_mb" -gt "$MAX_RSS_MB" ]; then

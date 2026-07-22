@@ -2,11 +2,11 @@
 //! operator-configured HTTP endpoints, **at-least-once**, without ever blocking the indexer.
 //!
 //! Delivery semantics are host state by nature, so they live here rather than in a WASM component:
-//! - **Durable outbox** in the hot store (redb) — enqueuing an alert is one fast write, and pending
+//! - **Durable outbox** in the hot store (redb) - enqueuing an alert is one fast write, and pending
 //!   deliveries survive a restart, so at-least-once holds across a process bounce.
 //! - **A stalled sink never blocks indexing.** Enqueue is decoupled from delivery (a background
 //!   worker drains the outbox); if a webhook is down the outbox grows only to a bound, then sheds its
-//!   oldest entries loudly (`outbox_trim`) — the indexer never waits on the network.
+//!   oldest entries loudly (`outbox_trim`) - the indexer never waits on the network.
 //! - **Retractions.** A reorg re-fires the same annotation as a `flag_retracted` event, so a consumer
 //!   that acted on a flag learns when the chain took it back.
 //! - **One cursor.** Alerts ride the single indexing cursor; there is no second cursor or reconciler.
@@ -22,16 +22,16 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 /// Bound on the durable outbox. A dead webhook can't grow it without limit; past this the oldest
-/// undelivered alerts are shed (loudly). Generous — a transient outage of minutes is absorbed.
+/// undelivered alerts are shed (loudly). Generous - a transient outage of minutes is absorbed.
 pub const OUTBOX_MAX: u64 = 10_000;
 /// How many pending deliveries a single drain attempts.
 const DELIVERY_BATCH: usize = 100;
-/// Poll interval between outbox drains — also the (constant) retry backoff for a failed delivery.
+/// Poll interval between outbox drains - also the (constant) retry backoff for a failed delivery.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// Per-request timeout: a slow endpoint can't wedge the delivery worker.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// How many webhook POSTs are in flight at once during a drain (SEC-8): one slow/dead sink must not
-/// throttle the others — the drain is bounded by the slowest single request, not the sum.
+/// throttle the others - the drain is bounded by the slowest single request, not the sum.
 const DELIVERY_CONCURRENCY: usize = 8;
 
 /// Routes annotation kinds to the webhook sinks that want them. Built once from `[[alerts]]`.
@@ -58,7 +58,7 @@ impl AlertRouter {
             .collect()
     }
 
-    /// Whether any sink watches `kind` — a cheap pre-check before building a retraction payload.
+    /// Whether any sink watches `kind` - a cheap pre-check before building a retraction payload.
     pub fn watches(&self, kind: &str) -> bool {
         self.sinks.iter().any(|s| s.kinds.iter().any(|k| k == kind))
     }
@@ -91,7 +91,7 @@ pub fn enqueue(
         let dropped = store.outbox_trim(OUTBOX_MAX)?;
         if dropped > 0 {
             tracing::warn!(
-                "alert outbox full ({OUTBOX_MAX}): dropped {dropped} oldest undelivered alert(s) — \
+                "alert outbox full ({OUTBOX_MAX}): dropped {dropped} oldest undelivered alert(s) - \
                  a webhook is down or too slow"
             );
         }
@@ -112,14 +112,14 @@ pub async fn deliver_pending(
     use futures::stream::StreamExt;
     let pending = store.outbox_pending(DELIVERY_BATCH).unwrap_or_default();
 
-    // Phase 1: send all POSTs concurrently (SEC-8), each independent. The store is NOT touched here —
+    // Phase 1: send all POSTs concurrently (SEC-8), each independent. The store is NOT touched here -
     // redb is single-writer, so mutations are applied afterwards in phase 2, on this task alone.
     let outcomes: Vec<(u64, Outcome)> = futures::stream::iter(pending)
         .map(|(seq, payload_str)| {
             let client = client.clone();
             async move {
                 let Ok(payload) = serde_json::from_str::<Value>(&payload_str) else {
-                    return (seq, Outcome::Shed); // corrupt entry — drop it
+                    return (seq, Outcome::Shed); // corrupt entry - drop it
                 };
                 let url = payload.get("url").and_then(Value::as_str).unwrap_or("");
                 // Send the stored bytes verbatim so a signature matches; sign if the webhook has a secret.
@@ -140,13 +140,13 @@ pub async fn deliver_pending(
                     Ok(resp) if resp.status().is_success() => (seq, Outcome::Delivered),
                     Ok(resp) => {
                         tracing::warn!(
-                            "alert webhook {url} returned {} — will retry",
+                            "alert webhook {url} returned {} - will retry",
                             resp.status()
                         );
                         (seq, Outcome::Retry)
                     }
                     Err(e) => {
-                        tracing::warn!("alert webhook {url} delivery failed: {e} — will retry");
+                        tracing::warn!("alert webhook {url} delivery failed: {e} - will retry");
                         (seq, Outcome::Retry)
                     }
                 }
@@ -175,11 +175,11 @@ pub async fn deliver_pending(
 
 /// The fate of one outbox entry after a delivery attempt.
 enum Outcome {
-    /// 2xx — remove it.
+    /// 2xx - remove it.
     Delivered,
-    /// Corrupt/unparseable — remove it (never deliverable).
+    /// Corrupt/unparseable - remove it (never deliverable).
     Shed,
-    /// Transient failure — leave it for the next drain (at-least-once).
+    /// Transient failure - leave it for the next drain (at-least-once).
     Retry,
 }
 
@@ -387,7 +387,7 @@ mod tests {
         assert_eq!(plain_row.0, None, "an unsecreted webhook is not signed");
     }
 
-    /// A dead endpoint leaves the alert in the outbox for retry — at-least-once, never dropped on the
+    /// A dead endpoint leaves the alert in the outbox for retry - at-least-once, never dropped on the
     /// first failure.
     #[tokio::test]
     async fn failed_delivery_stays_in_outbox_for_retry() {

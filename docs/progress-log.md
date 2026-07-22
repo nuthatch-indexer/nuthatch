@@ -2,72 +2,72 @@
 
 Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-order-vertical-slices-each-ends-runnable).
 
-- **2026-07-22 - RFC-0023 tier 1: derive-first recipes — the eth_call you don't need.** The Foundation
+- **2026-07-22 - RFC-0023 tier 1: derive-first recipes - the eth_call you don't need.** The Foundation
   says >70% of subgraphs use `eth_call`, but most of those reads are *derivable* from the events a nest
-  already indexes (subgraphs fetch them only because they have no incremental-view engine — nuthatch
+  already indexes (subgraphs fetch them only because they have no incremental-view engine - nuthatch
   does). New `src/recipes.rs` + `nuthatch recipe list|add`: a recipe is an authored `CREATE VIEW`
   (RFC-0018 §1) that computes a read from indexed events. Flagship `total_supply` derives the ERC-20
   `totalSupply()` a subgraph fetches via eth_call as **Σ minted − Σ burned** (Transfers from/to the zero
-  address) — deterministic, free, no archive node. `recipe add total_supply` drops the view into the
+  address) - deterministic, free, no archive node. `recipe add total_supply` drops the view into the
   nest's `views/`. **Derive-correctness proven** by e2e: over fixture mints/burns the derived value
   equals the hand-computed Σmints−Σburns (1300), byte-for-byte what an eth_call would return. Turns
   "nuthatch can't do the 70%" into "nuthatch derives what subgraphs pay an archive node to fetch." 3 new
   tests, 229 lib + 6 e2e green, clippy + fmt clean. Pending: more recipes (reserves, holders), tier 2
-  (metadata cache), tiers 3–4 (eth_call fallback + hosted cache).
-- **2026-07-22 - RFC-0023 tier 1: the `reserves` recipe — Uniswap-V2 `getReserves()`, derived.** The
+  (metadata cache), tiers 3-4 (eth_call fallback + hosted cache).
+- **2026-07-22 - RFC-0023 tier 1: the `reserves` recipe - Uniswap-V2 `getReserves()`, derived.** The
   canonical AMM eth_call (a subgraph fetches it per swap), derived instead as the **latest `Sync` per
   pair**: a `ROW_NUMBER() … PARTITION BY address ORDER BY block DESC` view over `{alias}__sync`. Needs
   the nest to index `Sync(uint112,uint112)`; no eth_call, no archive node. Extended the tape harness with
   `sync_block`/`sync_log`/`scaffold_pair_nest`. Derive-correctness proven by e2e: three Syncs
   (1000/2000 → 1500/2500 → 1200/3000) yield current reserves (1200, 3000). `nuthatch recipe` now lists
   four recipes. 232 lib + 7 e2e green, clippy + fmt clean.
-- **2026-07-22 - RFC-0024 (Draft): the eth_call execution engine — accepted design, deferred build.**
+- **2026-07-22 - RFC-0024 (Draft): the eth_call execution engine - accepted design, deferred build.**
   Landed the design that realizes RFC-0023 §3/§4's deferred local-execution path: a **demand-driven
-  state cache** (not a smaller archive node) — a nest touches the same slots at sequential blocks, so a
+  state cache** (not a smaller archive node) - a nest touches the same slots at sequential blocks, so a
   per-nest cache warms fast. `StateSource` trait + blanket `revm::DatabaseRef`; staged sources
   (RPC-fork MVP → local flat window → proof-verifying); three cache tiers spilling to sealed Parquet;
   declared-calls prefetch (graph-node analogue); host-side ingestion only (components never call). Framed
-  per the review: **the derive-first path stays zero-dependency** (a first-class Non-goal — the engine is
+  per the review: **the derive-first path stays zero-dependency** (a first-class Non-goal - the engine is
   strictly opt-in for the irreducible residue), Arbitrum gets an RPC-proxy caching win (not local
   execution) until an arb-revm fork exists, and the **build is sequenced** derive-first → a *simple* RPC
   tier-3 → measure the residue → the revm engine only on demonstrated demand / RFC-0003. Index + backlog
   rows added.
 - **2026-07-22 - RFC-0023 tier 2: the immutable-metadata cache.** `decimals`/`symbol`/`name` are
-  write-once ERC-20 constants — tier 1 can't derive them from events, so fetch once and remember. New
+  write-once ERC-20 constants - tier 1 can't derive them from events, so fetch once and remember. New
   `src/metadata.rs` + `nuthatch metadata fetch`: bare-selector `eth_call`, pure decode (uint8 last-byte /
-  ABI-string via alloy), cached in `metadata.json` keyed by lowercased address — immutable, so a cached
+  ABI-string via alloy), cached in `metadata.json` keyed by lowercased address - immutable, so a cached
   contract is never re-fetched. The one place a plain call is fine (the value is time-invariant, and it's
   *metadata*, never data feeding entity derivation). Encode/decode + cache round-trip unit-tested; the RPC
   fetch is live-verified. 3 new tests, 232 lib green, clippy + fmt clean.
-- **2026-07-22 - RFC-0023 tier 1: two more recipes — `balances` and `holder_count`.** The derive-first
+- **2026-07-22 - RFC-0023 tier 1: two more recipes - `balances` and `holder_count`.** The derive-first
   library now covers the ERC-20-generic trio, all from Transfer events (Σ(in) − Σ(out), the same shape
-  the IVM balance view maintains): `balances` (each non-zero holder + its current balance — the
+  the IVM balance view maintains): `balances` (each non-zero holder + its current balance - the
   `balanceOf` per address a subgraph loops eth_calls for) and `holder_count` (how many non-zero holders).
   A shared `net_balance_subquery` builds both. Derive-correctness proven in the same e2e: over the
-  mint/burn fixtures, a1 = 700, a2 = 600, holder_count = 2 (zero address excluded) — exactly the chain
+  mint/burn fixtures, a1 = 700, a2 = 600, holder_count = 2 (zero address excluded) - exactly the chain
   truth, no eth_call. `nuthatch recipe list` shows all three. 229 lib + e2e green, clippy + fmt clean.
 - **2026-07-22 - RFC-0021 §2: cross-cursor reorg isolation, proven.** The correctness invariant the
   multichain roost rests on (and a CLAUDE.md non-negotiable): a reorg on one chain must never reach into
-  another's data. New e2e runs **two independent cursors (two chains) in one process** — exactly how a
-  roost hosts one isolated cursor per chain (each its own source/stores/tip/finality/reorg) — reorgs
+  another's data. New e2e runs **two independent cursors (two chains) in one process** - exactly how a
+  roost hosts one isolated cursor per chain (each its own source/stores/tip/finality/reorg) - reorgs
   chain A above a fork, waits for A to *actually* reconverge (block 10 carries the replacement hash, so
   the assertion isn't vacuous), and asserts chain B is **byte-identical** and still at its own tip.
   Isolation was by construction (separate sources + stores per cursor); this guards it against
-  regression. Test-only — no runtime change. 3 e2e_reorg tests green, clippy + fmt clean. RFC-0021's
+  regression. Test-only - no runtime change. 3 e2e_reorg tests green, clippy + fmt clean. RFC-0021's
   only remaining item is a live two-chain run.
-- **2026-07-21 - RFC-0021 slice 1: the multichain roost — one isolated cursor per chain.** A roost can
+- **2026-07-21 - RFC-0021 slice 1: the multichain roost - one isolated cursor per chain.** A roost can
   now host nests across **multiple chains** in one runtime: `roost.toml` gains `[[chains]]` (each chain +
-  its own rpc_urls), nests declare their own chain, and `group_by_chain` groups them — **one isolated
+  its own rpc_urls), nests declare their own chain, and `group_by_chain` groups them - **one isolated
   cursor per distinct chain** (a `spawn_roost` each, its own source/tip/finality/reorg). The RSS budget
   is now **per active-chain cursor** (RFC-0021 §0, already reflected in CLAUDE.md), checked per group.
-  `dev` fate-shares the server with *every* cursor via `select_all` — any cursor's death fails the whole
+  `dev` fate-shares the server with *every* cursor via `select_all` - any cursor's death fails the whole
   roost (C1, per-cursor). `--rpc` is refused for a multichain roost (ambiguous). **Capability, not
   mandate**: a single-chain roost (top-level `chain`) is the N=1 case and stays **byte-identical to
-  solo** (roost-parity e2e green). The single-cursor law holds per chain — never multiplex two chains
+  solo** (roost-parity e2e green). The single-cursor law holds per chain - never multiplex two chains
   behind one cursor. 4 new tests (grouping, two-chain, top-level+[[chains]] conflict, single→one
   endpoint); 227 lib + 6 e2e green, clippy + fmt clean. Pending: a live two-chain run + a cross-cursor
   reorg-isolation property test.
-- **2026-07-21 - RFC-0020 slice 4: segment reuse — the true no-re-index upgrade. RFC-0020 complete.**
+- **2026-07-21 - RFC-0020 slice 4: segment reuse - the true no-re-index upgrade. RFC-0020 complete.**
   The final slice, and the one subgraphs structurally can't have: when a compatible update leaves the
   **decode registry unchanged** (a view/semantic/serving-only change), the old version's sealed segments
   are byte-identical to what the new would produce, so `nest upgrade` **mounts them** instead of
@@ -76,98 +76,98 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   range (`resume_from_watermark`). Guarded on `schema.json`'s `registry_hash` equality (a changed decode,
   or nothing sealed, falls back to a normal index); run before either indexer opens the stores (redb
   single-writer). Wired into `upgrade`'s compatible path. **Proven**: an e2e seals [1,5] in an old nest,
-  then a **fresh** nest that never indexed a block — given only the reused segments + watermark — serves
-  exactly blocks 1–5. Content-addressing makes it sound: reused segments carry their own hashes and stay
-  re-verifiable. **RFC-0020 Implemented (all 4 slices) — the N-1 problem is solved.** 2 new tests, 225
+  then a **fresh** nest that never indexed a block - given only the reused segments + watermark - serves
+  exactly blocks 1-5. Content-addressing makes it sound: reused segments carry their own hashes and stay
+  re-verifiable. **RFC-0020 Implemented (all 4 slices) - the N-1 problem is solved.** 2 new tests, 225
   lib + 5 e2e green, clippy + fmt clean. README + roadmap updated.
-- **2026-07-21 - RFC-0020 slice 3: the breaking path — new endpoint + deprecation.** A breaking update
+- **2026-07-21 - RFC-0020 slice 3: the breaking path - new endpoint + deprecation.** A breaking update
   is no longer refused: `nest upgrade` now serves **both** versions on distinct endpoints over one
-  listener — the OLD stays at the root (its consumers unchanged) but every response carries a
+  listener - the OLD stays at the root (its consumers unchanged) but every response carries a
   `Deprecation: true` header + a `Link` to the successor (RFC 8594-shaped); the NEW is served under
   `--new-endpoint` (default `/next`). Both index concurrently, neither flips, so downstream migrate on
   their own clock before the operator sunsets the old. `serve::two_version_router` composes it (old at
   root under a deprecation layer, new nested under its prefix); `upgrade` now branches on the verdict
   (compatible → flip; breaking → serve-both), sharing one source and the C1 fate-sharing select.
-  **The N-1 problem is functionally solved** — every update, compatible or breaking, is painless.
+  **The N-1 problem is functionally solved** - every update, compatible or breaking, is painless.
   Verified with an HTTP e2e: old `/schema` carries the deprecation header + successor link and serves the
   old schema; new `/next/schema` serves the different schema, un-deprecated. 224 lib + 4 e2e green,
   clippy + fmt clean. README + roadmap updated. Pending: slice 4 (segment reuse).
-- **2026-07-21 - RFC-0020 slice 2b-ii: `nest upgrade` — the compatible hot-swap, user-facing.** Wires
+- **2026-07-21 - RFC-0020 slice 2b-ii: `nest upgrade` - the compatible hot-swap, user-facing.** Wires
   the proven flip into a command: `nuthatch nest upgrade --dir <old> --to <new>` classifies the update,
-  **refuses a breaking one** (clear message naming the change — it needs a new endpoint, slice 3), and
+  **refuses a breaking one** (clear message naming the change - it needs a new endpoint, slice 3), and
   for a compatible one serves the OLD version immediately while indexing the NEW concurrently, then
-  atomically flips the endpoint once caught up and retires the old indexer — the served address never
+  atomically flips the endpoint once caught up and retires the old indexer - the served address never
   changes. A two-phase `tokio::select` enforces the C1 fate-sharing rule (any indexer/serve death fails
   loudly) while treating the *intentional* post-flip old-indexer abort as success, not failure. One
   shared source feeds both (a compatible update never changes chains). Verified offline: the CLI parses
   and a breaking update is refused before any network touch; the compatible flip itself is the e2e-proven
-  2b core. **RFC-0020 slices 1–2 complete.** 224 lib + 3 e2e green, clippy + fmt clean. README + roadmap
+  2b core. **RFC-0020 slices 1-2 complete.** 224 lib + 3 e2e green, clippy + fmt clean. README + roadmap
   updated.
 - **2026-07-21 - RFC-0020 slice 2b (core): the concurrent re-index + atomic flip, proven end-to-end.**
   The compatible hot-upgrade Chief chose (full concurrent): `await_catchup_and_flip` runs the **old and
   new versions' indexers together**, serving the old backing, and **atomically flips** the endpoint to
-  the new version once it catches up — zero downtime, the consumer's endpoint never changes. Catch-up is
+  the new version once it catches up - zero downtime, the consumer's endpoint never changes. Catch-up is
   a new `Store::indexed_head()` (max of the hot `last_block` and sealed watermarks, correct whether tip-
   following or seal-direct backfilling) fed to a `caught_up(new, old)` predicate that requires the new
-  version to have *actually* indexed (`Some`) before flipping — else it fired prematurely at t=0 when
+  version to have *actually* indexed (`Some`) before flipping - else it fired prematurely at t=0 when
   both heads were empty (caught in the e2e, fixed). `serve::run_shared` serves a caller-held
   `SharedNest` so the runtime keeps the flip handle. **Proven deterministically**: an e2e stands up two
   real `spawn_nest` indexers over one scripted `TapeSource`, serves the old, and asserts the SAME
   endpoint's backing flips old→new (told apart by `dir`) once the new reaches the tip. Runs two hot
-  stores during the overlap — the density cost accepted for decode-changed generality. Pending: the
+  stores during the overlap - the density cost accepted for decode-changed generality. Pending: the
   `nest upgrade` CLI wrapper (2b-ii). 3 new tests (caught_up, indexed_head via the e2e, the flip e2e),
   224 lib + 3 e2e green, clippy + fmt clean.
 - **2026-07-21 - RFC-0020 slice 2a: the atomic serving-swap mechanism (+ a repo-wide `fmt` fix).** The
   primitive a compatible hot-swap needs: a `SharedNest` handle (lock-free `arc-swap`) wraps the
   `AppState` backing one served endpoint, and the router binds *it* instead of a fixed state. Every
   request resolves the current version through axum `FromRef`, so `SharedNest::swap()` **atomically
-  re-points the endpoint at a new version** — no rebind, no dropped request (in-flight requests finish
+  re-points the endpoint at a new version** - no rebind, no dropped request (in-flight requests finish
   on the version they started on), and **zero handler changes** (all ~18 `State<AppState>` handlers are
   untouched; `FromRef` does the work). Cost: one atomic load + the per-request `AppState` clone axum
-  already did — footprint/latency-neutral. Decision-only-no-more: this lands the *mechanism*; slice 2b's
+  already did - footprint/latency-neutral. Decision-only-no-more: this lands the *mechanism*; slice 2b's
   "index the new version, flip when caught up" orchestration will drive it. Also fixed the `fmt` CI
   failure the RFC-0019 merges introduced (repo-wide `cargo fmt`). 1 new test (swap is observed through
   `current()` and `FromRef`), 223 lib tests green, clippy clean.
 - **2026-07-21 - RFC-0020 slice 1: the compatible-vs-breaking classifier.** The first piece of killing
   the subgraph resync tax: `nuthatch nest diff <old> <new>` classifies a nest update over its schema
-  surface (`schema.json` — the decoded event tables + columns a consumer queries). **Compatible** =
+  surface (`schema.json` - the decoded event tables + columns a consumer queries). **Compatible** =
   additive only (a new table/column; hot-swap behind the same endpoint); **breaking** = anything a
   consumer can observe as removed/renamed/retyped (a new versioned endpoint, run alongside the old).
   `indexed`-flag flips are compatible (cost, not shape); a rename reads as remove+add → breaking;
   malformed schema errors rather than misclassifies (real fault ≠ breaking verdict). New
-  `src/lifecycle.rs`, pure + deterministic (BTree-ordered diffs), decision-only — moves no data, touches
-  no serving path (slices 2–4 act on the verdict). Verified live: `nest diff` on the trial nest —
+  `src/lifecycle.rs`, pure + deterministic (BTree-ordered diffs), decision-only - moves no data, touches
+  no serving path (slices 2-4 act on the verdict). Verified live: `nest diff` on the trial nest -
   identical → compatible, added column → compatible, dropped table → breaking, each with legible
   reasons. 8 new tests, 222 lib tests green, clippy clean. README + roadmap updated.
-- **2026-07-21 - RFC-0019 slice 3: private nests — access denied, said out loud.** A private nest is a
+- **2026-07-21 - RFC-0019 slice 3: private nests - access denied, said out loud.** A private nest is a
   bundle only the credentialed can fetch; the mechanism is the store's (S3 bucket policy / filesystem
   perms), so this slice is about *legibility*: a rejected/absent-credential read now surfaces a clear
   "this nest is private, or your registry credential was rejected (check AWS_* / directory permissions)"
-  — **distinct from "not found"**, so a private nest never masquerades as absent. Both backends route
+  - **distinct from "not found"**, so a private nest never masquerades as absent. Both backends route
   denials through one shared message: `ObjStore` maps `PermissionDenied`/`Unauthenticated`, `FsStore`
-  maps `io::ErrorKind::PermissionDenied`. Auth itself stays delegated (S3 = `AWS_*` env, FS = perms) —
+  maps `io::ErrorKind::PermissionDenied`. Auth itself stays delegated (S3 = `AWS_*` env, FS = perms) -
   no bespoke credential store, and bundles remain secret-free (runtime creds are RFC-0022 injection).
   **RFC-0019 complete** (all 3 slices). 9 distribution tests (incl. a root-guarded FS permission test)
   across both build configs; 214 lib tests green; clippy clean. README updated.
 - **2026-07-21 - RFC-0019 slice 2: the S3 object-store registry backend.** The same `BundleStore`
-  contract, now over an S3-compatible bucket (`--registry s3://bucket/prefix`) — MinIO/S3/R2 via `AWS_*`
+  contract, now over an S3-compatible bucket (`--registry s3://bucket/prefix`) - MinIO/S3/R2 via `AWS_*`
   env (incl. `AWS_ENDPOINT`). `open()` dispatches by scheme: `s3://`/`memory://` → the object store,
   a plain path → `FsStore`, `http(s)://` → refused loudly (a remote-index registry isn't a thing yet; a
   raw `.bundle` URL is still `nest load <url>`). The `BundleStore` trait went **async** (S3 is), the FS
   impl following along; `object_store` (Apache-2.0, arrow-rs family) is **feature-gated** off by default
-  so the embedded binary never pulls the S3 dep tree — footprint discipline, the FsStore covers the
+  so the embedded binary never pulls the S3 dep tree - footprint discipline, the FsStore covers the
   self-hosted case. Verified: an in-memory round trip (publish → pull → idempotent re-publish → latest,
   no infra); live MinIO/S3 is a VPS integration concern. 212 lib tests green (default) + the gated
   object-store test; clippy clean both configs.
 - **2026-07-21 - RFC-0019 slice 1: the nest registry (filesystem-backed).** A nest bundle (RFC-0012)
   now has somewhere to live: `nuthatch nest publish <bundle> --registry <path> [--as name@version]`
   writes it to a content-addressed store, and `nuthatch nest load name@version --registry <path>`
-  resolves + fetches + installs it — the pulled blob hash-verified by the same RFC-0012 install path, so
+  resolves + fetches + installs it - the pulled blob hash-verified by the same RFC-0012 install path, so
   a registry pull is exactly as safe as an `--expect`ed file load. New `src/distribution.rs`: a
-  `BundleStore` trait (S3 `ObjectStore` + private-nest auth land behind it next, slices 2–3), an
+  `BundleStore` trait (S3 `ObjectStore` + private-nest auth land behind it next, slices 2-3), an
   `FsStore` ("a directory is a registry": `blobs/<hash>.bundle` + `index/<name>/{<version>,latest}`),
   and `name[@version]` refs with a path-traversal guard. Content-addressed invariants hold: re-publish is
-  a no-op, versions coexist, `latest` is the one movable pointer. **Decoupled + never mandatory** — a
+  a no-op, versions coexist, `latest` is the one movable pointer. **Decoupled + never mandatory** - a
   self-built bundle and `nest load <file|dir>` never touch a registry (a CI-asserted invariant). Bundles
   stay secret-free (runtime creds are RFC-0019 §4 / RFC-0022 injection, never bundled). Verified live:
   bundled `nuthatch-trial`, published to a temp registry, loaded it back with the registry reproduced
@@ -175,7 +175,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 - **2026-07-21 - Agent-surface legibility: three sharp edges an agent hit, filed down.** All three keep
   the init→dev→query surface honest for a coding agent (RFC-0016 territory), none architectural.
   **(1) The `sqrtPriceX96` overflow footgun.** A `word32` (int/uint >128-bit) column's derived `_dec` is
-  DECIMAL(38,0), which is **NULL** for values over 38 digits (a Uniswap-v3 `sqrtPriceX96` is uint160) —
+  DECIMAL(38,0), which is **NULL** for values over 38 digits (a Uniswap-v3 `sqrtPriceX96` is uint160) -
   so an agent authoring a price view got silent NULLs. Footguns now carry a separate `overflows_dec`
   list (distinct from `big_ints`) rendered in `/schema`/MCP as "use `CAST(col AS DOUBLE)`"; `word16`
   (≤128-bit) stays plain `_dec`. **(2) Missing-`schema.json` legibility.** Querying a derived `{col}_dec`
@@ -183,26 +183,26 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   re-running `nuthatch schema`) used to give a bare fuzzy-miss; `sql_errors::enrich` now names the fix:
   "run `nuthatch schema` to regenerate the derived columns." **(3) Keyless-200 RPC failover.** A keyless
   endpoint answering HTTP 200 with a JSON-RPC `error` body ("authenticate with an API key") on a *batch*
-  request (`block_timestamps`) slipped past `post_one` (single calls already caught it) — so failover
+  request (`block_timestamps`) slipped past `post_one` (single calls already caught it) - so failover
   didn't fire and the bad endpoint poisoned the pool. `post_one` now treats a top-level `error` as an
   endpoint failure, so it cools down and the next endpoint is tried. Also: the builder skill's
-  `config-as-code.md` (Starlark) is marked **RETIRED** — nests are plain `nuthatch.toml`; the `.star`
+  `config-as-code.md` (Starlark) is marked **RETIRED** - nests are plain `nuthatch.toml`; the `.star`
   front-end stays in the binary for backward-compat only, so the skill no longer teaches a discouraged
   path. 205 lib tests green (3 new), clippy + fmt clean.
 
-- **2026-07-21 - RFC-0012: nest packaging becomes first-class — `bundle` a nest, `load` it anywhere.**
+- **2026-07-21 - RFC-0012: nest packaging becomes first-class - `bundle` a nest, `load` it anywhere.**
   The packaging verbs are renamed and the artifact is now a single portable file: `nest pack` → **`nest
-  bundle`** (produces one content-addressed `.bundle` — a tar of the manifest + authored inputs;
+  bundle`** (produces one content-addressed `.bundle` - a tar of the manifest + authored inputs;
   `--as-dir` keeps the old unpacked-dir form for inspection), and `nest mount` → **`nest load`**, which
   now resolves a `.bundle` file, an `http(s)` URL to one, *or* an unpacked dir → verify → install. The
   rename also kills two collisions: `nuthatch pack` is the compliance pack (RFC-0008) and roost still
   *mounts* nests. This closes the "shareable nest" gap: a nest is now one file you can drop on any static
   host, and anyone runs your *exact* nest with `nest load <url>`, hash-verified (every file checked
-  against the manifest, decode registry reproduced from the inputs). Identity is unchanged — the blob
+  against the manifest, decode registry reproduced from the inputs). Identity is unchanged - the blob
   hash is still over the canonical manifest, so the tar's byte layout is immaterial. Self-hosted-first by
   construction; a URL is the only network touch and only when you pass one. Added a `tar` dep (+
   `tempfile` promoted to a runtime dep for the extract-to-temp path) and CLI `tip:` hints for the niche
-  flow. **Every agent-facing surface synced in lockstep** — the builder skill (`cli-reference.md`
+  flow. **Every agent-facing surface synced in lockstep** - the builder skill (`cli-reference.md`
   regenerated, `workflows.md`/`SKILL.md`/`config-as-code.md`), README, and RFC updated, so the skill
   never teaches a command that no longer exists. Verified live: `bundle` on horizon-nest → a 262 KB
   `.bundle` (17 files) → `load` reinstalls it with the registry reproduced ✓. 203 lib tests green (incl.
@@ -213,24 +213,24 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 - **2026-07-20 - Hardening: chunk the `block_timestamps` batch (RPC batch-size limits).** Third find from
   building the Uniswap-v3 nest: a dense window needing 1447 distinct block timestamps was sent as a single
   1447-item `eth_getBlockByNumber` JSON-RPC batch, which the provider (a real dedicated Arbitrum node)
-  **silently dropped** — returning nothing, which the strict no-partial-map guard (COR-3) then correctly
+  **silently dropped** - returning nothing, which the strict no-partial-map guard (COR-3) then correctly
   rejected, aborting the backfill. Single requests worked; only the oversized batch failed. `block_timestamps`
   now fetches in bounded sub-batches (`MAX_TIMESTAMP_BATCH = 200`) and merges, keeping each request within
   common provider caps; the whole-batch retry and the determinism-preserving "refuse a partial map" check
   are unchanged (now applied to the merged total). Builds clean; validated by the Uniswap backfill then
   sealing dense historical windows it previously couldn't. Also confirmed: the generated default mainnet
-  RPCs are useless for backfills (403/521/keyless-200) — a separate `init`-quality follow-up.
+  RPCs are useless for backfills (403/521/keyless-200) - a separate `init`-quality follow-up.
 
-- **2026-07-20 - Correctness: signed int256 (and large uint256) now decode to decimals, not hex — volume
+- **2026-07-20 - Correctness: signed int256 (and large uint256) now decode to decimals, not hex - volume
   works.** Building the Uniswap-v3 nest hit the wall on its headline metric: a swap's `amount0`/`amount1`
   are `int256`, and nuthatch stored a *negative* value as raw two's-complement hex (`0xffff…f0995e`) and a
-  large-uint256 above `u128` as hex too — so `SUM(amount_dec)` (the volume the subgraph publishes) returned
+  large-uint256 above `u128` as hex too - so `SUM(amount_dec)` (the volume the subgraph publishes) returned
   NULL and couldn't be computed in SQL (int256 exceeds DuckDB's 128-bit range, so the view couldn't decode
   it either). Root cause: `Value::Word32` fell back to hex above `u128`, and `int` decoded into the
   *unsigned* `Word16`/`Word32` variants, losing signedness. Added signed `IWord16`/`IWord32` value kinds
-  (int65–128 / int129–256) that render as **signed** decimals via alloy's `I256`, and made unsigned
+  (int65-128 / int129-256) that render as **signed** decimals via alloy's `I256`, and made unsigned
   `Word32` render its **full** `U256` decimal instead of a hex fallback. Both now feed the derived
-  `_dec DECIMAL(38,0)` columns cleanly, so `sum(abs(amount0_dec))` — pool volume — just works. This is a
+  `_dec DECIMAL(38,0)` columns cleanly, so `sum(abs(amount0_dec))` - pool volume - just works. This is a
   *decode* change (per CLAUDE.md, decodings are versioned; a fresh backfill re-decodes, old sealed segments
   are untouched). New unit test; 200 lib tests green, clippy clean. The fix that lets a nuthatch nest
   compute what the Uniswap subgraph computes.
@@ -239,51 +239,51 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   Building the Uniswap-v3 catalogue nest (factory discovery over mainnet) immediately surfaced it: the
   factory backfill (`backfill_direct_factory`) never got the transient-retry that #105 added to the
   pipelined path, so a single 521/blip on a public mainnet endpoint aborted a run that had already
-  discovered hundreds of pools. Added `logs_with_retry` — the same bounded exponential backoff as
+  discovered hundreds of pools. Added `logs_with_retry` - the same bounded exponential backoff as
   `retry_transient`, but it **passes a result-cap error straight through** so the factory's outer
   window-shrink logic still handles "too many results" (the two strategies differ: shrink for a cap,
   back-off for a down endpoint). Wired into all three factory fetch sites (topic0, pass-1, pass-2
-  children) plus the timestamp fetch. Pointing the feature at a real hard nest is what found the gap —
+  children) plus the timestamp fetch. Pointing the feature at a real hard nest is what found the gap -
   same story as every fix this week. (Also logged, for a follow-up: a JSON-RPC error returned as HTTP
-  200 + an `error` body — e.g. a keyless endpoint's "authenticate with an API key" — isn't detected as
+  200 + an `error` body - e.g. a keyless endpoint's "authenticate with an API key" - isn't detected as
   an endpoint failure, so failover doesn't fire and the bad endpoint poisons the pool.) Retry tests
   green, full suite green.
 
-- **2026-07-20 - Cleanup: retire `graph-network-nest` — one nest, not a clone.** The §5 dogfood proved
+- **2026-07-20 - Cleanup: retire `graph-network-nest` - one nest, not a clone.** The §5 dogfood proved
   the Starlark composition mechanism, but on a bad exemplar: `graph-network-nest` indexed the *same three
-  contracts on the same chain* as `horizon-nest`, through the same views, producing byte-identical data —
+  contracts on the same chain* as `horizon-nest`, through the same views, producing byte-identical data -
   it was one nest wearing two names (an intended full-network *superset* that never diverged), sharing
   only its config while duplicating 10,430 lines of views/ABIs/schema/checks. Deleted the repo; **reverted
   `horizon-nest` to `nuthatch.toml`** (the `lib.star`/`nest.star` factory existed only for the clone to
-  `load()`, and a static 3-contract config shouldn't use Starlark per our own guidance — kept
+  `load()`, and a static 3-contract config shouldn't use Starlark per our own guidance - kept
   `semantic.toml` + views). Repointed every live reference to `horizon-nest`: the frontend (nests page
   install example, roadmap, `llms.txt`×2), `docs/nest-catalogue.md` (the remaining network surface now
   *extends* horizon, not a second nest), and a retirement note on RFC-0011. Rewrote the builder skill's
-  `load()` example to the honest case — *one logic across many chains* (Uniswap-v3 on N chains), with an
+  `load()` example to the honest case - *one logic across many chains* (Uniswap-v3 on N chains), with an
   explicit "identical config isn't reuse; that's one nest" caveat. Composition is for instances that
   genuinely differ; horizon/graph-network were a file and its copy. Frontend rebuilds clean, drift gate
   green.
 
-- **2026-07-20 - Perf: `nuthatch bench query` — the read-path regression guard (#40 foundation).** The
+- **2026-07-20 - Perf: `nuthatch bench query` - the read-path regression guard (#40 foundation).** The
   perf backlog's four "bigger than 0.4" refactors (bound the `/sql` hot-scan, a persistent DuckDB
-  connection, single-scan the restart rebuild, a compact binary row format) are all **benchmark-gated** —
+  connection, single-scan the restart rebuild, a compact binary row format) are all **benchmark-gated** -
   but `bench` only measured *backfill* throughput, so the read-path costs those refactors target could
   regress silently. This adds the missing baseline: `bench query` runs offline against an indexed nest
-  and reports **entity point-read latency** (p50/p99/p99.9 over sampled `get_entity`s — the redb B-tree
+  and reports **entity point-read latency** (p50/p99/p99.9 over sampled `get_entity`s - the redb B-tree
   path a storage-format change would move) and the **`/sql` hot∪cold scan cost** (query p50/p99 + peak
-  RSS over N iterations — the whole-tip materialisation that is the #1 RAM risk on deep-finality L2s),
+  RSS over N iterations - the whole-tip materialisation that is the #1 RAM risk on deep-finality L2s),
   emitting the same provenance-stamped JSON artifact as `bench backfill`. New `Store::sample_entity_keys`
   (bounded) feeds the point-reads; a `percentile` helper (2 tests). Verified end-to-end on a live-indexed
   horizon nest: point-read **p50 7.4µs**, and a bare `count(*)` over the hot∪cold surface at **p50 166ms,
-  peak 145 MB** — the exact "rebuild the world per query" cost the persistent-connection + bounded-scan
+  peak 145 MB** - the exact "rebuild the world per query" cost the persistent-connection + bounded-scan
   refactors now have a number to beat. The refactors themselves are the follow-on PRs, each measured
   against this. `cli-reference.md` regenerated; full suite + drift gate green.
 
 - **2026-07-20 - Observability: per-nest labelled `/metrics` series (SEC-9).** In a roost, the ingestion
   gauges and counters (`last_block`, `sealed_through`, `rows_decoded/sealed`, `reorgs`) were the process
-  global — every mounted nest blended into one number, so an operator couldn't tell which nest was lagging
+  global - every mounted nest blended into one number, so an operator couldn't tell which nest was lagging
   or churning. Added a `NestMetrics` handle per nest (keyed by name, stored in a `const`-friendly
-  `Mutex<BTreeMap>` on the existing hand-rolled registry — no metrics-framework dependency), threaded
+  `Mutex<BTreeMap>` on the existing hand-rolled registry - no metrics-framework dependency), threaded
   through `NestIngest`. A per-nest update *also* bumps the matching process-global aggregate, so the
   existing unlabelled series stay correct and backward-compatible; `/metrics` now additionally renders
   `nuthatch_nest_*{nest="…"}` lines, one per mounted nest, in stable (BTreeMap) order. A solo `dev`
@@ -292,25 +292,25 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 
 - **2026-07-20 - Security: bump wasmtime 44 → 46, clearing RUSTSEC-2026-0188 (no longer suppressed).**
   The transform/screen runtime ran on wasmtime 44, whose `wasmtime-wasi` carried RUSTSEC-2026-0188 (a
-  FilePerms bypass on WASI hard links/renames) — reachable only if an operator granted filesystem-write
+  FilePerms bypass on WASI hard links/renames) - reachable only if an operator granted filesystem-write
   to an untrusted component, but a known-issue we were carrying as an `ignore` in `deny.toml`. Bumped both
   `wasmtime` and `wasmtime-wasi` to **46.0.1** (the latest major); the component-model API was stable
   across the bump, so **zero code changes** were needed in `transform.rs` / `screen.rs` / `effectful.rs`.
-  Removed the `RUSTSEC-2026-0188` ignore entirely — it's *fixed*, not suppressed. WASM runtime tests
+  Removed the `RUSTSEC-2026-0188` ignore entirely - it's *fixed*, not suppressed. WASM runtime tests
   (transform + screen) green, full suite green. One fewer known-issue on the books.
 
 - **2026-07-20 - Hardening: seal-direct backfill retries a transient RPC failure instead of aborting.**
   The §5 dogfood surfaced it live: a single `--seal-direct` window that hit a 403 from one endpoint (while
   the others throttled under concurrency) aborted the *entire* backfill. A per-attempt fetch already fails
   over across endpoints (`RpcClient::call`), but the concurrent seal-direct pipeline had no window-level
-  retry, so an all-endpoints-at-once blip propagated straight through `res?` and killed the run — unlike
+  retry, so an all-endpoints-at-once blip propagated straight through `res?` and killed the run - unlike
   the tip loop, which retries. Added `retry_transient` (bounded attempts, capped exponential backoff, base
   parameterised for tests) around both RPC calls in each backfill window (`getLogs` + `block_timestamps`);
   a window now waits and retries up to 5× before giving up, so a rate-limit or provider blip no longer
   wastes a long backfill. 2 new tests (recovers-after-two-failures, gives-up-after-max); 196 lib tests,
   clippy `-D warnings` clean.
 
-- **2026-07-20 - RFC-0018 §5: dogfooded on the real horizon-nest / graph-network-nest — fork → instance,
+- **2026-07-20 - RFC-0018 §5: dogfooded on the real horizon-nest / graph-network-nest - fork → instance,
   proven byte-identical; plus the bug it caught.** The RFC's acceptance case was a measured, byte-identical
   fork: `graph-network-nest` differed from `horizon-nest` by exactly one line (`name =`). Made it real:
   horizon gained the §1 brain (a `semantic.toml` describing all 12 authored views + the key event tables)
@@ -318,51 +318,51 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   `nest.star` entry); graph-network became a **6-line `load()`-based instance** of it (−29 lines of
   duplicated `nuthatch.toml`, +6 of `nest.star`). Parity proven at three levels: **config** (a resolved
   `graph-network` Config is byte-identical to horizon's original TOML, modulo name), **counts** (a
-  bounded Arbitrum backfill of both, then a per-table row-count digest over a pinned finalized range —
+  bounded Arbitrum backfill of both, then a per-table row-count digest over a pinned finalized range -
   identical across all 21 non-empty event tables), and **content** (md5 of the ordered reward-row content
   matched: `3bb7965d…`, 613 rows, 9 indexers on both). Pointing the feature at the exact repos it was built
   for immediately caught a real bug: `NestFileLoader` computed the catalogue root as `nest_dir.parent()`,
-  which is empty for a relative `--dir graph-network-nest`, breaking every `//pkg:file` load — fixed by
+  which is empty for a relative `--dir graph-network-nest`, breaking every `//pkg:file` load - fixed by
   canonicalizing the nest dir first (+ regression test). This is the whole thesis demonstrated end to end:
   one reusable, semantically-described unit; its instances share the logic instead of forking it.
 
-- **2026-07-20 - RFC-0018 §2b: `load()` composition — reuse a nest instead of forking it.** §2a made
+- **2026-07-20 - RFC-0018 §2b: `load()` composition - reuse a nest instead of forking it.** §2a made
   config *computable*; §2b makes it *composable*, delivering the RFC's headline property in full: a
   nest is a function, not a fork. A `nest.star` can now `load()` a factory function another nest
-  *defines* and instantiate it — turning `graph-network-nest` (today a byte-identical fork of
+  *defines* and instantiate it - turning `graph-network-nest` (today a byte-identical fork of
   `horizon-nest`) into a one-line **instance** of it. The contract is **library-defines /
   entry-instantiates**, chosen for its lack of magic: a reusable nest is a `.star` that defines a
   factory and never self-instantiates; a thin entry `load()`s and calls it once. This falls out of the
-  host design rather than being bolted on — a `load()`ed module is evaluated **without** the collector,
+  host design rather than being bolted on - a `load()`ed module is evaluated **without** the collector,
   so a stray top-level `nest()` in a library errors clearly, while the factory it defines calls
   `nest()` only when the *entry* invokes it (back in the entry's collector-bearing evaluator). The
   loader (`NestFileLoader`) is **confined** two ways: `load("lib.star", …)` relative to the nest dir,
   and `load("//pkg:file.star", …)` under a catalogue root (`$NUTHATCH_CATALOGUE`, else the nest dir's
-  parent so sibling checkouts resolve with zero config) — `..` and any path escaping the root are
+  parent so sibling checkouts resolve with zero config) - `..` and any path escaping the root are
   refused before a byte is read. `contract()`'s leading `alias`/`address`/`start_block` are now
   positional-or-named so the RFC's `def erc20(...)` wrappers read naturally. Acceptance proof is a test
   where `graph-network` loads horizon's shared factory and inherits its staking contract + adds one of
-  its own — no copy of horizon's config in sight; plus confinement + self-instantiation-rejection
+  its own - no copy of horizon's config in sight; plus confinement + self-instantiation-rejection
   tests. 10 starlark tests, full suite green (193 lib + integration), clippy clean, drift gate clean.
-  Builder skill `config-as-code.md` gains the composition section. Next: §5 — dogfood the real
+  Builder skill `config-as-code.md` gains the composition section. Next: §5 - dogfood the real
   `horizon-nest` / `graph-network-nest` repos (fork → instance) with their `checks/` parity harness.
 
 
-- **2026-07-20 - RFC-0018 §2a: an optional Starlark (`nest.star`) config front-end — "a nest is a
+- **2026-07-20 - RFC-0018 §2a: an optional Starlark (`nest.star`) config front-end - "a nest is a
   function, not a fork."** A nest can now be authored as a `nest.star` that *computes* its config
   (loop over a basket of addresses that share an ABI instead of copy-pasting `[[contracts]]` blocks)
   as an opt-in alternative to `nuthatch.toml`. It is pure sugar: a `.star` and its equivalent `.toml`
-  deserialize to a **byte-identical `Config`**, because both funnel through the same serde derives —
+  deserialize to a **byte-identical `Config`**, because both funnel through the same serde derives -
   so the win is authoring ergonomics, never new capability, and everything downstream (pack, mount,
   semantic layer, views) neither knows nor cares which front-end produced the config. The **§4 gate
   passed on all three axes** before a line of host code: `starlark` 0.14.2 is Apache-2.0 (one-way
   compatible with the AGPL-3.0 core, not on the forbidden list, transitive tree all MIT/Apache/BSD);
   binary-size delta **+4.56 MB** (72.6 → 77.1 MB release, +6.3%) for a full hermetic interpreter atop
-  a binary already carrying DuckDB+wasmtime+arrow — within tolerance; and it's teachable (builder-skill
+  a binary already carrying DuckDB+wasmtime+arrow - within tolerance; and it's teachable (builder-skill
   `config-as-code.md`, drift-gate clean). The host (`src/starlark_config.rs`) exposes exactly **four
   closed builtins** (`nest`/`contract`/`factory`/`template`) mapping 1:1 to the config structs;
   `nest()` (called once) assembles a `serde_json::Value` and deserializes it to `Config`. Hermetic by
-  construction — no clock, randomness, network, or FS — so it's a *description*, not a program, runs
+  construction - no clock, randomness, network, or FS - so it's a *description*, not a program, runs
   once at load, and never touches the deterministic data path (non-negotiable #4 untouched).
   `Config::load` gains the precedence hook (`nest.star` present ⇒ use it, else TOML as before). The
   acceptance bar is a round-trip test proving a loop-authored 2-contract nest equals its hand-written
@@ -376,26 +376,26 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   `init` scaffolds `views/` with a commented, ready-to-uncomment starter view derived from the nest's
   own first table (`count(*)` + block range) + a `views/README.md`; `semantic.toml` gains a commented
   `[view.*]` stub so an author knows where to describe a view they enable. The starter is entirely
-  comments — a no-op that validates clean — so the happy path is unchanged. Scaffolding is idempotent
+  comments - a no-op that validates clean - so the happy path is unchanged. Scaffolding is idempotent
   (`scaffold_views` never clobbers an existing `views/`, so `add` on a nest with authored views is
   safe). New `skills/nuthatch-builder/views.md` (under the RFC-0017 drift gate) teaches authoring a
   view, describing it in `semantic.toml`, and the three footguns (reserved-word `"from"`/`"to"`,
   big-int `_dec`, hot∪cold recompute-per-query). Verified live: a fresh `init` produces `views/10-
   example.sql` + `README.md`, the commented starter passes `nuthatch check`, and `semantic.toml`
   carries the `[view.*]` stub. That completes RFC-0018 §1 (the alive layer). 183 lib tests, clippy
-  `-D warnings` clean. Next: §2 — the Starlark front-end, behind its licence/size gate.
+  `-D warnings` clean. Next: §2 - the Starlark front-end, behind its licence/size gate.
 
 - **2026-07-19 - RFC-0018 §1a: authored SQL views become a validated, drift-gated, described layer.**
-  `analytics::define_nest_views` already loaded `views/*.sql` into the hot∪cold `/sql` surface — but
+  `analytics::define_nest_views` already loaded `views/*.sql` into the hot∪cold `/sql` surface - but
   silently: a broken view was swallowed to `debug!` and dropped, invisible to every describe-surface and
   unchecked for drift (the exact "a broken thing is worse than an absent one" anti-pattern RFC-0016
   fixed for semantics). This promotes the hidden hook to a first-class layer, entirely outside the
   deterministic data path (views are read-only `CREATE VIEW`s, recomputed per query). New
   `analytics::validate_nest_views` sets up the empty base surface and *binds* each view against the
-  schema — so a view referencing a renamed/absent table or column simply fails to bind, which means
+  schema - so a view referencing a renamed/absent table or column simply fails to bind, which means
   **validation IS the drift gate** (no SQL parsing), each failure fuzzy-matched to a fix hint via the
   RFC-0016 `sql_errors` path. Surfaced loudly now, not swallowed: `nuthatch check` **fails** on a
-  broken/drifted view, and `dev` startup **warns** with the hint — while the live query loader stays
+  broken/drifted view, and `dev` startup **warns** with the hint - while the live query loader stays
   fault-isolated (a bad view never disables its siblings). `semantic.toml` gains `[view.*]` sections
   and the composed `/schema` (+ the MCP `schema` tool) now renders authored views, so an agent finally
   *sees* `top_recipients` and what it means. Verified live: `nuthatch check` on a nest with a
@@ -406,25 +406,25 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 
 - **2026-07-19 - 0.5.x hardening 4/N: a `/ready` endpoint + a loud RPC-stall signal.** Unattended
   operation needs a supervisor to tell "up and healthy" from "up but stuck." `/health` stays plain
-  liveness (`200 "ok"`); new **`/ready`** is readiness — JSON (`tip`, `last_block`, `lag_blocks`,
+  liveness (`200 "ok"`); new **`/ready`** is readiness - JSON (`tip`, `last_block`, `lag_blocks`,
   `sealed_through`, `last_poll_unixtime`, `seconds_since_poll`, `stalled`) returning **200 when fresh**
   and **503 when stalled** (no successful source poll within 90 s ⇒ every RPC endpoint is down). A
   just-started node that has never polled gets grace (never-polled ≠ stalled). Backing it: the tip loop
-  (solo + roost) now records `METRICS.mark_poll_ok()` on every successful poll — exposed as
-  `nuthatch_last_poll_unixtime` in `/metrics` — and logs a failed poll with **escalating** severity
+  (solo + roost) now records `METRICS.mark_poll_ok()` on every successful poll - exposed as
+  `nuthatch_last_poll_unixtime` in `/metrics` - and logs a failed poll with **escalating** severity
   (`escalate_stall`: a warn on the first miss, then an error every ~60 s of "all RPC endpoints
   unreachable → indexing STALLED"). Retries never drop blocks (the same window re-fetches), so a stall
   is loud but self-healing. This closes the honest-stall-reporting half of the RPC-resilience item.
-  Verified live: `/ready` → `{"ready":true,"stalled":false,…}` 200. (Per-nest labelled metrics — the
-  SEC-9 refactor + GraphOps billing primitive — is its own slice; the poll/stall signal is legitimately
+  Verified live: `/ready` → `{"ready":true,"stalled":false,…}` 200. (Per-nest labelled metrics - the
+  SEC-9 refactor + GraphOps billing primitive - is its own slice; the poll/stall signal is legitimately
   process-global, one cursor per process.) 178 lib tests, clippy `-D warnings` clean.
 
 
 - **2026-07-19 - 0.5.x hardening 3/N: corrupt/missing-segment recovery.** A sealed segment whose file was
-  missing or corrupt broke *every* `/sql` query for its table — `read_parquet([…])` over the manifest's
+  missing or corrupt broke *every* `/sql` query for its table - `read_parquet([…])` over the manifest's
   file list throws if any one file is unreadable, and the whole view fails. Two fixes make a corrupt
   segment reduce a table's cold data instead of crash-looping the node: (1) `analytics::define_views`
-  now skips a manifest segment whose file is gone from disk (logs it, keeps the survivors) — so a
+  now skips a manifest segment whose file is gone from disk (logs it, keeps the survivors) - so a
   missing/quarantined file never fails the query; (2) new `seal::verify_and_quarantine` runs once at
   `dev` startup (before the view rebuild scans segments): each manifest segment is hash-verified against
   its recorded content address, and a corrupt/tampered (`sha256` mismatch) or unreadable one is moved to
@@ -434,47 +434,47 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   intact one; `analytics.rs` proves a query survives a deleted segment file. 177 lib tests, clippy
   `-D warnings` clean.
 - **2026-07-19 - 0.5.x hardening 2/N: health-aware RPC failover.** The RPC client had round-robin
-  failover but no memory of which endpoints were down — so a dead provider cost a full 20 s request
+  failover but no memory of which endpoints were down - so a dead provider cost a full 20 s request
   timeout on every call that round-robined onto it (~1/N of calls), dragging tip-follow latency during a
   partial outage. Now each endpoint carries a health state: a failed call puts it in a 30 s cooldown and
   `endpoint_order` tries healthy endpoints first, cooling ones only as a last resort (soonest-to-recover
   first); a successful call clears it. So a dead provider is skipped after one failure and failover is
-  immediate. The tip loop already retries the same window on failure (no silent gaps) — that's unchanged.
+  immediate. The tip loop already retries the same window on failure (no silent gaps) - that's unchanged.
   The cooldown clock is wall-time used only for "try again after" (never in the deterministic data
-  path). Corrupt/missing-segment recovery (the other half of the resilience item — a corrupt segment
+  path). Corrupt/missing-segment recovery (the other half of the resilience item - a corrupt segment
   currently fails every `/sql` query) is split to its own slice. The loud all-endpoints-down stall
   signal lands with the health endpoint. 176 lib tests, clippy `-D warnings` clean.
 - **2026-07-19 - 0.5.x hardening 1/N: security pass on the serving surface + CI supply-chain gate.** A
   full security review of `serve.rs`/`mcp.rs`/`webhooks.rs`/`analytics.rs`/`abi.rs`/`rpc.rs` (the surface
-  a hosted platform will front) — **no criticals**: the read-only SQL gate holds three-deep (SEC-7 is
-  safe — leading-keyword gate + single-statement `prepare` + ephemeral read-only connection; `COPY … TO`
+  a hosted platform will front) - **no criticals**: the read-only SQL gate holds three-deep (SEC-7 is
+  safe - leading-keyword gate + single-statement `prepare` + ephemeral read-only connection; `COPY … TO`
   can't lead a `SELECT`/`WITH`), no SSRF (Sourcify/Etherscan/RPC hosts are fixed constants; user/chain
   input never enters a URL authority), no file-read via `/sql` (denylist + `allowed_directories`). Fixed
   the real disclosure/robustness findings: **`/nest` no longer leaks webhook URLs** (they embed secrets
-  in the path — now reduced to scheme+host via `webhook_host`); **`/sql`/`/explain` errors are
-  path-scrubbed** (`sanitize_sql_error` redacts the nest-dir prefix DuckDB embeds — SEC-11 restored for
+  in the path - now reduced to scheme+host via `webhook_host`); **`/sql`/`/explain` errors are
+  path-scrubbed** (`sanitize_sql_error` redacts the nest-dir prefix DuckDB embeds - SEC-11 restored for
   the error-prone endpoint); **`screen_status` escapes `'`→`''`** (injection, low-sev but closed at
   source); **constant-time admin-token compare** (`ct_eq`, no timing side-channel); **webhook delivery is
-  now concurrent** (SEC-8 — `buffer_unordered(8)`, so one dead sink no longer throttles the drain;
+  now concurrent** (SEC-8 - `buffer_unordered(8)`, so one dead sink no longer throttles the drain;
   redb-single-writer preserved by applying store mutations in a second phase). New **`deny.toml` +
   cargo-deny CI job** (advisories + licences + bans + sources): the AGPL-compatible licence gate is now
   *enforced* (verified `ittapi`/`r-efi` resolve to their permissive arm, no GPL/LGPL-only sneaks in);
-  three transitive RUSTSEC advisories ignored with written rationale (quick-xml DoS ×2 — not reachable,
-  no untrusted XML through object_store; wasmtime-wasi FilePerms — tracked for a runtime bump). Deferred
+  three transitive RUSTSEC advisories ignored with written rationale (quick-xml DoS ×2 - not reachable,
+  no untrusted XML through object_store; wasmtime-wasi FilePerms - tracked for a runtime bump). Deferred
   to later hardening slices: the `/sql` hot-scan RAM bound (perf), MCP path percent-encoding (low, no
   privilege gain). 175 lib tests + 7 e2e/integration suites, clippy `-D warnings` clean.
-- **2026-07-19 - 🏷️ Release 0.5.0 — the delightful, agent-native release.** Version 0.4.0 → 0.5.0.
+- **2026-07-19 - 🏷️ Release 0.5.0 - the delightful, agent-native release.** Version 0.4.0 → 0.5.0.
   Ships **three complete RFCs**. **RFC-0015 (the delightful core):** `nuthatch sql` REPL, **magical
-  `init`** (omit `--chain` — it probes the known chains for the contract's bytecode), **live backfill
+  `init`** (omit `--chain` - it probes the known chains for the contract's bytecode), **live backfill
   feedback** (a progress line with events/sec + ETA, ending on a crisp "caught up to tip"), **`nuthatch
   add 0xAnother`** (grow a nest without re-init), the **MCP one-liner** (`mcp --print-config`), and
   copy-paste **systemd/Docker** prod recipes. **RFC-0016 (the agent-grade MCP):** the AI-native
-  workstream, measure-first — an **eval harness** (fixture nest + 15-question oracle, CI-gated); the
+  workstream, measure-first - an **eval harness** (fixture nest + 15-question oracle, CI-gated); the
   **governed semantic layer** (`semantic.toml` + a per-nest enriched `/schema` with the hot/cold
   coverage seam and derived footguns); **errors-as-prompts + `explain`** (SQL errors that teach,
   fuzzy-matched to the real schema; validate-without-executing); **result shaping + provenance**
   (compact tables, row caps, citable stamps); and **resources + prompts** (the full MCP surface). An
-  agent now reads *this* nest's meaning, self-corrects from enriched errors, and cites its answers —
+  agent now reads *this* nest's meaning, self-corrects from enriched errors, and cites its answers -
   with nothing in the deterministic data path touched. **RFC-0017 (the builder skill):** a
   repo-installable skill teaching an agent to *drive* nuthatch, with a `cli-reference.md` generated from
   the binary and a CI drift gate that fails on any hallucinated flag. Pending (honest): the RFC-0016
@@ -482,27 +482,27 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   171 lib tests + 8 e2e/integration suites, clippy `-D warnings` clean, footprint budget green.
 
 
-- **2026-07-19 - RFC-0017: the builder skill — teaching coding agents to *drive* nuthatch.** A model
+- **2026-07-19 - RFC-0017: the builder skill - teaching coding agents to *drive* nuthatch.** A model
   asked to "set up nuthatch for this contract" today hallucinates flags (nuthatch is days old, in
   nobody's training data). New repo-installable skill at `skills/nuthatch-builder/` teaching an agent
-  authoring knowledge (init/config/factories/compliance/roost/ops) — complementary to the per-nest MCP
+  authoring knowledge (init/config/factories/compliance/roost/ops) - complementary to the per-nest MCP
   runtime knowledge (RFC-0016). Two rules keep it honest: **generate what can be generated**, and
   **CI-check the rest for drift.** New `src/skill.rs` renders `cli-reference.md` from clap's own
-  metadata (the binary describing itself — every subcommand + flag, deterministic), emitted by a hidden
+  metadata (the binary describing itself - every subcommand + flag, deterministic), emitted by a hidden
   `nuthatch skill-refs` subcommand. Authored files (`SKILL.md`, `workflows.md`, `compliance.md`,
   `troubleshooting.md`, `config-reference.md`) carry the recipes and the symptom→metric→remedy tables,
   written against the generated reference. **Drift gate** (`tests/skill_refs.rs`, CI): the committed
   `cli-reference.md` must equal what the binary generates now, AND every `--flag` mentioned in the
-  authored prose must be a real flag — a skill that lies about a flag fails the build. README gains the
+  authored prose must be a real flag - a skill that lies about a flag fails the build. README gains the
   one-line install (`cp -r skills/nuthatch-builder ~/.claude/skills/`). The authoring *eval* (an agent
-  building a nest end-to-end, scored in the RFC-0016 Tier-B harness) is a follow-up — like the 0016
+  building a nest end-to-end, scored in the RFC-0016 Tier-B harness) is a follow-up - like the 0016
   baseline, a real score means a keyed agent run, not a typed figure. 171 lib tests + the drift gate;
   clippy `-D warnings` clean.
-- **2026-07-19 - RFC-0016 S5: MCP resources + prompts — the AI-native workstream is complete.** The MCP
+- **2026-07-19 - RFC-0016 S5: MCP resources + prompts - the AI-native workstream is complete.** The MCP
   server used a third of the protocol (tools only); now it advertises and implements **resources** and
   **prompts** too. `initialize` capabilities honestly list `tools`+`resources`+`prompts` (leaving room
   for a future `notifications`). Three **resources** with stable `nuthatch://…` URIs (`schema`,
-  `tables`, `status`), each backed by an HTTP GET on the running nest — a client preloads context
+  `tables`, `status`), each backed by an HTTP GET on the running nest - a client preloads context
   without burning a tool call. Three argument-taking **prompts** rendered client-side (no network):
   `profile-contract` (activity overview), `investigate-address {address}` (balances/exposure/flags/
   screening), `verify-a-number {claim}` (re-derive with provenance, minding the §2 footguns and using
@@ -510,16 +510,16 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   `prompts/get` interpolating its argument. **This closes RFC-0016** (S1 eval harness → S2 semantic
   layer → S3 errors-as-prompts + explain → S4 result shaping → S5 resources+prompts): an agent now
   reads *this* nest's meaning, self-corrects from enriched errors, gets context-shaped citable results,
-  and can preload resources/prompts — the AI-native claim made literally true, with nothing in the data
+  and can preload resources/prompts - the AI-native claim made literally true, with nothing in the data
   path touched. 171 lib tests; clippy `-D warnings` clean.
 - **2026-07-19 - RFC-0016 S4: result shaping + provenance.** MCP responses now diverge from HTTP
-  responses deliberately — curl and agents are different consumers. `/sql` gains an optional
+  responses deliberately - curl and agents are different consumers. `/sql` gains an optional
   `max_rows` (clamped to the node cap) and a **provenance** block on every result (`as_of` block,
   `sealed_through`, `source`, `registry_hash`). The MCP `sql` tool passes a small default cap (200,
   agent-overridable via `limit`) and reshapes the JSON into a **compact aligned table** (measured
-  smaller than the verbose per-row JSON — the density win for a context window), with **truncation as
-  guidance** (`… truncated at N rows — aggregate (GROUP BY), tighten the WHERE, or raise \`limit\``)
-  rather than silent cutoff, and a one-line **provenance stamp** (`— as of block N, sealed_through M,
+  smaller than the verbose per-row JSON - the density win for a context window), with **truncation as
+  guidance** (`… truncated at N rows - aggregate (GROUP BY), tighten the WHERE, or raise \`limit\``)
+  rather than silent cutoff, and a one-line **provenance stamp** (`- as of block N, sealed_through M,
   source hot+sealed, registry <hash8>`) so an agent can cite its answer against content-addressed
   data. Verified live: `/sql?…&max_rows=2` caps + stamps; the compact formatter is unit-tested for
   density, truncation guidance, and verbatim error relay. 169 lib tests; clippy `-D warnings` clean.
@@ -527,10 +527,10 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   opportunity instead of a round-trip tax. New `src/sql_errors.rs` classifies a DuckDB failure against
   the nest schema and appends a one-line fix hint (raw engine message always preserved): **unknown
   table** → fuzzy suggestion (`no table \`transfers\`; the closest is \`c0__transfer\``), **unknown
-  column** → nearest real column, **reserved word** → `\`from\` is a reserved word and a column — double-
+  column** → nearest real column, **reserved word** → `\`from\` is a reserved word and a column - double-
   quote it`, **big-int arithmetic** → `use \`value_dec\` for SUM/AVG`. Matching is off DuckDB's real
   message strings; suggestions come from a containment-then-Levenshtein matcher that only ever names
-  real schema identifiers (never hallucinates) — the common agent slip (dropping the `{alias}__` prefix,
+  real schema identifiers (never hallucinates) - the common agent slip (dropping the `{alias}__` prefix,
   pluralising) is caught by containment, genuine typos by edit distance. Wired into `GET /sql`, the MCP
   `sql` tool, and the `nuthatch sql` REPL's local path alike. New **`explain`** tool + `GET /explain`:
   validate a query WITHOUT executing it (binds tables/columns/types via a `LIMIT 0` wrapper, scans
@@ -539,43 +539,43 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   new unit tests; 166 lib tests + 6 e2e; clippy `-D warnings` clean.
 
 - **2026-07-19 - RFC-0016 S2: the governed semantic layer + enriched `schema`.** The MCP `schema` tool
-  was a static string, identical for every nest — it described the *shape* of the model, never *this*
+  was a static string, identical for every nest - it described the *shape* of the model, never *this*
   nest's data. Now it's composed per-nest from four layers. New `src/semantic.rs` + `semantic.toml`
   (beside `nuthatch.toml`): authored per-table/per-column **meaning**, generated at `init`/`add` from
-  the ABI (honest "seeded from the ABI — edit to improve" fallbacks), with **derived-not-authored
-  footguns** — reserved-word columns (`"from"`/`"to"`) and big-int columns (`value` → `value_dec`) are
+  the ABI (honest "seeded from the ABI - edit to improve" fallbacks), with **derived-not-authored
+  footguns** - reserved-word columns (`"from"`/`"to"`) and big-int columns (`value` → `value_dec`) are
   computed from the registry, so they're always present and always correct even if the author never
   opens the file. New `GET /schema` composes **structure** (registry) + **meaning** (semantic.toml) +
   **footguns** + live **coverage** (the hot/cold seam stated as numbers: `sealed_through` + tip); the
   MCP `schema` tool now relays it instead of the old static string. A **drift guard** (`dev` startup +
-  every `/schema` call) warns loudly if the file describes a table/column the registry lacks — stale
+  every `/schema` call) warns loudly if the file describes a table/column the registry lacks - stale
   semantics are worse than none. `add` merges onto an existing file (authored text survives, footguns
   refresh). `semantic.toml` travels with `nest pack` and is hash-verified on `mount` for free (it's an
   authored input in the existing content-addressing). Verified live on USDC: the enriched `/schema`
   shows nest description, coverage seam, per-table meaning, and the footgun warnings. 159 lib tests + a
   new `semantic_layer` integration test (footgun derivation, no-drift, composed-doc golden); clippy
   `-D warnings` clean. NatSpec-from-Sourcify descriptions and sample-row evidence are follow-ups.
-- **2026-07-19 - RFC-0016 S1: the eval harness (Tier A) — the measurement spine for agent-grade MCP.**
+- **2026-07-19 - RFC-0016 S1: the eval harness (Tier A) - the measurement spine for agent-grade MCP.**
   The AI-native workstream is gated on measurement, not anecdote (the RFC-0004 rule applied to the MCP
-  surface), so this is the first thing to land. New `eval/questions.toml` — 15 pinned questions across
+  surface), so this is the first thing to land. New `eval/questions.toml` - 15 pinned questions across
   the classes agents trip on (aggregation, the `value`/`value_dec` big-int footgun, reserved-word
-  columns `"from"`/`"to"`, coverage, filters, group-by) — each carrying a natural-language ask, the
+  columns `"from"`/`"to"`, coverage, filters, group-by) - each carrying a natural-language ask, the
   known-correct SQL (the oracle), and the expected result. New `tests/eval_harness.rs` (Tier A,
-  CI-gated, no LLM) builds the fixture nest on the tape infra (10 blocks, 1–7 sealed / 8–10 hot),
+  CI-gated, no LLM) builds the fixture nest on the tape infra (10 blocks, 1-7 sealed / 8-10 hot),
   generates its `schema.json` so the typed view matches a real nest, and runs every question through
-  the *same* hot∪cold surface an agent's `sql` tool hits — asserting each returns its `expect`
+  the *same* hot∪cold surface an agent's `sql` tool hits - asserting each returns its `expect`
   (order-normalised, numeric-tolerant). This **proves the oracle** before any agent is scored against
   it: green = valid scoreboard, and a surface regression goes red before an agent eval ever runs.
   `eval/eval-report.schema.json` pins the Tier B report shape (model, temp, commit, question-set hash,
   first-try + overall pass rate). **Honesty note:** the Tier B *agent* baseline number is deliberately
-  NOT published — a real score means running a keyed agent and committing the report, not typing a
+  NOT published - a real score means running a keyed agent and committing the report, not typing a
   plausible figure (the house rule). The deterministic spine is in place; the baseline lands with the
   first keyed run. All 15 oracles pass; clippy `-D warnings` clean.
-- **2026-07-19 - RFC-0015 slice 4: `nuthatch add 0xAnother` — grow a nest, no re-init.** The natural
+- **2026-07-19 - RFC-0015 slice 4: `nuthatch add 0xAnother` - grow a nest, no re-init.** The natural
   "one or many contracts" flow (RFC-0001): `add` loads the existing nest, resolves each new contract's
   ABI (Sourcify → Etherscan), vendors it, appends it to `nuthatch.toml`, and regenerates the derived
-  artifacts (schema.json + the AI surface) — the chain, RPC endpoints, and screening config are already
-  settled by `init` and left untouched (the chain is the nest's, never re-detected — one cursor, one
+  artifacts (schema.json + the AI surface) - the chain, RPC endpoints, and screening config are already
+  settled by `init` and left untouched (the chain is the nest's, never re-detected - one cursor, one
   chain). The next `dev` backfills the new contract from its own deployment block while the existing
   contracts resume from their stored cursor. Guardrails: refuses an address already in the nest, refuses
   `add` on a missing/invalid nest, and `--alias` is validated + collision-checked (auto-aliases continue
@@ -583,41 +583,41 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   `write_nest_artifacts` so `init` and `add` regenerate schema.json/llms.txt/skill from one code path
   (no drift). Verified live: USDC (17 tables) → `add` WETH → 2 contracts / 21 tables; dup/missing/alias
   errors all fire. 153 lib tests, clippy `-D warnings` clean.
-- **2026-07-19 - RFC-0015 slices 5+6: the AI one-liner and a dead-simple prod story.** **Slice 5** —
+- **2026-07-19 - RFC-0015 slices 5+6: the AI one-liner and a dead-simple prod story.** **Slice 5** -
   wiring a coding agent to a nest is now one documented step: `nuthatch mcp --print-config` emits a
   copy-paste MCP client config (the `.mcp.json` block **and** the `claude mcp add nuthatch -- …`
   one-liner), pointing at this exact binary (absolute path via `current_exe`, so it works off `PATH`).
-  And a human who runs bare `nuthatch mcp` in a terminal no longer hits a silent stdin block — when
+  And a human who runs bare `nuthatch mcp` in a terminal no longer hits a silent stdin block - when
   stdin is a TTY (no client driving it) it prints the same wiring guidance and exits, instead of
-  hanging. **Slice 6** — the "I tried it locally → it's on my VPS" gap: `dev` *is* the serve command,
+  hanging. **Slice 6** - the "I tried it locally → it's on my VPS" gap: `dev` *is* the serve command,
   and `docs/operators.md` now carries copy-paste **systemd** (unit + `MemoryMax=2G` + admin-token env)
   and **Docker** (multi-stage build + `docker run` with the nest dir mounted) recipes, plus the AI
   wiring. README gains a "Point an AI at it" section and links the deploy recipes. No new data
-  capability — pure DX, honouring the binary+compose-only deployment scope. 154 lib tests, clippy
+  capability - pure DX, honouring the binary+compose-only deployment scope. 154 lib tests, clippy
   `-D warnings` clean.
-- **2026-07-19 - RFC-0015 slice 2: magical `init` — chain auto-detect.** `--chain` is now optional.
+- **2026-07-19 - RFC-0015 slice 2: magical `init` - chain auto-detect.** `--chain` is now optional.
   Omit it and `init` probes every registered chain (mainnet → arbitrum-one → base) in parallel for the
-  contract's `eth_getCode` and picks, in registry order, the first chain with bytecode there — so the
+  contract's `eth_getCode` and picks, in registry order, the first chain with bytecode there - so the
   user no longer has to know (or correctly spell) which chain their contract lives on. New
   `chains::all()` drives the probe; `detect_chain` fans `eth_getCode` across chains' default endpoints
-  (best-effort per chain — an unreachable RPC reads as "not here", never a veto). Three outcomes:
+  (best-effort per chain - an unreachable RPC reads as "not here", never a veto). Three outcomes:
   found-on-one (`✓ found on mainnet`), found-on-several (picks L1-first, discloses the others, `pass
   --chain to pick another`), found-nowhere (graceful bail nudging to explicit `--chain`/`--rpc`).
   Verified live: USDC → mainnet, ARB token → mainnet+arbitrum-one ambiguity note, `0x…dEaD` →
   graceful not-found. README quickstart drops `--chain`; chain list corrected to the three actually
   supported. 145 lib tests, clippy `-D warnings` clean.
 - **2026-07-19 - RFC-0015 slice 3: live backfill feedback.** `dev` now shows a clean, honest sense of
-  progress during the one long wait — the from-deployment catch-up — instead of log spam. New
+  progress during the one long wait - the from-deployment catch-up - instead of log spam. New
   `progress::Backfill` reporter: on a TTY it draws a single carriage-returned line (`backfilling 73.2%
   │ block 18,400,000 │ 98,304 events │ 12,050 ev/s │ ETA 1m20s`, redrawn ~8×/s); piped/systemd gets a
   throttled 15 s heartbeat instead (never a stray `\r` in a journal); both end on a crisp `✓ caught up
-  to tip at block N — X events in Ys, Z ev/s; now following`. ETA is computed from *block* rate so it
+  to tip at block N - X events in Ys, Z ev/s; now following`. ETA is computed from *block* rate so it
   stays meaningful over sparse wide-window ranges. Wired into both catch-up paths (the seal-direct bulk
   in `prepare` → "sealing history", and the hot window loop in `index_loop` → "backfilling"), fed
   per-window via a new `on_progress` callback on `backfill_direct_pipelined`/`_factory`. The reporter is
-  pure presentation (no lock, no stored state — the deterministic core is untouched) and a `caught_up`
+  pure presentation (no lock, no stored state - the deterministic core is untouched) and a `caught_up`
   latch fires the catch-up line exactly once, leaving steady-state tip-following silent. The old
-  per-window/per-seal `info` lines (`blocks X..=Y: +N rows`, `sealed blocks…`) drop to `debug` — they
+  per-window/per-seal `info` lines (`blocks X..=Y: +N rows`, `sealed blocks…`) drop to `debug` - they
   were the spam; the watermark lives in `/metrics`. Verified live on USDC: clean single narrative,
   exactly one caught-up line. 152 lib tests + 6 e2e, clippy `-D warnings` clean.
 - **2026-07-19 - docs: RFC-0016 (governed semantic layer + agent-grade MCP) and RFC-0017 (builder
@@ -629,13 +629,13 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   as authored-and-content-addressed nest input feeding an enriched `schema` tool (S2); errors-as-
   prompts + `explain` so agents self-correct in one round-trip (S3); results shaped for context
   windows with a provenance stamp (S4); resources + prompts (S5). Hard fence: nothing touches the
-  data path, no LLM in core. **RFC-0017** is the complementary *builder* skill — a repo-installable
+  data path, no LLM in core. **RFC-0017** is the complementary *builder* skill - a repo-installable
   `.claude/skills/` package teaching an agent to *drive* nuthatch (init/config/factories/roost/ops)
   before it has a nest, with CLI/config references generated from clap+serde and CI-checked for drift.
   RFC index + backlog cross-refs updated; RFC-0015 marked slice-1-shipped (the sql REPL, #83).
 - **2026-07-18 - docs: consolidated backlog (infra track + RFC leftovers).** New `docs/backlog.md`
-  gathers everything deferred/parked/not-done across RFCs 0001–0014 into one place (was scattered across
-  fourteen "Non-goals"/"Open questions" sections). Four tracks: (1) **infra** — the shared blocker is a
+  gathers everything deferred/parked/not-done across RFCs 0001-0014 into one place (was scattered across
+  fourteen "Non-goals"/"Open questions" sections). Four tracks: (1) **infra** - the shared blocker is a
   colocated reth node, which unblocks 0003 (ExEx) → 0014 (firehose traces/state); (2) **deferred
   engineering** gated on infra/benchmarks (0003, 0014, 0013 DataFusion); (3) **process** (grants 0006,
   launch 0007, the parked 0011 full graph-network migration); (4) **small increments** buildable now
@@ -643,23 +643,23 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   the one node-independent 0014 slice worth building without the node (calldata decoder + `[extract]`
   config + schemas + volume guard). Linked from the RFC index.
 - **2026-07-18 - RFC-0015 slice 1: the `nuthatch sql` REPL (first 0.5 "delightful core" work).** With no
-  query argument, `nuthatch sql` now opens an interactive REPL — rustyline (history, line editing,
+  query argument, `nuthatch sql` now opens an interactive REPL - rustyline (history, line editing,
   Ctrl-C clears / Ctrl-D exits), dot-commands (`.tables`, `.schema <table>`, `.help`, `.exit`), and a
   formatted table per query; a query error prints but never ends the session. Refactored the query path
   into a `SqlBackend` (Local store when `dev` is stopped, HTTP fallback to the running instance when it
   holds the single-writer redb) opened once and reused across the whole REPL session. `.tables`/`.schema`
   are canned `information_schema` queries, so they work identically over both backends. This is the
-  terminal-native query surface the RFC calls the single biggest UX lever — `init → dev → sql` and you're
+  terminal-native query surface the RFC calls the single biggest UX lever - `init → dev → sql` and you're
   poking at your contract's data in a real REPL, no curl, no browser. Verified live on Arbitrum. 148
   tests, clippy `-D warnings` clean.
-- **2026-07-18 - 🏷️ Release 0.4.0 — the hardening release.** Version 0.3.0 → 0.4.0. Cut after a
+- **2026-07-18 - 🏷️ Release 0.4.0 - the hardening release.** Version 0.3.0 → 0.4.0. Cut after a
   five-dimension codebase audit and a sweep that fixed **2 critical security bugs** (blob-mount RCE,
   `/sql` arbitrary file-read), **2 high data-corruption bugs** (atomic seal/prune + structural SQL
   disjointness, schema-drift view survival), added the **first e2e test harness** (a `TapeSource`
   scripted-chain double closing the reorg-detection gap + the RFC-0012 roost-parity acceptance item),
   **batched the tip-loop writes** (one txn per window vs per row), and cleared the correctness (partial
   timestamps, column type-flip) and defensive (checked decode, nest-name validation, manifest fsync,
-  error-body sanitisation) fixes. Shipped the **core delight**: `nuthatch sql "<query>"` — terminal-
+  error-body sanitisation) fixes. Shipped the **core delight**: `nuthatch sql "<query>"` - terminal-
   native SQL over the live tip ∪ sealed history, the down-payment on RFC-0015's "delightful core"
   direction. README rewritten to **sell the one thing nuthatch is best at** (contract → local SQL) with
   the full feature set below the fold; RFC-0015 records the 0.5 north star. Deferred items (benchmarks,
@@ -668,27 +668,27 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 - **2026-07-18 - 0.4.0 hardening: defensive fixes (audit low-severity, the ones that earn their churn).**
   **COR-11:** a decoded `uint≤64` with dirty high bits above its declared width would panic `to::<u64>()`
   and kill the ingestion task (single-log DoS on RPC-derived data); now saturates. **SEC-10:** roost nest
-  names are restricted to `[A-Za-z0-9_-]` (they're both a path segment and a route prefix — no `/`/`..`/
+  names are restricted to `[A-Za-z0-9_-]` (they're both a path segment and a route prefix - no `/`/`..`/
   empty escaping the nests dir). **COR-9:** `save_manifest` now fsyncs the temp file's bytes before the
   rename and the dir entry after, so the atomic manifest swap survives power loss, not just `kill -9`.
   **SEC-11:** internal (500) error bodies returned raw anyhow chains with absolute paths (layout
   disclosure); now log the detail, return a generic message. 148 tests (+1), clippy clean. **Judged
-  defer-worthy** (backlogged, with rationale): COR-5 factory-tip-cap recovery (fails *safe* — loud error,
+  defer-worthy** (backlogged, with rationale): COR-5 factory-tip-cap recovery (fails *safe* - loud error,
   needs tip-loop surgery), COR-6 reserved-column collision (rare, needs a schema decision), COR-7 roost
   reorg fan-out blast radius (defensible under single-boundary), COR-8 i128-band balance drop (exotic),
   COR-10 `_seq` truncation (unreachable under gas limits), SEC-7 `WITH`-DML gate (ephemeral in-memory
   only), SEC-8 concurrent webhook delivery (nice-to-have), SEC-9 per-nest metrics (bigger refactor).
-- **2026-07-18 - `nuthatch sql "<query>"` — terminal-native querying (the core delight).** The core user
+- **2026-07-18 - `nuthatch sql "<query>"` - terminal-native querying (the core delight).** The core user
   wants their contract's data; until now that meant HTTP `/sql` + curl. New one-shot `nuthatch sql`
   runs read-only SQL over the live tip ∪ sealed history and prints an aligned table (`--json` for
   piping). It's redb-lock-aware: queries the local files when `dev` is stopped, and transparently falls
-  back to the running instance's HTTP `/sql` when `dev` holds the store — so the same command works
+  back to the running instance's HTTP `/sql` when `dev` holds the store - so the same command works
   whether or not the indexer is up. Same guarded engine as `/sql` (timeout, row cap, the SEC-2 file-read
-  denylist). This is the 0.4 down-payment on the RFC-0015 "delightful core" direction — the full REPL is
+  denylist). This is the 0.4 down-payment on the RFC-0015 "delightful core" direction - the full REPL is
   0.5. Also refreshed the badly-stale `main.rs` "walking skeleton" module doc. Verified live on Arbitrum
   (both the local-files and HTTP-fallback paths, table + json). 147 tests, clippy clean.
 - **2026-07-18 - 0.4.0 hardening: SEC-5 admin token actually enforced.** `NUTHATCH_ADMIN_TOKEN` merely
-  *enabled* the `/_admin` route off-localhost — it was never checked per request, so setting it to
+  *enabled* the `/_admin` route off-localhost - it was never checked per request, so setting it to
   anything served the admin UI to the internet unauthenticated (security theater). Now off-localhost the
   route requires the token as `?token=…` on each request (401 otherwise); localhost stays open. Threaded
   a new `admin_token: Option<String>` through `build_nest`/`spawn_nest`/`spawn_roost` into `AppState`.
@@ -696,10 +696,10 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 - **2026-07-18 - 0.4.0 hardening: correctness fixes (COR-3 partial timestamps, COR-4 column-type flip).**
   **COR-3:** `rpc::block_timestamps` returned a *partial* map when a load-balanced/archive-vs-full RPC
   omitted a block's timestamp; the seal path then defaulted it to `block_timestamp=0` and sealed that
-  permanently — breaking determinism (a re-run against a healthy endpoint yields a different content
+  permanently - breaking determinism (a re-run against a healthy endpoint yields a different content
   hash). Now a partial response is an error, so the window retries (like a total failure), never seals
   0. **COR-4:** the empty-table view typed columns by *storage kind* (`u64` → UBIGINT) while seal + the
-  hot temp table type by *column name* (only the four counters are UBIGINT) — so a `u64`-storage event
+  hot temp table type by *column name* (only the four counters are UBIGINT) - so a `u64`-storage event
   field like a `uint24 fee` flipped from UBIGINT (empty) to VARCHAR (once a row sealed), making the same
   `AVG(fee)` query valid then error (nasty for an AI writing SQL against the schema). Empty views now
   type by name too. Tests: empty-view-types-by-name; 146 tests, clippy clean. (Sweep continues: admin-
@@ -707,12 +707,12 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 - **2026-07-18 - 0.4.0 hardening: e2e test harness + batch-write throughput.** Two more sweep items.
   **E2E harness** (new `tests/`, first integration tests): a `TapeSource` scripted-mutable-chain double
   that actually answers `block_hash` and gives non-zero timestamps (the existing doubles return
-  `block_hash → None`, making `detect_reorg` a no-op — the C1 gap), driving the full init→seal→serve→
+  `block_hash → None`, making `detect_reorg` a no-op - the C1 gap), driving the full init→seal→serve→
   reorg pipeline offline + deterministically. Tests: land→seal→query golden (content-hashes byte-
   identical across runs), real-HTTP serve, **reorg convergence proptest** (reorged nest == a clean run
-  over the post-reorg chain — closes C1), reorg-below-finality-halts (C3), **roost==solo byte-identical
+  over the post-reorg chain - closes C1), reorg-below-finality-halts (C3), **roost==solo byte-identical
   parity** (closes RFC-0012's open acceptance item), seal idempotence (COR-1). **PERF-2:** the tip loop
-  committed one redb txn (an fsync) *per row* — 2,000 logs = 2,000 fsyncs, capping tip-follow far below
+  committed one redb txn (an fsync) *per row* - 2,000 logs = 2,000 fsyncs, capping tip-follow far below
   the decode rate; now the whole window (rows + annotations + checkpoint + watermark) commits in ONE
   atomic txn (`Store::commit_window`), which is also *more* crash-consistent (a crash lands on a clean
   window boundary, never mid-window). 151 tests (145 unit + 6 integration), clippy `-D warnings` clean;
@@ -727,7 +727,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   gate only checked the leading keyword, so DuckDB table functions (`read_text`/`glob`/…) could read any
   file the process can (leaking `nuthatch.toml` secrets); now a comment-proof function-call denylist
   refuses them, plus a `allowed_directories` lockdown for defense-in-depth. **COR-1:** `maybe_seal`
-  advanced the sealed watermark then pruned hot in separate steps — a crash between them left a block
+  advanced the sealed watermark then pruned hot in separate steps - a crash between them left a block
   range permanently in *both* layers (double-counted in `/sql` and every balance rebuild); prune +
   watermark are now one atomic redb txn (watermark last, idempotent re-seal), and `/sql` keeps hot∪cold
   disjoint *structurally* by `sealed_through` (cold = segments ≤ watermark, hot = rows > watermark).
@@ -737,107 +737,107 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   (+7 across the two PRs), clippy `-D warnings` clean. First fixes of the full 0.4.0 hardening sweep
   (medium/low correctness, perf, an e2e harness, and benchmarks still to come).
 - **2026-07-18 - RFC-0013 §3: the hot tip is now SQL-queryable.** `/sql` used to see only sealed
-  segments (DuckDB over Parquet) — the unsealed tip in redb was invisible to SQL, so a fresh-but-
+  segments (DuckDB over Parquet) - the unsealed tip in redb was invisible to SQL, so a fresh-but-
   unsealed table read "does not exist". Now each table's DuckDB view is `sealed Parquet UNION ALL
-  hot-tip`: the hot rows are scanned from redb (`Store::hot_rows_by_table`, one bounded scan — sealed
+  hot-tip`: the hot rows are scanned from redb (`Store::hot_rows_by_table`, one bounded scan - sealed
   rows are pruned from hot) into a per-table temp table (`analytics::load_hot_temp`) typed to match the
   Parquet exactly (four counter columns `UBIGINT`, the rest canonical-text `VARCHAR`; columns
   data-derived from the rows like `seal::rows_to_batch`, so no `schema.json` needed). Hot and cold are
-  disjoint by block, so the union is exact — no dedup. `query_hot_cold` is the new `/sql` entry point;
+  disjoint by block, so the union is exact - no dedup. `query_hot_cold` is the new `/sql` entry point;
   the cold-only `query_guarded` stays for trusted point-reads and the `/table` cold fill (which merges
-  hot itself). **Chosen HOW — DuckDB, not DataFusion:** a dependency spike showed DataFusion is
+  hot itself). **Chosen HOW - DuckDB, not DataFusion:** a dependency spike showed DataFusion is
   premature (under MSRV 1.85 cargo picks DataFusion 48 → arrow 55, clashing with our arrow 56; +~100
-  crates atop a binary that already bundles DuckDB) — exactly the weight RFC-0013 §4 says to
+  crates atop a binary that already bundles DuckDB) - exactly the weight RFC-0013 §4 says to
   benchmark-gate first. So the §3 goal shipped on the engine we already have; a DataFusion
   `TableProvider` stays the documented, gated destination. **Gate met:** hot-only-queryable test,
   hot∪cold federation test (cold-only sees 2 sealed rows, hot+cold sees 3), clippy `-D warnings` clean;
   verified live on Arbitrum (`SELECT count(*)`, `GROUP BY` top-senders over unsealed `arb__transfer`).
   141 tests (+2).
-- **2026-07-18 - RFC-0012 roost slice 7: example + operators docs — RFC-0012 COMPLETE.** A runnable
+- **2026-07-18 - RFC-0012 roost slice 7: example + operators docs - RFC-0012 COMPLETE.** A runnable
   two-nest roost example at `examples/roost/` (the ARB token + native USDC, both on Arbitrum One) with a
   README covering `roost dev`, the `/nests` roster + `/<name>/…` routing, footprint/`max_rss`, and the
   `nest pack`/`mount` blob flow; plus a "Roosts" section in `docs/operators.md`. **Verified live**
   against a public Arbitrum RPC (no paid quota): both nests mount under one shared cursor and index real
   transfers, and `/nests` reports **~110 MB resident** for the two-nest roost against a ~300 MB
-  projection — comfortably inside the 2 GB per-runtime budget, and the honesty-rule RSS number the RFC
-  asked for. **RFC-0012 is now Implemented — all 7 slices** (§0 brief amendment; roost layout/serving,
+  projection - comfortably inside the 2 GB per-runtime budget, and the honesty-rule RSS number the RFC
+  asked for. **RFC-0012 is now Implemented - all 7 slices** (§0 brief amendment; roost layout/serving,
   shared cursor, factory nests, shared reorg fan-out, footprint model; `nest pack`/`mount`; docs +
   example). One nest, one command still works unchanged; N nests on one chain now share a cursor, a
-  reorg boundary, and a footprint budget — per-nest tables byte-identical to solo by construction. The
+  reorg boundary, and a footprint budget - per-nest tables byte-identical to solo by construction. The
   single open acceptance item is a sustained byte-identical-vs-solo parity run over a longer range
-  (holds by construction — the shared cursor runs the same per-window code as solo `dev`).
+  (holds by construction - the shared cursor runs the same per-window code as solo `dev`).
 - **2026-07-18 - RFC-0012 roost slice 4: per-runtime footprint model.** The density-honesty piece.
-  `roost.toml` gains an optional `max_rss_mb` (default 2048 — the CLAUDE.md ≤2 GB per-runtime budget).
-  Before starting, `roost dev` computes a rough RSS **projection** — a fixed roost base (120 MB, paid
+  `roost.toml` gains an optional `max_rss_mb` (default 2048 - the CLAUDE.md ≤2 GB per-runtime budget).
+  Before starting, `roost dev` computes a rough RSS **projection** - a fixed roost base (120 MB, paid
   once for serving + runtime) plus, per nest, a base (90 MB: hot store + decode registry + the always-on
   balance view) and a 40 MB chunk per active IVM view (exposure if the nest has labels, velocity if
-  flagged, the discovered-child registry if it's a factory) — logs it, and **refuses the mount** with an
+  flagged, the discovered-child registry if it's a factory) - logs it, and **refuses the mount** with an
   actionable message if it would exceed `max_rss`. The `/nests` roster now carries per-nest
   `estimated_rss_mb` plus the roost's `projected_rss_mb`, `max_rss_mb`, and the **real** `rss_bytes`
-  (reusing `metrics::rss_bytes()`), so the estimate can be calibrated against measurement — the honesty
+  (reusing `metrics::rss_bytes()`), so the estimate can be calibrated against measurement - the honesty
   rule: the model is labelled an estimate, the refusal is a real gate. **Gate met:** `estimate_nest_rss_mb`
-  scales-with-views unit test; boot smoke — two static nests project 300 MB, and `max_rss_mb = 150`
-  refuses with "projects ~300 MB but max_rss is 150 MB — raise max_rss, drop a nest, or split". 139
-  tests (+1), clippy `-D warnings` clean. **RFC-0012 slices 1–6 are now complete**; only slice 7 (a
+  scales-with-views unit test; boot smoke - two static nests project 300 MB, and `max_rss_mb = 150`
+  refuses with "projects ~300 MB but max_rss is 150 MB - raise max_rss, drop a nest, or split". 139
+  tests (+1), clippy `-D warnings` clean. **RFC-0012 slices 1-6 are now complete**; only slice 7 (a
   runnable two-nest example + operators docs) remains. Live multi-nest RSS + table-parity numbers come
   from the same live acceptance run as 2a.
 - **2026-07-18 - RFC-0012 roost slice 3: shared reorg detection + fan-out.** The last piece of the roost
   core. `handle_reorg` was split into detection (`detect_reorg`, unchanged) and a sync
   `rollback_reorg(ancestor)` (retract the three IVM views, drop reorged children, roll back the hot
-  store). A solo nest still detects on its own cursor; the roost now detects a reorg **once** — at the
+  store). A solo nest still detects on its own cursor; the roost now detects a reorg **once** - at the
   most-caught-up nest's boundary (every tip nest checkpoints the same blocks with the same hashes, so
-  any is a valid reference) — and fans `rollback_reorg` out to every mounted nest. One detection (a
+  any is a valid reference) - and fans `rollback_reorg` out to every mounted nest. One detection (a
   handful of block-hash calls) instead of N, one observable reorg boundary. The subtle bug a naive
   fan-out would introduce: bumping a *behind* (still-backfilling) nest's `LAST_BLOCK` up to the ancestor,
-  claiming blocks it never indexed — so `rollback_reorg` no-ops for any nest already at/below the fork,
+  claiming blocks it never indexed - so `rollback_reorg` no-ops for any nest already at/below the fork,
   leaving its cursor put. Finality was already shared (one finality height per chain drives every nest's
   sealing). Behaviour-preserving for solo `dev`: the split is transparent (the guard can't trigger when
   a nest detects on its own cursor), and every reorg property test passes unchanged. **Gate met:** the
-  existing store-level reorg proptests + golden, plus a fan-out test — two nests at different heights,
+  existing store-level reorg proptests + golden, plus a fan-out test - two nests at different heights,
   one shared reorg: the caught-up nest rolls back to the fork, the behind nest is spared with its cursor
   uncorrupted. 138 tests (+1), clippy `-D warnings` clean. Live multi-nest reorg convergence over a
-  chain folds into the same live acceptance as 2a. **The roost core (slices 1–3) is complete** — layout,
+  chain folds into the same live acceptance as 2a. **The roost core (slices 1-3) is complete** - layout,
   serving, shared cursor, factory support, shared reorg. Remaining RFC-0012 work is slice 4 (footprint
   model: pre-mount RSS estimate + `max_rss` refusal + per-nest `/metrics`) and slice 7 (a runnable
   two-nest example + operators docs).
-- **2026-07-18 - RFC-0012 roost slice 2b: factory nests in a roost.** Lifts the slice-2a restriction —
+- **2026-07-18 - RFC-0012 roost slice 2b: factory nests in a roost.** Lifts the slice-2a restriction -
   factory/template nests (RFC-0009) can now be co-mounted with static nests under the shared cursor.
   `NestIngest::owns` gained a second demux mode: a **static** nest (non-empty address filter) routes a
-  log by emitting **address**; a **factory** nest (empty filter — topic0-only, children discovered at
+  log by emitting **address**; a **factory** nest (empty filter - topic0-only, children discovered at
   runtime) routes by **topic0**, so it catches its factory-creation events and its discovered children
   regardless of their (arbitrary) addresses. `union_filter` now drops the address filter for the whole
-  fetch if *any* mounted nest is a factory — an empty `getLogs` address list means "any address", which
+  fetch if *any* mounted nest is a factory - an empty `getLogs` address list means "any address", which
   the factory needs; static co-tenants over-fetch but demux back to exactly their own logs, so per-nest
   output stays byte-identical to solo. The decode + inline child-discovery path (`decode_window`/
-  `process_window`) is unchanged — each factory nest discovers its own children from its own routed logs
+  `process_window`) is unchanged - each factory nest discovers its own children from its own routed logs
   exactly as it does solo. The `spawn_roost` factory refusal is removed. **Gate met:** `log_owned`
   both-modes test, `union_filter`-goes-topic0-only-with-a-factory test (137 tests, +2), clippy `-D
-  warnings` clean; boot smoke with a factory + static nest co-mounted (factory recognised — "1 template,
-  1 rule, topic0-only tip fetch" — both mount under one cursor, API live). Live factory-in-roost
-  child-discovery parity over a chain folds into the same live acceptance as 2a. Next: slice 3 — shared
+  warnings` clean; boot smoke with a factory + static nest co-mounted (factory recognised - "1 template,
+  1 rule, topic0-only tip fetch" - both mount under one cursor, API live). Live factory-in-roost
+  child-discovery parity over a chain folds into the same live acceptance as 2a. Next: slice 3 - shared
   reorg detection + fan-out (one detection → every nest converges), the last piece of the roost core.
 - **2026-07-18 - RFC-0012 roost slice 2a: the shared cursor (one `getLogs` feeds N nests).** The
   density win. `nuthatch roost dev` now drives every mounted nest from ONE cursor: `indexer::spawn_roost`
   builds each nest and spawns a single `roost_index_loop` that does one `source.tip()` + one **union
   `getLogs`** per window, then demuxes each returned log to the nest(s) that own it (by emitting address,
-  `NestIngest::owns`) and runs it through the **same** `process_window` a solo `dev` uses — so per-nest
+  `NestIngest::owns`) and runs it through the **same** `process_window` a solo `dev` uses - so per-nest
   tables are byte-identical to running each nest alone, by construction rather than re-implementation.
   Backfill stays per-nest (each nest `prepare`s its own history; the cursor only couples at the tip); a
   `min`-based global cursor lets nests mounted at different heights self-heal, and a nest with zero owned
   logs in a window still advances + checkpoints + seals exactly as it would solo. Two behaviour-
   preserving refactors set this up first (the `NestIngest` extraction, then `index_loop` taking a
-  `NestIngest` + a reusable `prepare` method) so the solo and roost paths literally share code — the live
+  `NestIngest` + a reusable `prepare` method) so the solo and roost paths literally share code - the live
   Helsinki `dev` deploy runs the identical path, unchanged. **Gate met:** demux unit tests (`owns` case-
   insensitive, `union_filter` dedups across nests, demux-reproduces-the-solo-address-filter), two-nest
   boot smoke (mounts both nests, one shared cursor, API live, per-nest `/<name>/…` routing), bogus-RPC
   behaviour identical to solo (no regression). 135 tests (+3), clippy `-D warnings` clean. The full
   **live** two-nest table-parity run over a real chain is the remaining acceptance evidence (folds in
   with a live demo, as the RFC-0011 pilot proved delegation parity byte-for-byte). Chosen HOW: static
-  nests only — **factory nests are refused in a roost** (`spawn_roost` bails with a clear message),
+  nests only - **factory nests are refused in a roost** (`spawn_roost` bails with a clear message),
   deferred to slice 2b, because their topic0-only discovery would force the whole union fetch topic0-only
   and tangle the address demux. Reorg is still per-nest here; shared detection + fan-out is slice 3.
 - **2026-07-18 - RFC-0012 roost slice 2a groundwork: extract `NestIngest` from `index_loop`.** A
-  strictly behaviour-preserving refactor — the enabling step for the shared cursor. The single-nest
+  strictly behaviour-preserving refactor - the enabling step for the shared cursor. The single-nest
   tip-following loop's per-nest state (store, decode registry, the three IVM views, labels/screener,
   flags, alerts/webhooks, factory + discovered-child registry, finality, the getLogs filter) is grouped
   into a `NestIngest` struct with two methods: `handle_reorg` (detect + retract views + drop children +
@@ -849,21 +849,21 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   Zero behaviour change (so zero risk to the live Helsinki deploy): all 132 tests pass unchanged
   (reorg property + golden-decode tests included), clippy `-D warnings` clean, fmt clean. The extraction
   was done under a tight behaviour-preserving spec and every moved line reviewed against the original
-  (notably: the reorg/seal path, and the `next = to + 1` advance which moved to the caller — verified
-  nothing in the seal tail reads `next`). Next: the shared cursor itself — one poll, union filter,
+  (notably: the reorg/seal path, and the `next = to + 1` advance which moved to the caller - verified
+  nothing in the seal tail reads `next`). Next: the shared cursor itself - one poll, union filter,
   demux each log to the owning nest's `NestIngest`, with path-equivalence as the gate.
 - **2026-07-18 - RFC-0012 roost slice 1: layout + serving (`nuthatch roost dev`).** The first slice of
-  the multi-nest runtime — a **roost** hosting many nests on one chain. A `roost.toml` (`[roost]`
+  the multi-nest runtime - a **roost** hosting many nests on one chain. A `roost.toml` (`[roost]`
   chain/chain_id/rpc_urls + a `nests` list) at the roost root names the shared chain and the mounted
   nests, each a `nests/<name>/` directory exactly as a standalone nest. `roost dev` brings them all up
   and serves them behind one listener: a `GET /nests` roster plus every nest's full API under its
   `/<name>/…` prefix (`serve::run_roost` + `Router::nest`; the per-nest routes are byte-identical to a
   solo `dev`, just prefixed). Chain identity is **hoisted to the roost** (it's what the shared cursor
-  will key on) and every mounted nest's `[nest].chain`/`chain_id` is validated against it — a mismatch
+  will key on) and every mounted nest's `[nest].chain`/`chain_id` is validated against it - a mismatch
   is a hard error, because a different chain needs its own roost (its own cursor). Deliberately naive on
   ingestion this slice: **one cursor per nest**, to land routing + per-nest isolation before the
   shared-cursor collapse (slice 2, where path-equivalence is the gate). Stores stay per-nest and
-  isolated (own redb/segments/views) — one nest's bad view or runaway factory can't touch another's
+  isolated (own redb/segments/views) - one nest's bad view or runaway factory can't touch another's
   data (the CLAUDE.md non-negotiable). Refactored `indexer::run` into `spawn_nest` (build a nest's
   serve state + background tasks, minus binding a listener) + a thin `run` (serve + fate-share), so solo
   `dev` is unchanged (it's the roost-of-one) and the roost fate-shares the server with *all* nests'
@@ -872,31 +872,31 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   reserved/duplicate-name-reject, empty-list-reject tests; solo `dev` regression-clean (existing suite +
   live Helsinki deploy path unchanged); binary smoke (subcommand help, missing-`roost.toml` → exit 1
   with a clear error). 132 tests (+4), clippy clean. Chosen HOW: new `roost` command group + `src/
-  roost.rs` (kept `dev` pristine rather than reworking it into a roost internally — lower risk to the
+  roost.rs` (kept `dev` pristine rather than reworking it into a roost internally - lower risk to the
   live path); nest names validated against reserved routes (`/nests`, `/health`) since roster and nest
-  prefixes share one path namespace. Next: slice 2 — collapse to one shared cursor per chain (union
+  prefixes share one path namespace. Next: slice 2 - collapse to one shared cursor per chain (union
   filter, `(nest, contract)` fan-out routing), with byte-identical-vs-solo as the acceptance gate.
 - **2026-07-18 - RFC-0012 slice 6: `nuthatch nest mount` (verify + install a nest blob).** The other half
   of the pack/mount round-trip. `nest mount <blob> [--dir <target>] [--expect <hash>]` resolves a blob
-  from the **local** filesystem (no network — the no-phone-home line holds by construction; a BYO
+  from the **local** filesystem (no network - the no-phone-home line holds by construction; a BYO
   transport stays a later wrapper), then verifies before installing: rejects a `blob_format_version`
   this build doesn't understand, checks the optional `--expect` content address *before* touching disk,
   and hashes every file against the manifest. It installs into `./<nest_name>/` (or `--dir`, refusing a
-  non-empty target), then runs `verify_registry_reproduces` — regenerating the decode registry from the
+  non-empty target), then runs `verify_registry_reproduces` - regenerating the decode registry from the
   *installed* inputs and asserting it equals the manifest's pinned `registry_hash`. So a mount that
   succeeds proves the nest decodes exactly as its author's did: determinism carried across the wire, not
   just the disk. **Gate met:** pack→mount round-trip (registry reproduces from installed inputs),
   wrong-`--expect` reject (fails before disk), tampered-file reject, newer-format reject. 128 tests
-  (+3), clippy clean. Chosen HOW: standalone verb installing a blob into a plain directory — the roost
+  (+3), clippy clean. Chosen HOW: standalone verb installing a blob into a plain directory - the roost
   half of RFC-0012 slice 6 (mount *into a roost*, two nests one cursor) waits on the roost runtime (§2),
-  itself gated on the §0 CLAUDE.md amendment. Next: the roost — starting with that amendment.
+  itself gated on the §0 CLAUDE.md amendment. Next: the roost - starting with that amendment.
 - **2026-07-18 - RFC-0012 slice 5: `nuthatch nest pack` (content-addressed nest blob).** First step of
-  nest packaging — the deploy unit. `nest pack <dir>` bundles a nest's *authored inputs* (config, ABIs,
+  nest packaging - the deploy unit. `nest pack <dir>` bundles a nest's *authored inputs* (config, ABIs,
   views, labels, skills, schema, llms.txt) plus a canonical `manifest.json`, and prints the **blob
   hash** = `sha256` over the canonical manifest (fixed field order, files sorted by path, compact
-  encoding — a Merkle root over the inputs). The manifest pins the *expected* `registry_hash`
+  encoding - a Merkle root over the inputs). The manifest pins the *expected* `registry_hash`
   (regenerated from the inputs, not a stored artifact) + the generator version, so a later `mount` can
-  reproduce the decode and assert it matches — extending determinism from the data path (RFC-0009's
+  reproduce the decode and assert it matches - extending determinism from the data path (RFC-0009's
   content-addressed segments) to the *authoring* path. Derived/runtime files (`nuthatch.redb`,
   `segments/`) are excluded; the blob hashes inputs only. New `src/blob.rs`, `nest` command group (kept
   distinct from the RFC-0008 compliance `pack`). **Gate met:** determinism test (same inputs →
@@ -904,17 +904,17 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   changes-hash test, derived-files-excluded test; verified live packing the real graph-gns-nest (blob
   `8572817d…`, reproducible). 125 tests (+3), clippy clean. Chosen HOW: blob is a content-addressed
   *directory* (dep-free, trivially reproducible; identity is the manifest hash, so a single-file tar
-  container is a later wrapper). Next: slice 6 (`nest mount` — resolve + verify + install), then the
+  container is a later wrapper). Next: slice 6 (`nest mount` - resolve + verify + install), then the
   roost (§2, which needs the §0 CLAUDE.md amendment first).
 
 - **2026-07-18 - RFC-0011 pilot SHIPPED to production, then parked.** Two Lodestar panels now serve
   live from nuthatch instead of The Graph: the **delegation-activity feed** (HorizonStaking, byte-
-  identical parity) and the **developer-activity chart** (L2GNS `SubgraphPublished`, ~0–1% documented
+  identical parity) and the **developer-activity chart** (L2GNS `SubgraphPublished`, ~0-1% documented
   divergence). Both on one Hetzner box (~86 MB RAM, two nests, Caddy TLS + basic-auth, path-routed to
   one URL), flag-gated with automatic subgraph fallback, source-aware "⚡ Indexed by nuthatch" badges.
   Verified in production + by an independent browser test. Writeups published on both the Lodestar blog
   and the new nuthatch blog (`nuthatch-frontend` gained a content-collection `/blog`). **The wedge is
-  proven — a real dashboard with users, off The Graph, on an indexer we run.** Parked here: RFC-0011 as
+  proven - a real dashboard with users, off The Graph, on an indexer we run.** Parked here: RFC-0011 as
   written is much bigger (published `graph-network-nest` repo, ~6 more panel groups, GraphOps-primary +
   Hetzner-shadow shape, env end-state, ingest-cron deletion, `checks/*.sql` parity harness, 30-day
   soak). Full done/not-done ledger written into the RFC-0011 doc's new "Implementation status" section.
@@ -930,17 +930,17 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
 - **2026-07-18 - Backfill review M6/M7/M8/L10: reorg halt, checkpoint blind spot, atomic manifest, lazy views.**
   The medium/low findings. **M6:** a reorg whose common ancestor is *below* the sealed watermark is a
   finality violation this model can't repair (the doomed blocks are already immutable and pruned from
-  hot) — it now halts loudly instead of silently producing an incomplete retraction and a sealed layer
+  hot) - it now halts loudly instead of silently producing an incomplete retraction and a sealed layer
   that disagrees with the chain. **M7:** `detect_reorg` gave up ("nothing to verify") when the top
   boundary had no stored hash (a transient `block_hash` failure at checkpoint time), a reorg blind spot;
-  it now falls back to the newest checkpoint it *does* have. **M8:** the segment manifest — the
-  catalogue a `kill -9`-survivable binary lives or dies by — was written in place, so a crash mid-write
+  it now falls back to the newest checkpoint it *does* have. **M8:** the segment manifest - the
+  catalogue a `kill -9`-survivable binary lives or dies by - was written in place, so a crash mid-write
   orphaned every `.parquet`; now written to a temp file and atomically `rename`d over. **L10:** the
   exposure and velocity IVM views spun up a DBSP circuit + dedicated thread for *every* nest, even ones
   with no labels / no velocity flag; `start(enabled)` now skips the circuit + thread when the nest can't
-  feed it (apply no-ops, snapshot stays empty) — real relief on the ≤2 GB budget for a plain nest.
-  122 tests, clippy clean. (The one remaining review finding, M5 — batch the per-row redb fsyncs and
-  move seal/DuckDB work off the async workers — is a bigger perf refactor, deferred to its own slice.)
+  feed it (apply no-ops, snapshot stays empty) - real relief on the ≤2 GB budget for a plain nest.
+  122 tests, clippy clean. (The one remaining review finding, M5 - batch the per-row redb fsyncs and
+  move seal/DuckDB work off the async workers - is a bigger perf refactor, deferred to its own slice.)
 
 - **2026-07-17 - Backfill review H2/H3/H4: timestamp retry, pipelined shrink-retry, livelock floor.**
   The next batch of the deadlock-review findings, all "a transient hiccup quietly corrupts or hangs".
@@ -1162,7 +1162,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   decoder, and **discovering new children inline** so same-window child activity decodes with no extra
   RPC. Reorg drops children whose factory event rolled back; a warm restart rebuilds the child registry
   by folding stored factory events (`rebuild_children` - a pure fold, determinism preserved).
-  `--seal-direct` is disabled for factory nests until the efficient factory backfill lands (steps 3–4).
+  `--seal-direct` is disabled for factory nests until the efficient factory backfill lands (steps 3-4).
   **Gate met:** hermetic same-block test (factory `PoolCreated` at log 0 → pool `Swap` at log 1 in one
   window → both decoded, child discovered + reorg-rolled-back). Verified **live on Uniswap V3**: 44
   pools discovered from real `PoolCreated` events, **45 child swaps decoded** into `pool__swap` (a
@@ -1179,8 +1179,8 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   discovered above a block; a content **`hash`** so a sealed segment can later record which discovered
   set produced it). Determinism proven: a reorged-then-rolled-back registry has the identical content
   hash to one folded canonically. No pipeline wiring yet - the tip/backfill/ExEx ingestion regimes that
-  *consume* this land in steps 2–5. 101 tests green (+5 factory), clippy clean.
-- **2026-07-16 - RFCs 0009–0011 filed (design docs, not yet built).** Three forward-looking RFCs
+  *consume* this land in steps 2-5. 101 tests green (+5 factory), clippy clean.
+- **2026-07-16 - RFCs 0009-0011 filed (design docs, not yet built).** Three forward-looking RFCs
   committed to `docs/rfcs/`: **0009 factory & dynamic contract discovery** (v2 - Uniswap-class runtime
   child contracts, discovery composed with the shipped pipelined backfill via a `filter_version` rule,
   ExEx-mode simplification, factory path-equivalence test); **0010 admin UI & webhooks** (v2 - a
@@ -1209,7 +1209,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   (signed, artifacts match); `audit replay` reproduced **156/156** sealed sanction_hits exactly; `audit
   report` summarised them. Adds `ed25519-dalek` + `getrandom`. **RFC-0008 is complete - labels+exposure,
   sanctions screening, threshold+velocity flags, effectful worlds, alert webhooks, and the signed
-  audit pack - and with it all eight RFCs (0001–0008) have shipped.**
+  audit pack - and with it all eight RFCs (0001-0008) have shipped.**
 
 - **2026-07-16 - RFC-0008 C5: alert webhooks.** Flag/hit annotations delivered to operator-configured
   HTTP endpoints, **at-least-once**, **without ever blocking the indexer**. New `[[alerts]]` config
@@ -1338,7 +1338,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   `0.0.0.0`, SIGTERM exited 0. 63 tests (+2).
 - **2026-07-16 - RFC-0006 (sustainability): grant drafts + governance.** Public, PR-reviewed grant
   applications in `docs/grants/` - **NLnet/NGI** (`nlnet.md`, €38,400: semantic layer, IVM
-  generalization, GraphQL compat, security audit) and **EF ESP** (`ef-esp.md`, $50–90K: reth ExEx tip
+  generalization, GraphQL compat, security audit) and **EF ESP** (`ef-esp.md`, $50-90K: reth ExEx tip
   mode, OP-stack multi-chain, benchmarks). New `GOVERNANCE.md` codifies the two-leg sustainability
   model (grants + operator revenue-share), the **neutrality guarantee** (no exclusivity / private
   forks / partner-only core features / roadmap veto - the AGPL makes capture structurally impossible),
@@ -1403,7 +1403,7 @@ Newest first. One entry per push, tracking the [build order](CLAUDE.md#build-ord
   endpoints for an own-node tier. The house rule is codified: every published number traces to a
   report artifact - no hand-typed figures. Nothing is optimised yet; this is the baseline the
   seal-direct / adaptive-chunker / pipeline slices must each beat on a measured before/after. Added
-  `RpcClient::request_count()` and `docs/benchmarks.md` (methodology, workloads W1–W3, tiers T1–T3).
+  `RpcClient::request_count()` and `docs/benchmarks.md` (methodology, workloads W1-W3, tiers T1-T3).
   Verified live: USDC over 201 blocks = 21,171 events in 53.6 s = ~395 ev/s, 47 MB peak, on public
   RPC (latency-bound, single-threaded - exactly the number the optimisations target). 49 tests.
 - **2026-07-15 - RFC-0003 groundwork: source-agnostic `indexer::run`.** Split `dev` into the RPC

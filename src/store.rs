@@ -38,7 +38,7 @@ impl Store {
     }
 
     /// Push a pending alert delivery onto the durable outbox; returns its sequence number. A fast
-    /// single redb write — enqueuing never blocks indexing on a slow/dead webhook (RFC-0008 C5).
+    /// single redb write - enqueuing never blocks indexing on a slow/dead webhook (RFC-0008 C5).
     pub fn outbox_push(&self, payload: &str) -> Result<u64> {
         let wtx = self.db.begin_write()?;
         let seq;
@@ -76,7 +76,7 @@ impl Store {
         Ok(out)
     }
 
-    /// Remove a delivered entry (call only after a successful POST — at-least-once semantics).
+    /// Remove a delivered entry (call only after a successful POST - at-least-once semantics).
     pub fn outbox_remove(&self, seq: u64) -> Result<()> {
         let wtx = self.db.begin_write()?;
         {
@@ -87,7 +87,7 @@ impl Store {
         Ok(())
     }
 
-    /// Number of pending deliveries — the `/status` outbox gauge.
+    /// Number of pending deliveries - the `/status` outbox gauge.
     pub fn outbox_len(&self) -> u64 {
         let count = || -> Result<u64> {
             let rtx = self.db.begin_read()?;
@@ -98,7 +98,7 @@ impl Store {
     }
 
     /// Bound the outbox: if it exceeds `max`, drop the oldest entries down to `max`. Returns how many
-    /// were dropped. This is the "never block the indexer" backstop — a dead webhook can't grow the
+    /// were dropped. This is the "never block the indexer" backstop - a dead webhook can't grow the
     /// outbox without limit; the oldest undelivered alerts are shed (loudly, by the caller).
     pub fn outbox_trim(&self, max: u64) -> Result<u64> {
         let len = self.outbox_len();
@@ -146,7 +146,7 @@ impl Store {
 
     /// Commit a whole window's writes in ONE transaction (PERF-2): every decoded row + annotation, the
     /// window-boundary block-hash checkpoint, and the `last_block` watermark. The tip loop previously
-    /// did a separate `begin_write`/`commit` (an fsync) *per row* — 2,000 logs meant 2,000 fsyncs, which
+    /// did a separate `begin_write`/`commit` (an fsync) *per row* - 2,000 logs meant 2,000 fsyncs, which
     /// capped tip-follow throughput far below the decode rate. One txn per window is also *more*
     /// crash-consistent: the window is the atomic unit (its watermark already advances once), so a crash
     /// leaves the store at a clean window boundary, never mid-window.
@@ -236,7 +236,7 @@ impl Store {
     }
 
     /// Every hot (unsealed) row, parsed and grouped by its logical `table` (RFC-0013). One full scan of
-    /// the hot store — bounded, since sealed rows are pruned from hot, so this holds only the tip past
+    /// the hot store - bounded, since sealed rows are pruned from hot, so this holds only the tip past
     /// the sealed watermark. Feeds the analytical `/sql` surface so the live tip is queryable alongside
     /// the sealed segments (hot and cold are disjoint by block range, so a plain `UNION ALL` is exact).
     pub fn hot_rows_by_table(
@@ -306,7 +306,7 @@ impl Store {
             .map(|v| v.value().to_string()))
     }
 
-    /// The highest block this nest has indexed — the catch-up signal a hot upgrade polls (RFC-0020
+    /// The highest block this nest has indexed - the catch-up signal a hot upgrade polls (RFC-0020
     /// slice 2b). Takes the max of the hot-store `last_block` watermark and the sealed watermark, so it
     /// is correct whether the nest is tip-following or mid `seal-direct` backfill (which bypasses the
     /// hot store). `None` before anything is indexed.
@@ -319,7 +319,7 @@ impl Store {
         Ok((head > 0).then_some(head))
     }
 
-    /// All recorded checkpoints, highest block first — for walking back to a common ancestor.
+    /// All recorded checkpoints, highest block first - for walking back to a common ancestor.
     pub fn checkpoints_desc(&self) -> Result<Vec<(u64, String)>> {
         let rtx = self.db.begin_read()?;
         let t = rtx.open_table(BLOCKS)?;
@@ -398,7 +398,7 @@ impl Store {
 
     /// Prune entities in `[from, to]` **and** set a meta key, in ONE write transaction (hardening
     /// COR-1). Sealing uses this to advance the `sealed_through` watermark and drop the just-sealed rows
-    /// from hot *atomically* — a `kill -9` can never leave a range committed to both the hot store and a
+    /// from hot *atomically* - a `kill -9` can never leave a range committed to both the hot store and a
     /// sealed segment, which would permanently double-count it in `/sql` and on every balance rebuild.
     /// The seal itself is content-addressed (idempotent), so a crash *before* this txn simply re-seals
     /// the same range on restart; the watermark only advances once the prune is durable.
@@ -444,7 +444,7 @@ impl Store {
         Ok(out)
     }
 
-    /// Up to `limit` entity keys, chain-ordered — the point-read bench (`nuthatch bench query`) samples
+    /// Up to `limit` entity keys, chain-ordered - the point-read bench (`nuthatch bench query`) samples
     /// from these. Bounded so a large hot store doesn't materialise every key just to time a few reads.
     pub fn sample_entity_keys(&self, limit: usize) -> Result<Vec<String>> {
         let rtx = self.db.begin_read()?;

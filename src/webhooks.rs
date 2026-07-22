@@ -20,7 +20,7 @@ use serde_json::json;
 pub const DEFAULT_BATCH_MAX: usize = 50;
 
 /// HMAC-SHA256 of `msg` under `key`, hex-encoded (RFC 2104). Hand-rolled over `sha2` (already a
-/// dependency) rather than pulling the `hmac` crate — it's a small, well-defined construction. The
+/// dependency) rather than pulling the `hmac` crate - it's a small, well-defined construction. The
 /// delivery worker signs each webhook body so the receiver can verify it came from this nest.
 pub fn hmac_sha256_hex(key: &[u8], msg: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -41,7 +41,7 @@ pub fn hmac_sha256_hex(key: &[u8], msg: &[u8]) -> String {
     hex::encode(outer.finalize())
 }
 
-/// The per-webhook HMAC secrets, by webhook name — the delivery worker uses this to sign a payload
+/// The per-webhook HMAC secrets, by webhook name - the delivery worker uses this to sign a payload
 /// whose `webhook` field names a secret-carrying webhook.
 pub fn secrets(webhooks: &[Webhook]) -> std::collections::HashMap<String, String> {
     webhooks

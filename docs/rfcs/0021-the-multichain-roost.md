@@ -1,6 +1,6 @@
-# RFC-0021: The multichain roost — one runtime, many chains, one cursor each
+# RFC-0021: The multichain roost - one runtime, many chains, one cursor each
 
-- Status: **Accepted** (2026-07-21) — §0 brief amendment applied to `CLAUDE.md` 2026-07-21. **Slice 1
+- Status: **Accepted** (2026-07-21) - §0 brief amendment applied to `CLAUDE.md` 2026-07-21. **Slice 1
   shipped 2026-07-21**: multichain config (`[[chains]]`), `group_by_chain` (one isolated cursor per
   chain), the per-cursor runtime (one `spawn_roost` per chain, fate-shared via `select_all`), and the
   **per-cursor RSS budget**. Single-chain roosts stay byte-identical to solo (parity e2e green). The
@@ -8,12 +8,12 @@
   another's data byte-identical. Pending: only a live two-chain run (VPS).
 - Author: Pete (cargopete)
 - Date: 2026-07-21
-- Depends on: RFC-0012 (the roost — one runtime, many nests, shared serving; and the per-nest isolation
+- Depends on: RFC-0012 (the roost - one runtime, many nests, shared serving; and the per-nest isolation
   of storage/reorg/blast-radius this generalises), RFC-0009 (the factory/fan-out primitive and
   shared-cursor routing).
-- Blocks: RFC-0022 (the distributed scheduler places *per-chain cursors* — this RFC defines that unit;
+- Blocks: RFC-0022 (the distributed scheduler places *per-chain cursors* - this RFC defines that unit;
   the writer pool is this same model spread across machines).
-- Nature: design RFC. **Embedded, buildable now** — no infra dependency. It relaxes one clause of the
+- Nature: design RFC. **Embedded, buildable now** - no infra dependency. It relaxes one clause of the
   founding brief; that relaxation is proposed as §0 and must be accepted before §1+ is built.
 - Origin: roadmap thread 2, Decision A (`docs/high-level-roadmap-jul-aug-2026.md`), authorized
   2026-07-21.
@@ -28,42 +28,42 @@ is the proposed amendment; it must be accepted, not assumed.
 ## Abstract
 
 A **roost** today (RFC-0012) is one runtime hosting many nests **on one chain**, sharing one cursor.
-This RFC lets a roost host nests across **multiple chains** — e.g. one Base nest and one Arbitrum nest —
+This RFC lets a roost host nests across **multiple chains** - e.g. one Base nest and one Arbitrum nest -
 in **one runtime**, by running **N cursors, one strictly-isolated cursor per distinct chain**, behind a
 shared serving/admin/registry layer.
 
 Two things stay sacred, one habit goes:
 
-- **PRESERVED — a cursor is single-chain.** One cursor tracks exactly one chain's canonical history.
+- **PRESERVED - a cursor is single-chain.** One cursor tracks exactly one chain's canonical history.
   Chains reorg, finalize, and advance on independent clocks; sharing *one* cursor between two of them is
   incoherent and stays forbidden. "One Base nest + one Arb nest" means **two cursors**, never one doing
   double duty.
-- **RETIRED — "second chain ⇒ second *process*."** Nothing about correctness requires each cursor its
+- **RETIRED - "second chain ⇒ second *process*."** Nothing about correctness requires each cursor its
   own OS process. A roost becomes **one runtime, N isolated per-chain cursors.**
 
 **This is a capability, not a mandate.** One-chain-per-roost stays fully valid and is the simplest
 default; multichain is available for operators who want the density. The RFC *enables* the option; it
 never forces co-location.
 
-## §0 — Proposed brief amendment
+## §0 - Proposed brief amendment
 
 Three `CLAUDE.md` edits (exact wording finalized in the closing pass across RFC-0021/0022):
 
-1. **"Multi-nest co-tenancy (a roost)"** — from "N nests … on the same chain, sharing one same-chain
+1. **"Multi-nest co-tenancy (a roost)"** - from "N nests … on the same chain, sharing one same-chain
    cursor" to: *a roost is one runtime hosting N nests across **one or more chains**, running **one
    isolated cursor per distinct chain**. The single-cursor law is restated as **per-chain**: never
    multiplex two chains behind one cursor; a cursor is always single-chain, single-writer, one
    observable failure boundary.*
-2. **Footprint budget** — from "≤2 GB for a single-chain roost … per-runtime" to: *≤2 GB **per
+2. **Footprint budget** - from "≤2 GB for a single-chain roost … per-runtime" to: *≤2 GB **per
    active-chain cursor**; a roost's total budget = Σ cursors. The CI gate moves from per-process to
    per-cursor.* (Confirmed 2026-07-21.)
-3. **Reorg strategy / "single-cursor non-negotiable"** language — clarified to *per-cursor*: reorgs
+3. **Reorg strategy / "single-cursor non-negotiable"** language - clarified to *per-cursor*: reorgs
    touch only the mutable hot store **of the affected chain's cursor**, isolated from other cursors.
 
 ## Motivation
 
 - **Operator density without correctness loss.** Running Base + Arbitrum + Optimism as three separate
-  OS processes means three serving ports, three admin surfaces, three supervision targets — for what is
+  OS processes means three serving ports, three admin surfaces, three supervision targets - for what is
   logically one operator's deployment. One runtime with three isolated cursors is the same correctness,
   far less operational drag.
 - **It's the embedded shape of the fleet.** RFC-0022's writer pool schedules *per-chain cursors* across
@@ -85,21 +85,21 @@ Three `CLAUDE.md` edits (exact wording finalized in the closing pass across RFC-
 
 ## Non-goals
 
-- **Not multiplexing chains behind one cursor** — forbidden, forever. This RFC adds cursors; it never
+- **Not multiplexing chains behind one cursor** - forbidden, forever. This RFC adds cursors; it never
   makes one cursor span chains.
-- **Not distributed** — everything here is one process. Writer pool, external hot store, and remote
+- **Not distributed** - everything here is one process. Writer pool, external hot store, and remote
   placement are RFC-0022.
-- **Not a mandate** — no operator is pushed to co-locate chains.
-- **Not cross-chain joins as a core feature** — a shared serving layer *may* let a query read two
+- **Not a mandate** - no operator is pushed to co-locate chains.
+- **Not cross-chain joins as a core feature** - a shared serving layer *may* let a query read two
   cursors' data, but cross-chain *derivation*/entities are out of scope here (each cursor derives its
   own chain's state independently).
 
 ## Design
 
-### §1 — The multi-cursor runtime
+### §1 - The multi-cursor runtime
 
 The roost inspects its mounted nests, reads each nest's declared **chain**, and groups them: **one
-cursor per distinct chain**. A single-chain roost is the degenerate N=1 case — identical to today.
+cursor per distinct chain**. A single-chain roost is the degenerate N=1 case - identical to today.
 
 Each **cursor** owns, privately:
 - its RPC/source set and tip-follow loop (one chain's `eth_getLogs`/state extraction);
@@ -110,7 +110,7 @@ Each **cursor** owns, privately:
 The runtime supervises N such cursors concurrently. Nests on the same chain still share *their* cursor
 (RFC-0012 co-tenancy, unchanged); nests on different chains never share one.
 
-### §2 — Per-cursor isolation (the load-bearing property)
+### §2 - Per-cursor isolation (the load-bearing property)
 
 The failure boundary is **per cursor**:
 - A **reorg** on chain A rolls back only cursor A's hot store; cursor B is untouched (property-tested).
@@ -122,7 +122,7 @@ The failure boundary is **per cursor**:
 **RAM**: each active-chain cursor is held to ≤2 GB, CI-gated per cursor; the roost's resident total is
 Σ cursors and is reported per-cursor in `/metrics` (extending the per-nest labelled series, SEC-9).
 
-### §3 — Shared vs per-cursor: the seam
+### §3 - Shared vs per-cursor: the seam
 
 | Shared across cursors | Private to each cursor |
 |-----------------------|------------------------|
@@ -132,10 +132,10 @@ The failure boundary is **per cursor**:
 | Config / process supervision | hot-store partition (redb) |
 | `/metrics` aggregation (per-cursor series) | sealing watermark + segments |
 
-The serving layer routes a request to the right nest, and thus the right cursor — a purely local case
+The serving layer routes a request to the right nest, and thus the right cursor - a purely local case
 of the **nest resolution** that RFC-0022 generalises across workers.
 
-### §4 — Scheduling within the runtime
+### §4 - Scheduling within the runtime
 
 Placement here is trivial (all cursors are local): the roost groups nests → chains → cursors at mount,
 and spins/tears cursors as nests are added/removed. The *policy* (which cursor, rebalancing) is a no-op
@@ -149,7 +149,7 @@ cleanly now is what lets 0022 reuse it unchanged.
 - Per-cursor `redb` namespacing (or one file per cursor) so rollback and pruning are cursor-local.
 - Extend the footprint model + CI gate from per-process RSS to **per-cursor** RSS.
 - Serving/admin/registry stay single instances; add cursor-aware routing (already implied by nest→chain).
-- No change to the deterministic ingest→decode→seal path *within* a cursor — it is today's path,
+- No change to the deterministic ingest→decode→seal path *within* a cursor - it is today's path,
   instantiated N times.
 
 ## Testing
@@ -157,7 +157,7 @@ cleanly now is what lets 0022 reuse it unchanged.
 - **Two-chain roost** (Base + Arbitrum): both cursors index concurrently; served data for each nest
   matches the same nest run **solo** (parity vs two separate processes).
 - **Reorg isolation** (property test): a random reorg on chain A converges A to canonical **and leaves
-  chain B's hot store byte-identical** — cross-cursor non-interference is the invariant.
+  chain B's hot store byte-identical** - cross-cursor non-interference is the invariant.
 - **Stall isolation**: killing chain A's RPC escalates for A only; B keeps serving and ingesting.
 - **Per-cursor RAM gate**: each cursor ≤2 GB under a tip-follow + serve load; the CI budget fails if a
   single cursor blows it, independent of the others.
@@ -165,21 +165,21 @@ cleanly now is what lets 0022 reuse it unchanged.
 
 ## Risks
 
-- **Budget blowout** — N cursors in one process could collectively exhaust a host. Mitigation: the gate
+- **Budget blowout** - N cursors in one process could collectively exhaust a host. Mitigation: the gate
   is *per cursor* (each still ≤2 GB, guaranteed), and the operator sizes the host for Σ cursors; density
   is explicitly RAM-bounded, not free (founding budget note).
-- **Cross-cursor interference** — a bug leaking state/locks across cursors would break isolation.
+- **Cross-cursor interference** - a bug leaking state/locks across cursors would break isolation.
   Mitigation: per-cursor store partitions + the reorg-isolation property test as a hard gate.
-- **Shared serving bottleneck** — one serving layer for N chains' traffic. Mitigation: it's read-path,
+- **Shared serving bottleneck** - one serving layer for N chains' traffic. Mitigation: it's read-path,
   already the cheaper side; RFC-0022 splits it out entirely when scale demands.
 
 ## Alternatives considered
 
-- **One process per chain (status quo)** — correct but operationally heavy; the thing operators asked to
+- **One process per chain (status quo)** - correct but operationally heavy; the thing operators asked to
   avoid. This RFC is the relaxation.
-- **One cursor spanning chains** — rejected on correctness: independent reorg/finality clocks make a
+- **One cursor spanning chains** - rejected on correctness: independent reorg/finality clocks make a
   shared cursor incoherent. Non-negotiable, preserved.
-- **Wait for RFC-0022 and do it only distributed** — rejected: the embedded multichain roost is valuable
+- **Wait for RFC-0022 and do it only distributed** - rejected: the embedded multichain roost is valuable
   on its own, buildable now with no infra, and it's the clean place to define the per-chain-cursor unit
   the distributed mode then reuses.
 
@@ -187,5 +187,5 @@ cleanly now is what lets 0022 reuse it unchanged.
 
 - Cursor lifecycle on dynamic nest add/remove: when the last nest on a chain unmounts, tear the cursor
   immediately or idle it? (Trivial locally; matters more in 0022.)
-- Cross-cursor read queries in the shared serving layer — expose now (read-only, no derivation) or defer?
-- Per-cursor vs per-nest metric granularity — confirm the label scheme extends SEC-9 cleanly.
+- Cross-cursor read queries in the shared serving layer - expose now (read-only, no derivation) or defer?
+- Per-cursor vs per-nest metric granularity - confirm the label scheme extends SEC-9 cleanly.

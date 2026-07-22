@@ -1,4 +1,4 @@
-# ExEx tip-ingestion — design
+# ExEx tip-ingestion - design
 
 **Status:** designed + stubbed (`feature = "exex"`), reth wiring deferred to a node environment.
 **Why deferred:** reth is an enormous compile and an ExEx can only be exercised against a synced
@@ -8,13 +8,13 @@ node, so it can't be end-to-end verified in the same loop as the RPC path. The `
 ## What ExEx buys us
 
 A reth **Execution Extension** is compiled *into* the reth binary and runs in-process, consuming a
-`CanonStateNotification` stream over shared memory — no RPC, no serialization boundary. It gives:
+`CanonStateNotification` stream over shared memory - no RPC, no serialization boundary. It gives:
 
 - **Native-block-time tip latency** (target <500ms, vs ~747ms for RPC-class hosted indexers). This
   is the "no third-party data API" sovereignty upgrade: reth + ExEx needs no external endpoint.
-- **A first-class reorg signal** — `ChainCommitted` / `ChainReverted` variants, rather than the
+- **A first-class reorg signal** - `ChainCommitted` / `ChainReverted` variants, rather than the
   heuristic block-hash diffing the RPC source does today.
-- **A prune back-channel** — the ExEx emits `ExExEvent::FinishedHeight` so reth knows how far we've
+- **A prune back-channel** - the ExEx emits `ExExEvent::FinishedHeight` so reth knows how far we've
   processed and can prune.
 
 ## The push→pull bridge (the one real design point)

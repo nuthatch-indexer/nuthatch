@@ -1,4 +1,4 @@
-# Pinned to 1.95.0 — the lowest stable that (a) compiles `dbsp` 0.320 without the next-trait-solver
+# Pinned to 1.95.0 - the lowest stable that (a) compiles `dbsp` 0.320 without the next-trait-solver
 # ICE that lands on 1.97 (rustc_next_trait_solver/.../structural_traits.rs, release mode) and (b)
 # meets reth's MSRV (rust-version = "1.95"), so the `nuthatch-node` ExEx build (RFC-0003) can reuse
 # the same dbsp-containing core. Verified: full test suite + clippy green on 1.95.0. Keeps local

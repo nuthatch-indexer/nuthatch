@@ -1,10 +1,10 @@
 //! Host side of the WASM transform runtime (ported from liminal, batched-Arrow variant).
 //!
 //! A transform is a `wasm32-wasip2` component exporting `nuthatch:transform/stage`. The host loads
-//! it, grants it ZERO capabilities (base WASI only — stderr for logging, no fs/net/kv), and calls
+//! it, grants it ZERO capabilities (base WASI only - stderr for logging, no fs/net/kv), and calls
 //! `run` with one Arrow IPC batch, getting a derived Arrow IPC batch back. Capabilities would be
 //! granted by *adding imports to the linker*; a component that imports something the linker doesn't
-//! carry fails to instantiate — loudly, at load time. Purity is therefore checkable from the
+//! carry fails to instantiate - loudly, at load time. Purity is therefore checkable from the
 //! component's imports alone (see `wasm-tools component wit`), no code inspection.
 
 use anyhow::{anyhow, Context, Result};
@@ -52,7 +52,7 @@ impl TransformRuntime {
         config.wasm_component_model(true);
         let engine = Engine::new(&config).map_err(|e| anyhow!("wasmtime engine: {e}"))?;
 
-        // Base WASI only — no http/kv/filesystem. This is the "zero capabilities" grant.
+        // Base WASI only - no http/kv/filesystem. This is the "zero capabilities" grant.
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
             .map_err(|e| anyhow!("adding base WASI to linker: {e}"))?;

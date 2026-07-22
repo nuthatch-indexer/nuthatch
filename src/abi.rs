@@ -40,7 +40,7 @@ async fn sourcify(chain_id: u64, address: &str) -> Result<Value> {
 async fn etherscan(chain_id: u64, address: &str) -> Result<Value> {
     let key = std::env::var("ETHERSCAN_API_KEY").map_err(|_| {
         anyhow!(
-            "Sourcify had no verified ABI and ETHERSCAN_API_KEY is not set — \
+            "Sourcify had no verified ABI and ETHERSCAN_API_KEY is not set - \
                  set it, or use a Sourcify-verified contract"
         )
     })?;

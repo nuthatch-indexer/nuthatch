@@ -73,11 +73,11 @@
 <body>
 <header>
   <span class="logo">🐦 <b>nuthatch</b></span>
-  <span class="nest" id="nest">—</span>
+  <span class="nest" id="nest">-</span>
   <span class="grow"></span>
-  <span class="pill"><span class="dot" id="dot"></span><span id="tip">tip —</span></span>
-  <span class="pill">sealed <b id="sealed">—</b></span>
-  <span class="pill" id="lagpill">lag <b id="lag">—</b></span>
+  <span class="pill"><span class="dot" id="dot"></span><span id="tip">tip -</span></span>
+  <span class="pill">sealed <b id="sealed">-</b></span>
+  <span class="pill" id="lagpill">lag <b id="lag">-</b></span>
 </header>
 <nav>
   <button data-tab="status" class="on">Status</button>
@@ -117,7 +117,7 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 async function api(p){ const r = await fetch(p); if(!r.ok && r.status!==400) throw new Error(p+' → '+r.status); return r.json(); }
-function fmt(n){ return (n===null||n===undefined) ? '—' : (typeof n==='number' ? n.toLocaleString() : n); }
+function fmt(n){ return (n===null||n===undefined) ? '-' : (typeof n==='number' ? n.toLocaleString() : n); }
 
 let tab = 'status';
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
@@ -139,10 +139,10 @@ function render(s){
   $('#sealed').textContent = fmt(s.sealed_through);
   $('#dot').classList.add('live');
   const lag = (s.last_block && s.sealed_through) ? (s.last_block - s.sealed_through) : null;
-  $('#lag').textContent = lag===null ? '—' : fmt(lag)+' blk';
+  $('#lag').textContent = lag===null ? '-' : fmt(lag)+' blk';
   const g = STAT_KEYS.filter(([k]) => k in s).map(([k,label]) =>
     `<div class="stat"><div class="k">${label}</div><div class="v">${fmt(s[k])}</div></div>`).join('');
-  $('#stats').innerHTML = g + `<div class="stat"><div class="k">views</div><div class="v" style="font-size:12px">${(s.views||[]).join('<br>')||'—'}</div></div>`;
+  $('#stats').innerHTML = g + `<div class="stat"><div class="k">views</div><div class="v" style="font-size:12px">${(s.views||[]).join('<br>')||'-'}</div></div>`;
 }
 async function poll(){
   try { render(await api('/')); } catch(e){ $('#dot').classList.remove('live'); }
@@ -178,7 +178,7 @@ async function loadTables(){
 async function openTable(name, li){
   curTable = name;
   $('#tablist').querySelectorAll('li').forEach(x => x.classList.toggle('on', x===li));
-  $('#tabletitle').textContent = name + ' — newest 100 (hot + sealed)';
+  $('#tabletitle').textContent = name + ' - newest 100 (hot + sealed)';
   $('#tablerows').innerHTML = '<div class="empty">loading…</div>';
   const d = await api('/table/'+encodeURIComponent(name)+'?limit=100');
   $('#tablerows').innerHTML = rowsTable(d.items);

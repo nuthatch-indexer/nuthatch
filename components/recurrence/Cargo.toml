@@ -1,4 +1,4 @@
-# Standalone guest component — NOT a workspace member (wasm32-wasip2 cdylib only). Build + stage:
+# Standalone guest component - NOT a workspace member (wasm32-wasip2 cdylib only). Build + stage:
 #   cargo build --manifest-path components/recurrence/Cargo.toml --target wasm32-wasip2 --release
 #   cp target/wasm32-wasip2/release/recurrence.wasm components/recurrence.wasm
 # An EFFECTFUL stage: it imports the host `kv` capability. Inspect its imports with:

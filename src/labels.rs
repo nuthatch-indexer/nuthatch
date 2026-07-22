@@ -1,11 +1,11 @@
-//! Labels: user-supplied labeled address sets — the first `annotation` kind (RFC-0008 C1). A label
+//! Labels: user-supplied labeled address sets - the first `annotation` kind (RFC-0008 C1). A label
 //! attaches a name (e.g. `exchange`, `mixer`, `treasury`) to an address. Labels are the substrate the
 //! direct-exposure view joins against ("how much has address X transacted with the labeled set?").
 //!
 //! Labels are **list-as-data**, the same discipline sanctions lists will use in C2: an import writes a
 //! **content-addressed snapshot** (`labels/<sha256>.json`) whose hash is a stable, reproducible name
 //! for exactly that set of (address, label) pairs. Loading merges every snapshot in the directory, so
-//! imports are append-only. A snapshot is a plain JSON array of `{address, label}` — the flat shape
+//! imports are append-only. A snapshot is a plain JSON array of `{address, label}` - the flat shape
 //! DuckDB reads directly, so `/sql` can query `labels` (see `analytics::define_views`). No screening
 //! API, no phone-home: importing is a host-side, out-of-band act; the data path only ever reads.
 
@@ -36,7 +36,7 @@ pub struct LabelSet {
 }
 
 impl LabelSet {
-    /// The labels attached to `address` (already-lowercased). Empty slice if none — the common case,
+    /// The labels attached to `address` (already-lowercased). Empty slice if none - the common case,
     /// so this is the hot-path membership check for the exposure view.
     pub fn labels_of(&self, address: &str) -> &[String] {
         self.by_address
@@ -103,7 +103,7 @@ pub fn import(dir: &Path, source: &Path) -> Result<(String, usize)> {
 
 /// Load and merge every label snapshot under `dir/labels/` into a queryable [`LabelSet`]. Missing
 /// directory → empty set (labels are optional). A single corrupt snapshot is skipped with a warning
-/// rather than failing the whole load — one bad file shouldn't blind the indexer to the rest.
+/// rather than failing the whole load - one bad file shouldn't blind the indexer to the rest.
 pub fn load(dir: &Path) -> LabelSet {
     let mut set = LabelSet::default();
     let labels_dir = dir.join(LABELS_DIR);
@@ -132,7 +132,7 @@ pub fn load(dir: &Path) -> LabelSet {
 
 /// Deterministically serialise entries to canonical bytes and their sha256 content address. Entries
 /// are de-duplicated and sorted (by address, then label) so the *same set* always hashes identically
-/// regardless of input order or duplicates — the property that makes the hash a reproducible name.
+/// regardless of input order or duplicates - the property that makes the hash a reproducible name.
 fn snapshot_bytes(entries: &[LabelEntry]) -> (String, Vec<u8>) {
     let mut sorted: Vec<LabelEntry> = entries.to_vec();
     sorted.sort_by(|a, b| {
@@ -149,7 +149,7 @@ fn snapshot_bytes(entries: &[LabelEntry]) -> (String, Vec<u8>) {
 
 /// Parse a label file. JSON (array of `{address,label}` or an object map `{"0xabc":"label"}`) is tried
 /// first; anything else is treated as CSV (`address,label` per line, optional header). Rows without a
-/// valid address are skipped. Labels containing commas aren't supported in CSV — use JSON for those.
+/// valid address are skipped. Labels containing commas aren't supported in CSV - use JSON for those.
 fn parse(raw: &str, source: &Path) -> Result<Vec<LabelEntry>> {
     let trimmed = raw.trim_start();
     if trimmed.starts_with('[') || trimmed.starts_with('{') {
@@ -216,7 +216,7 @@ struct RawEntry {
     label: String,
 }
 
-/// Append an import to the provenance index (best-effort — provenance, not correctness; the snapshots
+/// Append an import to the provenance index (best-effort - provenance, not correctness; the snapshots
 /// themselves are the source of truth). Uses wall-clock time only for the human-readable record.
 fn record_import(dir: &Path, hash: &str, entries: usize, source: &Path) -> Result<()> {
     let index_path = dir.join(INDEX_FILE);
@@ -236,7 +236,7 @@ fn record_import(dir: &Path, hash: &str, entries: usize, source: &Path) -> Resul
     Ok(())
 }
 
-/// A coarse timestamp for the provenance record. Not on any correctness path — the content address is.
+/// A coarse timestamp for the provenance record. Not on any correctness path - the content address is.
 fn now_rfc3339() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()

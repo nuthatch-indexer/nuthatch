@@ -67,7 +67,7 @@ jobs:
       - name: measure peak RSS
         # Ceiling is 256 MB: generous headroom over the measured ~37 MB, far under the 2 GB product
         # budget, so public-RPC flakiness in CI never trips a false failure. The script retries once
-        # if the first run indexes nothing. It is NOT continue-on-error — the RAM budget is a real gate.
+        # if the first run indexes nothing. It is NOT continue-on-error - the RAM budget is a real gate.
         env:
           BIN: bin/nuthatch
           MAX_RSS_MB: "256"

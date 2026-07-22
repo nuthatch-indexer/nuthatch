@@ -1,10 +1,10 @@
 //! Sanctions / watch lists as **content-addressed data** (RFC-0008 C2). A list snapshot is exactly a
-//! set of EVM addresses, written as `lists/<sha256>.json` — the hash is a reproducible name for that
+//! set of EVM addresses, written as `lists/<sha256>.json` - the hash is a reproducible name for that
 //! set, so a screening decision traces to `(list-snapshot hash, block range, component hash)`.
 //!
-//! Fetching is **host-side and out-of-band** — never in the data path, never a phone-home during
-//! indexing. `lists fetch` downloads (or reads a local `--file`) whatever the source returns — OFAC's
-//! SDN.XML, a CSV, a plain address dump — and extracts every `0x…40hex` address from it. Deliberately
+//! Fetching is **host-side and out-of-band** - never in the data path, never a phone-home during
+//! indexing. `lists fetch` downloads (or reads a local `--file`) whatever the source returns - OFAC's
+//! SDN.XML, a CSV, a plain address dump - and extracts every `0x…40hex` address from it. Deliberately
 //! crypto-address-only: no name/entity fuzzy matching (a false-precision trap, and out of scope). The
 //! operator owns the list's provenance; nuthatch owns making the exact set it used reproducible.
 
@@ -19,7 +19,7 @@ pub const LISTS_DIR: &str = "lists";
 const INDEX_FILE: &str = "lists.manifest.json";
 
 /// A known list source and its default machine-readable URL. The extractor is source-agnostic (it
-/// scrapes `0x…` addresses from whatever bytes come back), so these are conveniences, not a contract —
+/// scrapes `0x…` addresses from whatever bytes come back), so these are conveniences, not a contract -
 /// `--url`/`--file` override them, and the snapshot records the actual source used.
 pub fn default_url(source: &str) -> Option<&'static str> {
     match source {
@@ -45,7 +45,7 @@ struct FetchRecord {
 
 /// Fetch a list into `dir`: obtain the bytes (download `url`, or read `file`), extract EVM addresses,
 /// and write a content-addressed snapshot under `lists/`. Returns `(snapshot hash, address count)`.
-/// Idempotent by content address — the same address set always writes the same file.
+/// Idempotent by content address - the same address set always writes the same file.
 pub async fn fetch(
     dir: &Path,
     list: &str,
@@ -87,11 +87,11 @@ pub async fn fetch(
 pub fn load(dir: &Path, hash: &str) -> Result<Vec<String>> {
     let path = dir.join(LISTS_DIR).join(format!("{hash}.json"));
     let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("no list snapshot {} — fetch it first", path.display()))?;
+        .with_context(|| format!("no list snapshot {} - fetch it first", path.display()))?;
     serde_json::from_str(&raw).context("corrupt list snapshot")
 }
 
-/// Every list snapshot present under `dir/lists/`, as `(hash, address count)` — for `lists list`.
+/// Every list snapshot present under `dir/lists/`, as `(hash, address count)` - for `lists list`.
 pub fn snapshots(dir: &Path) -> Vec<(String, usize)> {
     let Ok(read) = std::fs::read_dir(dir.join(LISTS_DIR)) else {
         return Vec::new();
@@ -208,7 +208,7 @@ mod tests {
         // hex-run lengths are exactly right.
         let addr1 = format!("0x{}", "ab".repeat(20)); // 40 hex
         let addr2 = format!("0x{}", "cd".repeat(20)); // 40 hex, sorts after addr1
-        let tx_hash = format!("0x{}", "12".repeat(32)); // 64 hex — not an address
+        let tx_hash = format!("0x{}", "12".repeat(32)); // 64 hex - not an address
         let text = format!(
             "<a>{}</a> tx={tx_hash} <a>{addr2}</a> dup {addr1}",
             addr1.to_uppercase()

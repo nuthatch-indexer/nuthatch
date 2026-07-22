@@ -1,6 +1,6 @@
 //! The audit surface (RFC-0008 C6): the "prove it" commands. `audit replay` re-runs the pure
 //! screening stage over the sealed segments and diffs the result against the stored `sanction_hit`
-//! annotations — if they match, the annotations are reproducible from (list snapshot, block range,
+//! annotations - if they match, the annotations are reproducible from (list snapshot, block range,
 //! component), which is the whole point of the pure/deterministic design. `audit report` summarises
 //! the hits and flags in a range with the list-snapshot hashes and block bounds, for a human record.
 
@@ -13,7 +13,7 @@ use std::path::Path;
 /// `(block, log_index, sanctioned address, side, list snapshot)`.
 type HitKey = (u64, u64, String, String, String);
 
-/// `nuthatch audit replay --from --to` — re-screen the sealed transfers in a range and confirm the
+/// `nuthatch audit replay --from --to` - re-screen the sealed transfers in a range and confirm the
 /// stored `sanction_hit` annotations are exactly reproduced. Returns the verdict + any differences.
 pub fn replay(dir: &Path, from: u64, to: u64) -> Result<ReplayReport> {
     let config = crate::config::Config::load(dir)?;
@@ -79,7 +79,7 @@ impl ReplayReport {
     }
 }
 
-/// `nuthatch audit report --from --to` — a summary of the hits and flags in a range, with the list
+/// `nuthatch audit report --from --to` - a summary of the hits and flags in a range, with the list
 /// snapshots involved and the block bounds. Returned as JSON; the CLI can render markdown from it.
 pub fn report(dir: &Path, from: u64, to: u64) -> Result<Value> {
     let hits = crate::analytics::query(
@@ -133,7 +133,7 @@ pub fn report_markdown(r: &Value) -> String {
     let tf = &r["threshold_flags"];
     format!(
         "# Compliance audit report\n\n\
-         - Range: blocks {}–{}\n\
+         - Range: blocks {}-{}\n\
          - Sanction hits: {} across {} list snapshot(s)\n\
          - List snapshots: {}\n\
          - Threshold flags: {}\n",
@@ -178,11 +178,11 @@ pub fn run(args: crate::cli::AuditArgs) -> Result<()> {
                 r.from, r.to, r.stored, r.recomputed
             );
             if r.matches() {
-                println!("PASS — stored sanction_hit annotations reproduce exactly");
+                println!("PASS - stored sanction_hit annotations reproduce exactly");
                 Ok(())
             } else {
                 println!(
-                    "FAIL — {} stored hit(s) not reproduced, {} recomputed hit(s) not stored",
+                    "FAIL - {} stored hit(s) not reproduced, {} recomputed hit(s) not stored",
                     r.missing.len(),
                     r.extra.len()
                 );
@@ -209,7 +209,7 @@ pub fn run(args: crate::cli::AuditArgs) -> Result<()> {
 mod tests {
     use super::*;
 
-    /// The C6 gate: a full compliance pipeline on a fixture — seal transfers, screen them to sealed
+    /// The C6 gate: a full compliance pipeline on a fixture - seal transfers, screen them to sealed
     /// `sanction_hit` annotations, then `audit replay` reproduces those hits exactly (PASS) and
     /// `audit report` summarises them. This is the end-to-end "prove it": stored annotations are
     /// reproducible from (list snapshot, block range, component).
@@ -255,7 +255,7 @@ lists = ["{hash}"]
         )
         .unwrap();
 
-        // Seal transfers: clean→bad (a hit) and clean→clean (no hit), in blocks 10–11.
+        // Seal transfers: clean→bad (a hit) and clean→clean (no hit), in blocks 10-11.
         let transfers = vec![
             format!(
                 r#"{{"table":"usdc__transfer","from":"{clean}","to":"{bad}","value":"500","block_number":10,"log_index":0,"tx_hash":"0xt1"}}"#

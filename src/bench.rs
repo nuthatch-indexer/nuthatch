@@ -1,8 +1,8 @@
-//! `nuthatch bench backfill` — honest, reproducible backfill throughput measurement (RFC-0004).
+//! `nuthatch bench backfill` - honest, reproducible backfill throughput measurement (RFC-0004).
 //!
 //! Runs the real fetch → decode → store path over a *pinned* block range and reports sustained
 //! events/sec, wall-clock, peak RSS, and RPC requests, emitting a `bench-report.json`. Measure
-//! first, optimise second: nothing here optimises anything — it establishes the baseline that the
+//! first, optimise second: nothing here optimises anything - it establishes the baseline that the
 //! seal-direct / adaptive-chunker / pipeline work (later slices) must each beat on a before/after.
 //!
 //! The house rule (RFC-0004): every published number traces to a report artifact produced here, with
@@ -163,7 +163,7 @@ pub async fn backfill(args: BackfillBenchArgs) -> Result<()> {
 
 /// Read-path bench report (`nuthatch bench query`): entity point-read latency and the `/sql` hot∪cold
 /// scan cost + peak RSS. The regression guard the perf refactors (bound the hot-scan, persistent DuckDB
-/// connection, compact row format) must each beat on a before/after — none of these were measurable
+/// connection, compact row format) must each beat on a before/after - none of these were measurable
 /// before, so they could regress silently.
 #[derive(Debug, Serialize)]
 pub struct QueryBenchReport {
@@ -171,7 +171,7 @@ pub struct QueryBenchReport {
     pub label: Option<String>,
     pub nest: String,
     pub chain: String,
-    /// Rows in the unsealed hot tip a `/sql` query materialises into temp tables — the scan-cost driver
+    /// Rows in the unsealed hot tip a `/sql` query materialises into temp tables - the scan-cost driver
     /// and the #1 RAM risk on deep-finality L2s.
     pub hot_rows: u64,
     pub sealed_through: u64,
@@ -187,14 +187,14 @@ pub struct QueryBenchReport {
     pub commit: Option<String>,
 }
 
-/// `nuthatch bench query` — measure the read path against an already-indexed nest (run offline: it
+/// `nuthatch bench query` - measure the read path against an already-indexed nest (run offline: it
 /// opens the store directly). Establishes the point-read and `/sql` scan baselines the #40 perf
 /// refactors are gated on.
 pub fn query(args: crate::cli::QueryBenchArgs) -> Result<()> {
     let dir = PathBuf::from(&args.dir);
     let config = Config::load(&dir)?;
     let store = Store::open(&dir.join(crate::config::DB_FILE))
-        .context("open the nest store (stop `nuthatch dev` first — the bench needs the DB)")?;
+        .context("open the nest store (stop `nuthatch dev` first - the bench needs the DB)")?;
 
     let keys = store.sample_entity_keys(args.reads)?;
     let hot = store.hot_rows_by_table()?;
@@ -236,7 +236,7 @@ pub fn query(args: crate::cli::QueryBenchArgs) -> Result<()> {
                     .tables()
                     .first()
                     .map(|d| d.table.clone())
-                    .context("nest has no tables to scan — pass --sql")?,
+                    .context("nest has no tables to scan - pass --sql")?,
             };
             format!("SELECT count(*) FROM {table}")
         }
@@ -259,7 +259,7 @@ pub fn query(args: crate::cli::QueryBenchArgs) -> Result<()> {
     ms.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     println!(
-        "bench query: nest '{}' on {} — {} hot rows, sealed_through {}, {} point-read(s), {} sql iter(s)",
+        "bench query: nest '{}' on {} - {} hot rows, sealed_through {}, {} point-read(s), {} sql iter(s)",
         config.nest.name, config.nest.chain, hot_rows, sealed_through, n_reads, args.iters,
     );
     println!("  point-read: p50 {p50_us:.1}µs  p99 {p99_us:.1}µs  p99.9 {p999_us:.1}µs");
@@ -312,7 +312,7 @@ async fn one_run(
     run: usize,
 ) -> Result<Run> {
     let source = RpcClient::new(rpc_urls.to_vec())?;
-    // A throwaway work dir per run (redb and/or Parquet segments) — never the nest's own database.
+    // A throwaway work dir per run (redb and/or Parquet segments) - never the nest's own database.
     let work = std::env::temp_dir().join(format!("nuthatch-bench-{}-{run}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
@@ -365,7 +365,7 @@ async fn one_run(
 }
 
 /// The baseline path: decode → redb hot store, with the same batched `block_timestamp` fetch the
-/// live `dev` loop does — so the only thing that differs from seal-direct is the storage write.
+/// live `dev` loop does - so the only thing that differs from seal-direct is the storage write.
 #[allow(clippy::too_many_arguments)]
 async fn hot_store_backfill(
     source: &RpcClient,

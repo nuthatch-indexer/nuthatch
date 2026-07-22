@@ -1,8 +1,8 @@
-//! `large-transfers` — a pure, batched transform component.
+//! `large-transfers` - a pure, batched transform component.
 //!
 //! Reads a batch of transfers (Arrow IPC), keeps only those with value ≥ a threshold, and returns
 //! the filtered batch (Arrow IPC). Zero capabilities: it cannot call out, read the clock, or touch
-//! the filesystem — deterministic by construction, so its output is safe to feed entity derivation.
+//! the filesystem - deterministic by construction, so its output is safe to feed entity derivation.
 //! The whole batch crosses the wasm boundary in one call (the point of the batched WIT).
 
 use std::io::Cursor;
