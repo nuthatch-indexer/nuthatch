@@ -7,9 +7,13 @@
   protocol-specific **`reserves`** (Uniswap-V2 `getReserves()` = the latest `Sync` per pair).
   **Tier 2**: the immutable-metadata cache (`src/metadata.rs`) + `nuthatch metadata fetch` — `decimals`/
   `symbol`/`name` fetched once (they never change) and cached in `metadata.json`; the pure encode/decode
-  (uint8 / ABI-string) is unit-tested, the RPC fetch is live-verified. Pending: tier 3 (a *simple* RPC
-  eth_call fallback, sealed + `latest`-guarded), tier 4 (hosted verifiable cache). The
-  **local-execution engine** for tier 3/4 is designed in **RFC-0024** (Draft, deferred build).
+  (uint8 / ABI-string) is unit-tested, the RPC fetch is live-verified. **Pending:** tier 3 (a *simple*
+  RPC eth_call fallback, sealed + `latest`-guarded — **needs an operator-supplied archive RPC**; the
+  derive-first tiers 1–2 need none and remain the zero-dependency default), tier 4 (hosted verifiable
+  cache). **Operator note:** an operator only ever needs an archive RPC for the *irreducible residue* a
+  nest genuinely can't derive; the recipe library covers the common surface for free. The
+  **local-execution engine** for tier 3/4 (running the fallback without an archive RPC) is designed in
+  **RFC-0024** (Draft, deferred build).
 - Author: Pete (cargopete)
 - Date: 2026-07-21
 - Depends on: RFC-0018 §1 (authored SQL views — the surface the derive-first recipes are written in),

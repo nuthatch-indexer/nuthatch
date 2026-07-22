@@ -1,6 +1,13 @@
 # RFC-0024: The eth_call execution engine — a demand-driven state cache, not an archive node
 
-- Status: **Draft** (2026-07-22)
+- Status: **Draft — accepted design, deferred build** (2026-07-22). **Nothing is built.** This is the
+  design that realizes RFC-0023 §3/§4's deferred local-execution path; it is *not* the next thing built
+  (build order in Nature/Implementation: derive-first tiers 1–2 → a *simple* RPC tier-3 fallback →
+  measure the residue → this engine, and only if the residue is large *and* archive-RPC-free operation
+  is demanded, or RFC-0003's reth lands). **Operator-gated when built:** historical state comes from an
+  **operator-supplied archive RPC** (`--state-rpc`) or a colocated reth (RFC-0003). The derive-first path
+  (RFC-0023 tiers 1–2) needs none of this and stays the zero-dependency default; on Arbitrum the MVP is
+  an RPC-proxy caching win, not local execution, until an ArbOS-aware revm fork exists.
 - Author: Pete (cargopete)
 - Date: 2026-07-22
 - Depends on: **RFC-0023** (contract state / eth_call — this RFC *is* the design of RFC-0023 §3's

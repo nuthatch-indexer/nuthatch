@@ -1,6 +1,12 @@
 # RFC-0022: Distributed scaled mode — read/write planes, a writer pool, dynamic nest placement
 
-- Status: **Accepted** (2026-07-21) — §0 brief amendment applied to `CLAUDE.md` 2026-07-21; design-now-build-later
+- Status: **Accepted — design only, build deferred** (2026-07-21). §0 brief amendment applied to
+  `CLAUDE.md` 2026-07-21. **Nothing is built yet.** The build is **dependency-gated** on RFC-0013's
+  scaled-side (external Postgres hot store + DataFusion federation) and on RFC-0021 (the per-chain cursor
+  = the unit of placement). **Operator-run by design:** this is the distributed self-hosted fleet
+  (writer pool + query-FE tier + control-plane) an operator like GraphOps runs *across machines* — not a
+  laptop build, and verified on operator infra, never a single-box CI run. The scope line holds:
+  per-tenant billing/authz between untrusting **paying** customers stays the gateway's job, out of scope.
 - Author: Pete (cargopete)
 - Date: 2026-07-21
 - Depends on: RFC-0013 (the storage/query-engine direction — external hot store + DataFusion federation
