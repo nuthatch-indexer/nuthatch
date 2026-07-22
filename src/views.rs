@@ -226,6 +226,50 @@ impl BalanceView {
 mod tests {
     use super::*;
 
+    #[test]
+    fn seeding_matches_replay() {
+        // The warm-restart cold seed folds each segment to one (address, net) row and feeds it via
+        // `seed_delta`; the live path feeds individual `transfer_deltas`. Both must produce identical
+        // view state, or a rebuilt view would disagree with a from-genesis one. Covers a negative net
+        // and a net-zero drop (the two ways the aggregate's HAVING <> 0 behaviour bites).
+        let mut replayed = BalanceCircuit::new().unwrap();
+        let mut rmap = HashMap::new();
+        for v in [10i128, 20, 70] {
+            replayed
+                .step(transfer_deltas("0xa", "0xb", v, 1), &mut rmap)
+                .unwrap();
+        }
+        // 0xc <-> 0xd cancel to zero, so both must be absent from the view.
+        replayed
+            .step(transfer_deltas("0xc", "0xd", 5, 1), &mut rmap)
+            .unwrap();
+        replayed
+            .step(transfer_deltas("0xd", "0xc", 5, 1), &mut rmap)
+            .unwrap();
+
+        // Seed the pre-summed nets, exactly as the cold fold does: 0xb +100, 0xa -100.
+        let mut seeded = BalanceCircuit::new().unwrap();
+        let mut smap = HashMap::new();
+        seeded
+            .step(
+                vec![
+                    seed_delta("0xb".into(), 100),
+                    seed_delta("0xa".into(), -100),
+                ],
+                &mut smap,
+            )
+            .unwrap();
+
+        assert_eq!(
+            rmap, smap,
+            "seeding pre-summed nets must equal replaying individual transfers"
+        );
+        assert!(
+            !rmap.contains_key("0xc") && !rmap.contains_key("0xd"),
+            "net-zero addresses must be dropped from the view"
+        );
+    }
+
     /// Deterministic IVM golden test: insert transfers, check derived balances; then retract one
     /// (a reorg) and check the view converges to the state as if that transfer never happened.
     #[test]

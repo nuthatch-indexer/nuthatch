@@ -267,7 +267,7 @@ pub fn bundle_manifest(bundle_file: &Path) -> Result<Manifest> {
 /// untrusted input. Only `Normal` path components are allowed: an absolute path (which `Path::join`
 /// would let *replace* the base), a `..` parent, a root/prefix, or a bare `.` are all rejected. This is
 /// the zip-slip / absolute-path-escape guard for `load`.
-fn checked_join(base: &Path, rel: &str) -> Result<PathBuf> {
+pub(crate) fn checked_join(base: &Path, rel: &str) -> Result<PathBuf> {
     let rel_path = Path::new(rel);
     if rel_path.is_absolute() {
         bail!("blob file path {rel:?} is absolute - refusing (path-traversal guard)");
